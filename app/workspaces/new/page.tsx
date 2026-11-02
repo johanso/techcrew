@@ -38,16 +38,16 @@ export default async function NewWorkspacePage({ searchParams }: PageProps<"/wor
       <AppHeader user={user} />
       <main className="mx-auto flex max-w-2xl flex-col gap-8 px-6 py-10">
         <div className="flex flex-col gap-1">
-          <p className="text-xs font-semibold tracking-wide text-brand uppercase">
+          <p className="eyebrow text-brand-emphasis">
             {existing ? "New workspace" : "Welcome — let's get you set up"}
           </p>
-          <h1 className="text-3xl font-semibold">Create a new workspace</h1>
+          <h1 className="text-2xl font-bold sm:text-3xl">Create a new workspace</h1>
           <p className="text-sm text-muted-foreground">
             A workspace connects your AI agents to one GitHub repository. It takes about a minute.
           </p>
         </div>
 
-        <div className="rounded-2xl border bg-card p-6 shadow-xs sm:p-8">
+        <div className="surface p-6 sm:p-8">
           <CreateWorkspaceForm
             github={github}
             githubConfigured={isGithubConfigured()}

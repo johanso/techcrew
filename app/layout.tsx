@@ -1,10 +1,10 @@
 import "./globals.css";
 import type { Metadata } from "next";
-import { Open_Sans } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 
 // Brand typeface (see AGENTS.md → Typography). Exposed as --font-sans for Tailwind's font-sans / font-heading.
-const openSans = Open_Sans({ subsets: ["latin"], weight: ["300", "400", "500", "600", "700"], variable: "--font-sans" });
+const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: {
@@ -21,7 +21,7 @@ export default function RootLayout({
 }>) {
   return (
     // next-themes toggles the `dark` class on <html> before hydration.
-    <html lang="en" className={openSans.variable} suppressHydrationWarning>
+    <html lang="en" className={jakarta.variable} suppressHydrationWarning>
       <body style={{ margin: 0, padding: 0 }} className="antialiased">
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
           {children}

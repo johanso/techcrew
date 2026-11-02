@@ -7,14 +7,19 @@
 /*
  * THEME
  * ─────
- * This file is the single source of truth for color. To re-skin the app, edit the
- * palette below — every component reads semantic tokens that point at it.
+ * This file is the single source of truth for color, depth and shape. To re-skin the app,
+ * edit the palette below — every component reads semantic tokens that point at it.
  *
- *   1. Palette   (--palette-*)  raw brand colors. The only place hex values live.
- *   2. Semantic  (--primary, --border, --success …) what a color is *for*. Light + dark.
- *   3. Tailwind  (@theme inline) exposes semantic tokens as utilities: bg-brand, text-success …
+ *   1. Palette    (--palette-*)    raw brand colors. The only place hex values live.
+ *   2. Semantic   (--primary, --canvas, --border …) what a color is *for*. Light + dark.
+ *   3. Elevation  (--elevation-*)  shadows for FLOATING layers only (menus, popovers, tooltips).
+ *   4. Tailwind   (@theme inline)  exposes tokens as utilities: bg-brand, rounded-xl …
+ *   5. Surfaces   (@utility)       reusable building blocks: surface, surface-brand, icon-tile.
  *
  * Components must never hard-code hex/oklch values or Tailwind palette colors (sky-500, zinc-950 …).
+ *
+ * Depth model: the page is FLAT. Hierarchy comes from tinted backgrounds (sidebar < canvas < card)
+ * and hairline borders — never from shadows. Only layers that float above content get a shadow.
  */
 
 :root {
@@ -37,6 +42,8 @@
     /* ── 2. Semantic — brand colors (same role in light and dark) ──────────── */
     --brand: var(--palette-brand);
     --brand-foreground: var(--palette-white);
+    /* Brand as text/icon on a neutral surface. Brighter in dark mode (see .dark). */
+    --brand-emphasis: var(--palette-brand);
     --brand-accent: var(--palette-accent);
     --brand-accent-foreground: var(--palette-darkest);
     --darkest: var(--palette-darkest);
@@ -53,8 +60,11 @@
     --error-foreground: var(--palette-white);
 
     /* ── 2. Semantic — surfaces & UI (light) ───────────────────────────────── */
-    /* App page background behind cards (signed-in pages). Cards sit on it in --card. */
-    --canvas: var(--palette-lightest);
+    /*
+     * Neutrals carry a whisper of the brand hue (2–6%) — that cool tint is what keeps
+     * the UI from looking flat and grey. Depth order: sidebar < canvas < card.
+     */
+    --canvas: color-mix(in oklab, var(--palette-lightest) 45%, var(--palette-white));
     --background: var(--palette-white);
     --foreground: var(--palette-darkest);
     --card: var(--palette-white);
@@ -63,42 +73,55 @@
     --popover-foreground: var(--palette-darkest);
     --primary: var(--palette-brand);
     --primary-foreground: var(--palette-white);
-    --secondary: var(--palette-lightest);
+    --secondary: color-mix(in oklab, var(--palette-lightest), var(--palette-brand) 3%);
     --secondary-foreground: var(--palette-darkest);
-    --muted: var(--palette-lightest);
+    --muted: color-mix(in oklab, var(--palette-lightest), var(--palette-brand) 2%);
     /* "dark" alone is 3.3:1 on white; deepened toward "darkest" to pass WCAG AA for body text. */
     --muted-foreground: color-mix(in oklab, var(--palette-dark), var(--palette-darkest) 45%);
     /* shadcn's "accent" is the subtle hover/selected surface — not the yellow palette accent. */
-    --accent: var(--palette-lightest);
+    --accent: color-mix(in oklab, var(--palette-white), var(--palette-brand) 6%);
     --accent-foreground: var(--palette-darkest);
     --destructive: var(--palette-error);
-    --border: var(--palette-light);
-    --input: var(--palette-light);
+    /* Hairline borders: half-way between "light" and "lightest". Inputs stay a step stronger. */
+    --border: color-mix(in oklab, var(--palette-light), var(--palette-lightest) 55%);
+    --input: color-mix(in oklab, var(--palette-light), var(--palette-lightest) 20%);
     --ring: var(--palette-action);
     --chart-1: var(--palette-brand);
     --chart-2: var(--palette-action);
     --chart-3: var(--palette-accent);
     --chart-4: var(--palette-success);
     --chart-5: var(--palette-warning);
-    --radius: 0.625rem;
-    --sidebar: var(--palette-lightest);
+    --radius: 0.75rem;
+    --sidebar: color-mix(in oklab, var(--palette-lightest), var(--palette-brand) 4%);
     --sidebar-foreground: var(--palette-darkest);
     --sidebar-primary: var(--palette-brand);
     --sidebar-primary-foreground: var(--palette-white);
-    --sidebar-accent: color-mix(in oklab, var(--palette-light) 45%, var(--palette-lightest));
+    --sidebar-accent: color-mix(in oklab, var(--palette-lightest), var(--palette-brand) 9%);
     --sidebar-accent-foreground: var(--palette-darkest);
-    --sidebar-border: var(--palette-light);
+    --sidebar-border: color-mix(in oklab, var(--palette-light), var(--palette-lightest) 40%);
     --sidebar-ring: var(--palette-action);
+
+    /* ── 3. Elevation (light) — floating layers only; resting UI has none ── */
+    --shadow-tint: color-mix(in oklab, var(--palette-darkest) 100%, var(--palette-brand) 20%);
+    --elevation-none: 0 0 #0000;
+    --elevation-md: 0 2px 4px -1px color-mix(in oklab, var(--shadow-tint) 5%, transparent),
+        0 10px 24px -6px color-mix(in oklab, var(--shadow-tint) 12%, transparent);
+    --elevation-lg: 0 4px 8px -2px color-mix(in oklab, var(--shadow-tint) 5%, transparent),
+        0 18px 40px -10px color-mix(in oklab, var(--shadow-tint) 16%, transparent);
+    --elevation-xl: 0 8px 16px -4px color-mix(in oklab, var(--shadow-tint) 6%, transparent),
+        0 28px 56px -14px color-mix(in oklab, var(--shadow-tint) 20%, transparent);
 }
 
 .dark {
     /* ── 2. Semantic — surfaces & UI (dark) ────────────────────────────────── */
-    --canvas: var(--palette-darkest);
+    /* Brand blue is too dark to read on dark surfaces; text/icons switch to the action blue. */
+    --brand-emphasis: var(--palette-action);
+    --canvas: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 2%);
     --background: var(--palette-darkest);
     --foreground: var(--palette-lightest);
-    --card: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 4%);
+    --card: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 5%);
     --card-foreground: var(--palette-lightest);
-    --popover: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 6%);
+    --popover: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 7%);
     --popover-foreground: var(--palette-lightest);
     --primary: var(--palette-brand);
     --primary-foreground: var(--palette-white);
@@ -109,20 +132,25 @@
     --accent: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 10%);
     --accent-foreground: var(--palette-lightest);
     --destructive: var(--palette-error);
-    --border: rgb(255 255 255 / 10%);
-    --input: rgb(255 255 255 / 15%);
+    --border: rgb(255 255 255 / 8%);
+    --input: rgb(255 255 255 / 14%);
     --ring: var(--palette-action);
-    --sidebar: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 4%);
+    --sidebar: color-mix(in oklab, var(--palette-darkest), black 22%);
     --sidebar-foreground: var(--palette-lightest);
     --sidebar-primary: var(--palette-action);
     --sidebar-primary-foreground: var(--palette-darkest);
-    --sidebar-accent: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 10%);
+    --sidebar-accent: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 6%);
     --sidebar-accent-foreground: var(--palette-lightest);
-    --sidebar-border: rgb(255 255 255 / 10%);
+    --sidebar-border: rgb(255 255 255 / 8%);
     --sidebar-ring: var(--palette-action);
+
+    /* ── 3. Elevation (dark) — floating layers only ── */
+    --elevation-md: 0 12px 28px -8px rgb(0 0 0 / 65%);
+    --elevation-lg: 0 20px 44px -12px rgb(0 0 0 / 70%);
+    --elevation-xl: 0 30px 60px -16px rgb(0 0 0 / 75%);
 }
 
-/* ── 3. Tailwind utilities ─────────────────────────────────────────────────── */
+/* ── 4. Tailwind utilities ─────────────────────────────────────────────────── */
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: var(--font-sans);
@@ -130,6 +158,7 @@
     /* Brand palette utilities: bg-brand, text-brand-accent, border-light, ring-action … */
     --color-brand: var(--brand);
     --color-brand-foreground: var(--brand-foreground);
+    --color-brand-emphasis: var(--brand-emphasis);
     --color-brand-accent: var(--brand-accent);
     --color-brand-accent-foreground: var(--brand-accent-foreground);
     --color-darkest: var(--darkest);
@@ -146,6 +175,18 @@
     --color-error-foreground: var(--error-foreground);
 
     --color-canvas: var(--canvas);
+
+    /*
+     * Elevation scale. Overriding Tailwind's own shadow-* keys restyles every shadcn primitive at once:
+     * resting sizes (2xs–sm) render nothing, so inputs, buttons and panels stay flat; md–xl remain for
+     * floating layers (dropdowns, popovers, tooltips) so they separate from the content beneath.
+     */
+    --shadow-2xs: var(--elevation-none);
+    --shadow-xs: var(--elevation-none);
+    --shadow-sm: var(--elevation-none);
+    --shadow-md: var(--elevation-md);
+    --shadow-lg: var(--elevation-lg);
+    --shadow-xl: var(--elevation-xl);
 
     /* shadcn/ui semantic utilities */
     --color-sidebar-ring: var(--sidebar-ring);
@@ -182,10 +223,74 @@
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
-    --radius-xl: calc(var(--radius) * 1.4);
-    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-xl: calc(var(--radius) * 1.33);
+    --radius-2xl: calc(var(--radius) * 1.67);
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ── 5. Surfaces — use these instead of re-composing card classes ─────────── */
+
+/* Resting card: card background + hairline border. Flat — no shadow. */
+@utility surface {
+    background-color: var(--card);
+    color: var(--card-foreground);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+}
+
+/* Interactive card: the border picks up the brand tint on hover/focus. Pair with `surface`. */
+@utility surface-interactive {
+    transition: border-color 200ms ease, background-color 200ms ease;
+    &:hover {
+        border-color: color-mix(in oklab, var(--brand) 35%, var(--border));
+        background-color: color-mix(in oklab, var(--card), var(--brand) 2%);
+    }
+    &:focus-visible {
+        outline: none;
+        border-color: var(--ring);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 40%, transparent);
+    }
+}
+
+/* Hero card filled with the brand color: one per view, for the most important block. */
+@utility surface-brand {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    color: var(--brand-foreground);
+    border-radius: var(--radius-xl);
+    background:
+        radial-gradient(120% 140% at 100% 0%, color-mix(in oklab, var(--palette-action) 70%, transparent) 0%, transparent 55%),
+        radial-gradient(90% 120% at 0% 100%, color-mix(in oklab, var(--palette-darkest) 35%, transparent) 0%, transparent 60%),
+        var(--brand);
+}
+
+/* Rounded icon chip tinted from its own text color: `icon-tile text-brand`, `icon-tile text-success`. */
+@utility icon-tile {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--spacing) * 10);
+    height: calc(var(--spacing) * 10);
+    border-radius: var(--radius-lg);
+    background-color: color-mix(in oklab, currentColor 12%, transparent);
+    /* Hairline in the tile's own color (a border drawn inside, not a shadow). */
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, currentColor 14%, transparent);
+    & svg:not([class*="size-"]) {
+        width: calc(var(--spacing) * 5);
+        height: calc(var(--spacing) * 5);
+    }
+}
+
+/* Uppercase micro-label above titles and sidebar groups. */
+@utility eyebrow {
+    font-size: var(--text-xs);
+    line-height: var(--text-xs--line-height);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
 }
 
 @layer base {

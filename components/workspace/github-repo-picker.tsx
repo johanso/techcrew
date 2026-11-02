@@ -55,7 +55,7 @@ export function GithubRepoPicker({
     return (
       <div className="flex flex-col gap-3">
         {statusMessage && <FormMessage message={statusMessage} />}
-        <div className="flex flex-col items-start gap-4 rounded-xl border border-dashed bg-muted/60 p-5 sm:flex-row sm:items-center">
+        <div className="flex flex-col items-start gap-4 rounded-xl border bg-muted/60 p-5 sm:flex-row sm:items-center">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-darkest text-lightest">
             <GitHubIcon className="size-5" />
           </span>
@@ -74,7 +74,7 @@ export function GithubRepoPicker({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-3 rounded-xl border bg-background p-3">
+      <div className="flex items-center gap-3 rounded-xl border bg-card p-3">
         <Avatar size="sm">
           {account.avatarUrl && <AvatarImage src={account.avatarUrl} alt="" />}
           <AvatarFallback>{account.login[0]?.toUpperCase()}</AvatarFallback>
@@ -177,7 +177,7 @@ function RepoList({
 
   if (result.repos.length === 0) {
     return (
-      <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+      <p className="rounded-xl border bg-muted/60 p-6 text-center text-sm text-muted-foreground">
         This account has no repositories you can push to. Create one on GitHub, or connect a different account.
       </p>
     );
@@ -202,7 +202,7 @@ function RepoList({
         />
       </InputGroup>
 
-      <div role="radiogroup" aria-label="Repository" className="max-h-80 overflow-y-auto rounded-xl border bg-background">
+      <div role="radiogroup" aria-label="Repository" className="max-h-80 overflow-y-auto rounded-xl border bg-card">
         {visible.length === 0 && (
           <p className="p-6 text-center text-sm text-muted-foreground">No repositories match “{query}”.</p>
         )}
@@ -213,7 +213,7 @@ function RepoList({
               key={repo.id}
               className={cn(
                 "flex cursor-pointer items-start gap-3 border-b px-4 py-3 transition-colors last:border-b-0",
-                "hover:bg-muted/60 has-focus-visible:bg-muted/60",
+                "hover:bg-accent has-focus-visible:bg-accent",
                 checked && "bg-brand/5 hover:bg-brand/10"
               )}
             >

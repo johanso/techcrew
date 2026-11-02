@@ -38,7 +38,7 @@ export function SocialButtons({ next }: { next?: string }) {
           aria-label={`Continue with ${label}`}
           className={cn(
             buttonVariants({ variant: "outline" }),
-            "h-10 gap-2 text-sm shadow-xs",
+            "h-10 gap-2 text-sm",
             pending && pending !== id && "pointer-events-none opacity-50"
           )}
         >

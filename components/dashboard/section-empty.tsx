@@ -15,15 +15,27 @@ export function SectionEmpty({
   children?: React.ReactNode;
 }) {
   return (
-    <Empty className="flex-1 rounded-xl border border-dashed bg-card">
-      <EmptyHeader>
-        <EmptyMedia variant="icon" className="size-10 bg-brand/10 text-brand [&_svg:not([class*='size-'])]:size-5">
-          <Icon />
+    <Empty className="surface relative flex-1 overflow-hidden border-solid py-16">
+      {/* Decorative backdrop: a dot grid that fades out from the center. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-0 bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] bg-size-[20px_20px] mask-[radial-gradient(ellipse_50%_55%_at_50%_45%,black,transparent)]"
+      />
+      <EmptyHeader className="relative">
+        <EmptyMedia className="mb-3">
+          {/* Halo rings around the tile. */}
+          <span className="relative flex items-center justify-center">
+            <span aria-hidden className="absolute size-24 rounded-full border border-brand-emphasis/10" />
+            <span aria-hidden className="absolute size-17 rounded-full border border-brand-emphasis/15 bg-card/60" />
+            <span className="relative flex size-12 items-center justify-center rounded-xl bg-card text-brand-emphasis ring-1 ring-border [&_svg]:size-5.5">
+              <Icon />
+            </span>
+          </span>
         </EmptyMedia>
-        <EmptyTitle>{title}</EmptyTitle>
-        <EmptyDescription>{description}</EmptyDescription>
+        <EmptyTitle className="text-lg font-bold">{title}</EmptyTitle>
+        <EmptyDescription className="max-w-sm">{description}</EmptyDescription>
       </EmptyHeader>
-      {children && <EmptyContent>{children}</EmptyContent>}
+      {children && <EmptyContent className="relative">{children}</EmptyContent>}
     </Empty>
   );
 }

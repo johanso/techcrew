@@ -80,13 +80,15 @@ export function CreateWorkspaceForm({
       }}
       className="flex flex-col gap-6"
     >
-      <div className="flex items-center gap-4 rounded-xl border bg-muted/60 p-4">
-        <WorkspaceAvatar icon={icon} logoSrc={logoUrl} size="lg" />
+      <div className="surface-brand flex items-center gap-4 p-5">
+        <div aria-hidden className="pointer-events-none absolute -top-16 -right-10 -z-10 size-44 rounded-full border border-white/15" />
+        <WorkspaceAvatar icon={icon} logoSrc={logoUrl} size="lg" className="bg-white/15 ring-1 ring-white/25" />
         <div className="flex min-w-0 flex-col gap-0.5">
-          <p className={cn("truncate text-lg font-semibold", !name.trim() && "text-muted-foreground")}>
+          <p className="eyebrow text-white/70">Preview</p>
+          <p className={cn("truncate text-lg font-bold", !name.trim() && "text-white/60")}>
             {name.trim() || "Untitled workspace"}
           </p>
-          <p className="truncate text-sm text-muted-foreground">{repo ?? "No repository linked yet"}</p>
+          <p className="truncate text-sm text-white/75">{repo ?? "No repository linked yet"}</p>
         </div>
       </div>
 
@@ -196,7 +198,7 @@ function Step({
         <span
           className={cn(
             "flex size-8 shrink-0 items-center justify-center rounded-full border text-sm font-semibold transition-colors",
-            done ? "border-brand bg-brand text-brand-foreground" : "bg-background text-muted-foreground"
+            done ? "border-brand bg-brand text-brand-foreground" : "bg-card text-muted-foreground"
           )}
         >
           {done ? <CheckIcon className="size-4" /> : number}
@@ -205,7 +207,7 @@ function Step({
       </div>
       <div className={cn("flex flex-col gap-4", !last && "pb-2")}>
         <div className="flex flex-col gap-0.5 pt-1">
-          <h2 className="text-base font-semibold">{title}</h2>
+          <h2 className="text-base font-bold">{title}</h2>
           <p className="text-sm text-muted-foreground">{description}</p>
         </div>
         {children}

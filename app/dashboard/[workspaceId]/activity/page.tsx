@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Activity" };
 export default function ActivityPage() {
   return (
     <>
-      <PageHeader title="Activity" description="A timeline of everything that happens in this workspace." />
+      <PageHeader eyebrow="History" title="Activity" description="A timeline of everything that happens in this workspace." />
       <SectionEmpty
         icon={ActivityIcon}
         title="No activity yet"

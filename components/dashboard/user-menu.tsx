@@ -125,7 +125,13 @@ export function SidebarUserMenu({ user, workspaceId }: { user: MenuUser; workspa
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger
-            render={<SidebarMenuButton size="lg" tooltip={user.name || user.email} className="data-popup-open:bg-sidebar-accent" />}
+            render={
+              <SidebarMenuButton
+                size="lg"
+                tooltip={user.name || user.email}
+                className="rounded-xl hover:bg-card data-popup-open:bg-card"
+              />
+            }
           >
             <UserAvatar user={user} />
             <UserIdentity user={user} />
@@ -151,7 +157,7 @@ export function HeaderUserMenu({ user, workspaceId }: { user: MenuUser; workspac
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label="Open account menu"
-        className="rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="rounded-full p-0.5 ring-1 ring-border transition-shadow outline-none hover:ring-brand/40 focus-visible:ring-3 focus-visible:ring-ring/50"
       >
         <UserAvatar user={user} />
       </DropdownMenuTrigger>

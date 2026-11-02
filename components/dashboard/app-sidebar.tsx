@@ -37,29 +37,29 @@ export function AppSidebar({
   const closeOnMobile = () => isMobile && setOpenMobile(false);
 
   return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader className="gap-3">
+    <Sidebar variant="inset" collapsible="icon">
+      <SidebarHeader className="gap-4 pt-3">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
               size="lg"
               tooltip={APP_NAME}
               render={<Link href={dashboardHref(currentId)} onClick={closeOnMobile} />}
-              className="hover:bg-transparent active:bg-transparent"
+              className="gap-2.5 hover:bg-transparent active:bg-transparent"
             >
               <BrandMark />
-              <span className="truncate text-base font-semibold tracking-tight">{APP_NAME}</span>
+              <span className="truncate text-base font-bold tracking-tight">{APP_NAME}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
         <WorkspaceSwitcher workspaces={workspaces} currentId={currentId} />
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="pt-2">
         <SidebarGroup>
-          <SidebarGroupLabel>Workspace</SidebarGroupLabel>
+          <SidebarGroupLabel className="eyebrow text-muted-foreground/80">Workspace</SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
+            <SidebarMenu className="gap-1">
               {DASHBOARD_NAV.map(({ segment, label, icon: Icon }) => {
                 const isActive = active.segment === segment;
                 return (
@@ -74,8 +74,9 @@ export function AppSidebar({
                           onClick={closeOnMobile}
                         />
                       }
-                      // sidebar-primary is brand in light mode and the brighter action blue in dark mode.
-                      className="data-active:bg-sidebar-primary/12 data-active:text-sidebar-primary data-active:hover:bg-sidebar-primary/18"
+                      // Active item is a card (hairline ring) on the tinted sidebar; its icon takes the brand color
+                      // (sidebar-primary: brand in light mode, the brighter action blue in dark mode).
+                      className="h-9 gap-3 rounded-lg px-2.5 text-muted-foreground transition-all hover:text-foreground [&_svg]:text-muted-foreground hover:[&_svg]:text-foreground data-active:bg-card data-active:font-semibold data-active:text-foreground data-active:ring-1 data-active:ring-sidebar-border data-active:hover:bg-card data-active:[&_svg]:text-sidebar-primary"
                     >
                       <Icon />
                       <span>{label}</span>
@@ -88,7 +89,7 @@ export function AppSidebar({
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter>
+      <SidebarFooter className="pb-3">
         <SidebarUserMenu user={user} workspaceId={currentId} />
       </SidebarFooter>
       <SidebarRail />

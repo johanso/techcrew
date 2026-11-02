@@ -25,7 +25,7 @@ export default async function WorkspacesPage() {
       <main className="mx-auto flex max-w-2xl flex-col gap-8 px-6 py-10">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="flex flex-col gap-1">
-            <h1 className="text-3xl font-semibold">Your workspaces</h1>
+            <h1 className="text-2xl font-bold sm:text-3xl">Your workspaces</h1>
             <p className="text-sm text-muted-foreground">Choose a workspace to open its dashboard.</p>
           </div>
           <Link href="/workspaces/new" className={buttonVariants({ className: "h-10 px-4" })}>
@@ -34,16 +34,16 @@ export default async function WorkspacesPage() {
           </Link>
         </div>
 
-        <ul className="flex flex-col overflow-hidden rounded-2xl border bg-card shadow-xs">
+        <ul className="surface flex flex-col overflow-hidden">
           {workspaces.map((workspace) => (
-            <li key={workspace.id} className="border-b last:border-b-0">
+            <li key={workspace.id} className="border-b border-border/70 last:border-b-0">
               <Link
                 href={`/dashboard/${workspace.id}`}
-                className="group flex items-center gap-4 p-4 transition-colors outline-none hover:bg-muted/60 focus-visible:bg-muted/60 sm:p-5"
+                className="group flex items-center gap-4 p-4 transition-colors outline-none hover:bg-accent focus-visible:bg-accent sm:p-5"
               >
                 <WorkspaceAvatar icon={workspace.icon} logoSrc={workspaceLogoSrc(workspace)} />
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <p className="truncate font-semibold">{workspace.name}</p>
+                  <p className="truncate font-bold">{workspace.name}</p>
                   <p className="flex items-center gap-1.5 truncate text-sm text-muted-foreground">
                     <GitHubIcon className="size-3.5 shrink-0" />
                     {workspace.githubRepoFullName}

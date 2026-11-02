@@ -13,7 +13,7 @@ export default async function PullRequestsPage({ params }: PageProps<"/dashboard
 
   return (
     <>
-      <PageHeader title="Pull Requests" description="Changes your agents propose, ready for review." />
+      <PageHeader eyebrow="Review" title="Pull Requests" description="Changes your agents propose, ready for review." />
       <SectionEmpty
         icon={GitPullRequestIcon}
         title="No agent pull requests yet"

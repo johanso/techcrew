@@ -10,7 +10,7 @@ import { initials } from "@/lib/utils";
 /** Top bar for signed-in pages. `children` renders next to the brand (e.g. a workspace switcher). */
 export function AppHeader({ user, children }: { user: User; children?: React.ReactNode }) {
   return (
-    <header className="border-b bg-background">
+    <header className="sticky top-0 z-20 border-b border-border/70 bg-canvas/80 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-4 px-6">
         <div className="flex min-w-0 items-center gap-4">
           <Brand />

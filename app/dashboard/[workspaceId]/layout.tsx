@@ -32,7 +32,8 @@ export default async function WorkspaceDashboardLayout({ children, params }: Lay
             repo: w.githubRepoFullName,
           }))}
         />
-        <SidebarInset className="bg-canvas">
+        {/* Inset variant: content floats as a rounded panel with its own scroll, so the header sticks inside it. */}
+        <SidebarInset className="bg-canvas md:h-[calc(100svh-1rem)] md:overflow-y-auto md:border md:border-sidebar-border">
           <DashboardHeader
             user={menuUser}
             workspace={{
@@ -42,7 +43,7 @@ export default async function WorkspaceDashboardLayout({ children, params }: Lay
               repoUrl: workspace.githubRepoUrl,
             }}
           />
-          <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-6 py-8">{children}</div>
+          <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-6 py-8 lg:px-10">{children}</div>
         </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>

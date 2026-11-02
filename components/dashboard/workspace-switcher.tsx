@@ -34,13 +34,13 @@ export function WorkspaceSwitcher({ workspaces, currentId }: { workspaces: Switc
               <SidebarMenuButton
                 size="lg"
                 tooltip={current.name}
-                className="border bg-sidebar-accent/40 data-popup-open:bg-sidebar-accent group-data-[collapsible=icon]:border-transparent"
+                className="rounded-xl border border-sidebar-border bg-card hover:border-sidebar-primary/30 hover:bg-card data-popup-open:border-sidebar-primary/30 data-popup-open:bg-card group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:bg-transparent"
               />
             }
           >
             <WorkspaceAvatar icon={current.icon} logoSrc={current.logoSrc} size="sm" />
             <span className="grid min-w-0 flex-1 text-left leading-tight">
-              <span className="truncate text-sm font-semibold">{current.name}</span>
+              <span className="truncate text-sm font-bold">{current.name}</span>
               <span className="truncate text-xs text-muted-foreground">{current.repo}</span>
             </span>
             <ChevronsUpDownIcon className="ml-auto" />
@@ -52,7 +52,7 @@ export function WorkspaceSwitcher({ workspaces, currentId }: { workspaces: Switc
             className="w-(--anchor-width) min-w-64"
           >
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-xs text-muted-foreground">Workspaces</DropdownMenuLabel>
+              <DropdownMenuLabel className="eyebrow text-muted-foreground">Workspaces</DropdownMenuLabel>
               {workspaces.map((workspace) => (
                 <DropdownMenuItem
                   key={workspace.id}
@@ -66,7 +66,7 @@ export function WorkspaceSwitcher({ workspaces, currentId }: { workspaces: Switc
                     className="size-6 rounded-md [&_svg]:size-3.5"
                   />
                   <span className="truncate">{workspace.name}</span>
-                  {workspace.id === current.id && <CheckIcon className="ml-auto text-brand" />}
+                  {workspace.id === current.id && <CheckIcon className="ml-auto text-brand-emphasis" />}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuGroup>

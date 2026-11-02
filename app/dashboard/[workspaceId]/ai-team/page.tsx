@@ -12,7 +12,7 @@ export default async function AiTeamPage({ params }: PageProps<"/dashboard/[work
 
   return (
     <>
-      <PageHeader title="AI Team" description="The agents that work on this workspace's repository." />
+      <PageHeader eyebrow="Team" title="AI Team" description="The agents that work on this workspace's repository." />
       <SectionEmpty
         icon={BotIcon}
         title="No agents yet"

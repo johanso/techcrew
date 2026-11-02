@@ -12,7 +12,7 @@ export default async function BoardPage({ params }: PageProps<"/dashboard/[works
 
   return (
     <>
-      <PageHeader title="Board" description="Plan and track the work your AI team takes on." />
+      <PageHeader eyebrow="Plan" title="Board" description="Plan and track the work your AI team takes on." />
       <SectionEmpty
         icon={SquareKanbanIcon}
         title="No tasks yet"

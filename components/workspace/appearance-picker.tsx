@@ -72,7 +72,7 @@ export function AppearancePicker({
                 className={cn(
                   "flex aspect-square items-center justify-center rounded-lg border bg-background text-muted-foreground transition-colors",
                   "hover:bg-muted hover:text-foreground",
-                  "peer-checked:border-brand peer-checked:bg-brand/10 peer-checked:text-brand",
+                  "peer-checked:border-brand/40 peer-checked:bg-brand/10 peer-checked:text-brand-emphasis",
                   "peer-focus-visible:ring-3 peer-focus-visible:ring-ring/50"
                 )}
               >

@@ -9,7 +9,10 @@ export const APP_NAME = "FastNextJS";
 export function BrandMark({ className }: { className?: string }) {
   return (
     <span
-      className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand text-brand-accent shadow-sm", className)}
+      className={cn(
+        "flex size-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-brand to-action text-brand-accent",
+        className
+      )}
     >
       <ZapIcon className="size-4 fill-current" />
     </span>
@@ -18,7 +21,7 @@ export function BrandMark({ className }: { className?: string }) {
 
 export function Brand({ className }: { className?: string }) {
   return (
-    <Link href="/" className={cn("flex w-fit items-center gap-2 font-semibold tracking-tight", className)}>
+    <Link href="/" className={cn("flex w-fit items-center gap-2.5 font-bold tracking-tight", className)}>
       <BrandMark />
       {APP_NAME}
     </Link>
