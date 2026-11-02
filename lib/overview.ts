@@ -1,6 +1,8 @@
 import "server-only";
 
 import type { Workspace } from "@/db";
+import { DUMMY_AGENTS as AGENTS, taskKeyPrefix, type Agent } from "@/lib/agents";
+import type { IssuePriority } from "@/lib/board-config";
 
 /**
  * Data for the workspace Overview page.
@@ -10,11 +12,8 @@ import type { Workspace } from "@/db";
  * queries and keep the return shape. Nothing else needs to change.
  */
 
-export type AgentTone = "brand" | "action" | "success" | "warning";
-export type Agent = { id: string; name: string; role: string; tone: AgentTone };
-
 export type TaskStatus = "open" | "in_progress" | "pr_ready";
-export type TaskPriority = "high" | "medium" | "low";
+export type TaskPriority = IssuePriority;
 
 export type UpcomingTask = {
   id: string;
@@ -51,17 +50,10 @@ export type OverviewData = {
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
-const AGENTS = {
-  atlas: { id: "atlas", name: "Atlas", role: "Frontend engineer", tone: "brand" },
-  nova: { id: "nova", name: "Nova", role: "Backend engineer", tone: "action" },
-  sage: { id: "sage", name: "Sage", role: "QA engineer", tone: "success" },
-  orion: { id: "orion", name: "Orion", role: "DevOps engineer", tone: "warning" },
-} satisfies Record<string, Agent>;
-
 export async function getOverviewData(workspace: Pick<Workspace, "id" | "name">, userName: string | null): Promise<OverviewData> {
   // Relative to "now" so due dates and timestamps always read naturally.
   const now = Date.now();
-  const prefix = workspace.name.replace(/[^a-z]/gi, "").slice(0, 3).toUpperCase() || "TSK";
+  const prefix = taskKeyPrefix(workspace.name);
   const you = userName?.split(" ")[0] ?? "You";
 
   return {

@@ -53,6 +53,7 @@ npm run build        # production build — must pass before you finish
 npx tsc --noEmit     # type check
 npm run db:push      # apply db/schema.ts to the database
 npm run db:studio    # inspect data
+npm run db:seed:board [-- <workspaceId>]   # add sample board cards (idempotent: skips existing titles)
 npx next typegen     # regenerate PageProps / RouteContext types after adding routes
 npx shadcn add <c>   # add a shadcn component into components/ui
 ```
@@ -78,6 +79,7 @@ app/
       layout.tsx          Dashboard shell: sidebar + header. Owner check via getDashboardContext().
       page.tsx            Overview.
       board/ ai-team/ pull-requests/ activity/   One page.tsx per sidebar section.
+      board/actions.ts    createCardAction, updateCardAction, moveCardsAction (auth + validation).
       settings/           Account (#account) and workspace (#workspace) settings.
   globals.css             THE theme: palette, semantic tokens, Tailwind mapping.
   layout.tsx              Root layout; loads Plus Jakarta Sans, ThemeProvider.
@@ -85,6 +87,9 @@ components/
   ui/                     shadcn primitives. Generated — do not hand-edit; restyle via tokens.
   auth/                   Auth-only UI (forms, social buttons, brand icons, FormMessage).
   workspace/              Workspace UI (avatar, create form, appearance + repo pickers, draft storage).
+  board/                  Kanban: kanban-board (state + DndContext), board-column, board-card, card-dialog (create + edit),
+                          board-toolbar (search + type tabs), board-filters (pure matching logic),
+                          issue-meta (type/priority/column colors + PriorityBadge, IssueTypePill — reuse everywhere).
   dashboard/              Overview sections: stat-tile, upcoming-tasks, agent-office-placeholder, recent-activity,
                           agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS).
                           Dashboard shell: app-sidebar, workspace-switcher, user-menu, dashboard-header,
@@ -102,6 +107,10 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   storage.ts              S3 uploads/reads, logo limits.
   workspaces.ts           Workspace queries (always scoped by owner) + getDashboardContext().
   overview.ts             Overview data contract + getOverviewData(). ⚠️ Returns DUMMY data for now.
+  agents.ts               Agent type, listAgents(), taskKeyPrefix(). ⚠️ DUMMY agents for now.
+  board-config.ts         Board vocabulary shared by server + client: columns, issue types, priorities, BoardCard.
+  board.ts                Board persistence (tasks table): getBoardData, createTask, updateTask, reorderTasks,
+                          parseCardInput (server-side validation).
   workspace-icons.ts      Selectable icon set (shared client/server).
   utils.ts                cn(), initials().
 db/                       Drizzle client (index.ts) and schema (schema.ts).
@@ -268,9 +277,38 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
 - **Overview layout** (`OverviewView`): welcome header → 3 `StatTile`s (Open tasks, In progress, PR ready) →
   `grid lg:grid-cols-5` with `UpcomingTasks` (`lg:col-span-3`) and `AgentOfficePlaceholder` (`lg:col-span-2`) →
   `RecentActivity` list. Status/kind → icon + tone maps live next to each component (`TASK_STATUS`, `KIND`).
+- **Board** (`/dashboard/[id]/board`): five columns — Todo, In Development, In Review, Testing, Done —
+  each with a light tint from `COLUMN_STYLE` (slate, sky, amber, orange, green). Cards show type pill, key, title,
+  labels, priority and due date. "New" (Feature / Bug / Issue) and each column's "+" open `CardDialog` in create
+  mode preset to that type/column; clicking a card (or Enter on a focused card) opens the same dialog in edit mode.
+  There is no assignee field until agents exist (cards render an agent avatar only when `assignee` is set). The board opts out of the page max width with
+  `data-page-width="full"` and scrolls horizontally (snapping on mobile).
+- **Board filters** (`BoardToolbar` + `board-filters.ts`): a search box (title or key — "ACM-142", "acm142",
+  "#142", "142"; `/` focuses it, Escape clears) and segmented type tabs (All / Features / Bugs / Issues, counts follow
+  the search). Filters only *hide* cards — `columns` keeps the full order, so drag and drop stays consistent while
+  filtered. Column badges show `visible/total`. Creating a card the filters would hide resets them.
+- **Board persistence** (`tasks` table): create/edit await the server action and render what it returns (real id
+  and key `PREFIX-<number>`, numbered per workspace under a row lock). Drag and drop is optimistic: on drop, the
+  board sends the full ordered id list of every column that changed (`moveCardsAction`); if the server refuses, it
+  restores the pre-drag snapshot and shows an inline error. The server re-checks that every id belongs to the
+  workspace. New cards take `min(position) - 1` (top); positions are sort keys, not indexes.
+- **Drag and drop** uses `@dnd-kit/core` + `@dnd-kit/sortable` (stable v6/v10 API, not the 0.x `@dnd-kit/react`).
+  Rules: `MouseSensor` (6 px distance) + `TouchSensor` (180 ms delay) + `KeyboardSensor` (Space only, so Enter can
+  open the card; clicks within 250 ms of a drop are ignored) — never `PointerSensor`
+  alone (it blocks touch scrolling). Pass a stable `id` (`useId()`) to `DndContext` to avoid hydration mismatches.
+  Cross-column moves in `onDragOver`, same-column reorder in `onDragEnd`, restore a snapshot in `onDragCancel`.
+  Keyboard: ←/→ change column (custom coordinate getter), ↑/↓ reorder; announcements name the column and position.
+  The drag copy renders in `DragOverlay` (it may use `shadow-lg` — it's a floating layer) and must not use dnd hooks.
+- **Issue visuals are centralized** in `components/board/issue-meta.tsx` (type icons/colors, priority dots, column
+  tints). The Overview's upcoming tasks use the same `PriorityBadge`. Never redefine these maps locally.
+- **Base UI Select:** pass `items` to `<Select>` so `<SelectValue />` shows labels, and size triggers with
+  `data-[size=default]:h-10` (a plain `h-10` loses to the primitive's attribute selector).
 - **Dummy data:** until tasks/agents/activity tables exist, `lib/overview.ts` returns fixture data shaped by its
   exported types (timestamps relative to "now"). To go live, replace only the body of `getOverviewData` — keep
   the types and the UI untouched. Mark any new fixture source the same way (a `⚠️ DUMMY DATA` doc comment).
+- **Horizontal scroll areas must be `relative`.** Absolutely positioned descendants (every `sr-only` label) are only
+  clipped by an `overflow` container that is positioned; otherwise they escape and widen the page on mobile.
+  `SidebarInset` also carries `min-w-0` so wide content can't stretch the panel.
 - **Grid children with truncated text need `min-w-0`.** Grid/flex items default to `min-width: auto`, so a
   `truncate` line inside a card widens the track and the page scrolls sideways on mobile. Every card component
   puts `min-w-0` on its root.

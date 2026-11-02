@@ -1,4 +1,5 @@
-import { bigint, boolean, index, integer, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { bigint, boolean, date, index, integer, pgTable, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -64,3 +65,39 @@ export const workspaces = pgTable(
 
 export type Workspace = typeof workspaces.$inferSelect;
 export type NewWorkspace = typeof workspaces.$inferInsert;
+
+/**
+ * A card on a workspace's Kanban board (feature, bug or issue).
+ * `type`, `priority` and `status` hold values from lib/board-config.ts and are validated in the server actions.
+ */
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    // Per-workspace sequence shown as the key, e.g. ACM-142.
+    number: integer("number").notNull(),
+    type: text("type").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    priority: text("priority").notNull(),
+    // Board column id ("todo", "in_development", …).
+    status: text("status").notNull(),
+    // Sort key within the column (ascending). Not contiguous: new cards take min - 1 to land on top.
+    position: integer("position").notNull(),
+    labels: text("labels").array().notNull().default(sql`'{}'::text[]`),
+    dueDate: date("due_date", { mode: "string" }),
+    createdById: integer("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    unique("tasks_workspace_number_unique").on(table.workspaceId, table.number),
+    index("tasks_workspace_status_position_idx").on(table.workspaceId, table.status, table.position),
+  ]
+);
+
+export type Task = typeof tasks.$inferSelect;
+export type NewTask = typeof tasks.$inferInsert;

@@ -1,4 +1,4 @@
-import type { Agent, AgentTone } from "@/lib/overview";
+import type { Agent, AgentTone } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 
 /** Text-color class per agent tone; tints `icon-tile` and agent accents. */

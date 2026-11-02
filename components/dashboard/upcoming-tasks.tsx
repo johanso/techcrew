@@ -9,23 +9,17 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { PriorityBadge } from "@/components/board/issue-meta";
 import { AgentAvatar } from "@/components/dashboard/agent-avatar";
 import { SurfaceHeader } from "@/components/dashboard/page-header";
 import { buttonVariants } from "@/components/ui/button";
-import type { TaskPriority, TaskStatus, UpcomingTask } from "@/lib/overview";
+import type { TaskStatus, UpcomingTask } from "@/lib/overview";
 import { cn } from "@/lib/utils";
 
 export const TASK_STATUS: Record<TaskStatus, { label: string; icon: LucideIcon; tone: string }> = {
   open: { label: "Open", icon: CircleIcon, tone: "text-muted-foreground" },
   in_progress: { label: "In progress", icon: CircleDotDashedIcon, tone: "text-warning" },
   pr_ready: { label: "PR ready", icon: GitPullRequestArrowIcon, tone: "text-success" },
-};
-
-// Status colors stay on the dot; the label is neutral text (palette status colors fail AA as small text).
-const PRIORITY: Record<TaskPriority, { label: string; dot: string }> = {
-  high: { label: "High", dot: "bg-error" },
-  medium: { label: "Medium", dot: "bg-warning" },
-  low: { label: "Low", dot: "bg-dark" },
 };
 
 function dueLabel(date: Date) {
@@ -58,7 +52,6 @@ export function UpcomingTasks({
       <ul className="flex flex-col">
         {tasks.map((task) => {
           const status = TASK_STATUS[task.status];
-          const priority = PRIORITY[task.priority];
           const dueSoon = isToday(task.dueAt);
           return (
             <li
@@ -74,10 +67,7 @@ export function UpcomingTasks({
                 <p className="truncate text-sm font-semibold">{task.title}</p>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                   <span className="font-medium tabular-nums">{task.key}</span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span aria-hidden className={cn("size-1.5 rounded-full", priority.dot)} />
-                    {priority.label}
-                  </span>
+                  <PriorityBadge priority={task.priority} />
                   {task.labels.map((label) => (
                     <span key={label} className="rounded-md bg-muted px-1.5 py-0.5 font-medium ring-1 ring-border/70">
                       {label}

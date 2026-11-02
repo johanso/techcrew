@@ -32,8 +32,11 @@ export default async function WorkspaceDashboardLayout({ children, params }: Lay
             repo: w.githubRepoFullName,
           }))}
         />
-        {/* Inset variant: content floats as a rounded panel with its own scroll, so the header sticks inside it. */}
-        <SidebarInset className="bg-canvas md:h-[calc(100svh-1rem)] md:overflow-y-auto md:border md:border-sidebar-border">
+        {/*
+          Inset variant: content floats as a rounded panel with its own scroll, so the header sticks inside it.
+          min-w-0: as a flex item it would otherwise grow to fit wide content (the board) on mobile.
+        */}
+        <SidebarInset className="min-w-0 bg-canvas md:h-[calc(100svh-1rem)] md:overflow-y-auto md:border md:border-sidebar-border">
           <DashboardHeader
             user={menuUser}
             workspace={{
@@ -43,7 +46,10 @@ export default async function WorkspaceDashboardLayout({ children, params }: Lay
               repoUrl: workspace.githubRepoUrl,
             }}
           />
-          <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-6 py-8 lg:px-10">{children}</div>
+          {/* Pages render inside a max-w-6xl column; a page marked data-page-width="full" (the board) opts out. */}
+          <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-6 py-8 has-data-[page-width=full]:max-w-none lg:px-10">
+            {children}
+          </div>
         </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>

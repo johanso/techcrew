@@ -1,0 +1,93 @@
+"use client";
+
+import { useDroppable } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { PlusIcon } from "lucide-react";
+
+import { SortableBoardCard } from "@/components/board/board-card";
+import { COLUMN_STYLE } from "@/components/board/issue-meta";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { BOARD_COLUMNS, BoardCard } from "@/lib/board-config";
+import { cn } from "@/lib/utils";
+
+export function BoardColumn({
+  column,
+  cards,
+  totalCount,
+  filtering,
+  highlightId,
+  onAdd,
+  onOpenCard,
+}: {
+  column: (typeof BOARD_COLUMNS)[number];
+  /** Cards to render (already filtered). */
+  cards: BoardCard[];
+  /** All cards in the column, ignoring filters. */
+  totalCount: number;
+  filtering: boolean;
+  highlightId: string | null;
+  onAdd: () => void;
+  onOpenCard: (card: BoardCard) => void;
+}) {
+  // The column itself is a drop target, so empty columns accept cards too.
+  const { setNodeRef, isOver } = useDroppable({ id: column.id });
+  const style = COLUMN_STYLE[column.id];
+
+  return (
+    <section
+      aria-label={column.title}
+      className={cn(
+        "flex w-[17rem] shrink-0 snap-start flex-col rounded-xl ring-1 transition-shadow xl:w-auto xl:min-w-60 xl:flex-1",
+        style.tint,
+        isOver ? cn("ring-2", style.over) : style.ring
+      )}
+    >
+      <header className="flex items-center gap-2 px-3.5 pt-3.5 pb-3">
+        <span aria-hidden className={cn("size-2 rounded-full", style.dot)} />
+        <h2 className="truncate text-sm font-bold">{column.title}</h2>
+        <span
+          className="rounded-full bg-card px-2 py-0.5 text-xs font-semibold text-muted-foreground tabular-nums ring-1 ring-border/70"
+          aria-label={filtering ? `${cards.length} of ${totalCount} cards match` : `${totalCount} cards`}
+        >
+          {filtering ? `${cards.length}/${totalCount}` : totalCount}
+        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={onAdd}
+                aria-label={`Add a card to ${column.title}`}
+                className="ml-auto text-muted-foreground hover:bg-card hover:text-foreground"
+              />
+            }
+          >
+            <PlusIcon />
+          </TooltipTrigger>
+          <TooltipContent>Add to {column.title}</TooltipContent>
+        </Tooltip>
+      </header>
+
+      <SortableContext id={column.id} items={cards.map((card) => card.id)} strategy={verticalListSortingStrategy}>
+        <div ref={setNodeRef} className="flex min-h-32 flex-1 flex-col gap-2.5 px-2.5 pb-2.5">
+          {cards.map((card) => (
+            <SortableBoardCard
+              key={card.id}
+              card={card}
+              done={column.id === "done"}
+              highlight={card.id === highlightId}
+              onOpen={() => onOpenCard(card)}
+            />
+          ))}
+          {cards.length === 0 && (
+            <div className="flex flex-1 items-center justify-center rounded-lg bg-card/50 p-4 text-center text-xs text-muted-foreground ring-1 ring-border/60 ring-inset">
+              {filtering && totalCount > 0 ? "No matching cards." : `${column.hint}. Drop a card here.`}
+            </div>
+          )}
+        </div>
+      </SortableContext>
+    </section>
+  );
+}
