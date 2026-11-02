@@ -85,7 +85,9 @@ components/
   ui/                     shadcn primitives. Generated — do not hand-edit; restyle via tokens.
   auth/                   Auth-only UI (forms, social buttons, brand icons, FormMessage).
   workspace/              Workspace UI (avatar, create form, appearance + repo pickers, draft storage).
-  dashboard/              Dashboard shell: app-sidebar, workspace-switcher, user-menu, dashboard-header,
+  dashboard/              Overview sections: stat-tile, upcoming-tasks, agent-office-placeholder, recent-activity,
+                          agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS).
+                          Dashboard shell: app-sidebar, workspace-switcher, user-menu, dashboard-header,
                           nav.ts (sidebar sections — server-safe), use-dashboard-section.ts (client hook),
                           page-header (PageHeader, SurfaceHeader, DetailGrid), stat-tile, section-empty,
                           overview-view (Overview markup; the page only loads data).
@@ -99,6 +101,7 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   crypto.ts               encrypt / decrypt for secrets at rest.
   storage.ts              S3 uploads/reads, logo limits.
   workspaces.ts           Workspace queries (always scoped by owner) + getDashboardContext().
+  overview.ts             Overview data contract + getOverviewData(). ⚠️ Returns DUMMY data for now.
   workspace-icons.ts      Selectable icon set (shared client/server).
   utils.ts                cn(), initials().
 db/                       Drizzle client (index.ts) and schema (schema.ts).
@@ -262,6 +265,15 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   own scroll and a sticky, translucent `h-16` header (`bg-canvas/80 backdrop-blur-md`). Pages render only their content:
   start with `<PageHeader eyebrow title description actions? />`, then sections separated by `gap-8`.
   Every sidebar item needs a `tooltip` (icon-only mode).
+- **Overview layout** (`OverviewView`): welcome header → 3 `StatTile`s (Open tasks, In progress, PR ready) →
+  `grid lg:grid-cols-5` with `UpcomingTasks` (`lg:col-span-3`) and `AgentOfficePlaceholder` (`lg:col-span-2`) →
+  `RecentActivity` list. Status/kind → icon + tone maps live next to each component (`TASK_STATUS`, `KIND`).
+- **Dummy data:** until tasks/agents/activity tables exist, `lib/overview.ts` returns fixture data shaped by its
+  exported types (timestamps relative to "now"). To go live, replace only the body of `getOverviewData` — keep
+  the types and the UI untouched. Mark any new fixture source the same way (a `⚠️ DUMMY DATA` doc comment).
+- **Grid children with truncated text need `min-w-0`.** Grid/flex items default to `min-width: auto`, so a
+  `truncate` line inside a card widens the track and the page scrolls sideways on mobile. Every card component
+  puts `min-w-0` on its root.
 - **Presentational split:** when a page has non-trivial markup, keep it in a `components/<feature>/*-view.tsx`
   component that takes plain props (see `OverviewView`); the page only loads data. This keeps pages previewable.
 - **Other signed-in pages** (`/workspaces*`): `min-h-svh bg-canvas` → `<AppHeader user={user} />` →
