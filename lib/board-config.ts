@@ -37,6 +37,8 @@ export type BoardCard = {
   /** ISO timestamps. */
   createdAt: string;
   updatedAt: string;
+  /** The GitHub issue this card mirrors, or null for cards created in the app. */
+  github: { number: number; url: string; state: "open" | "closed" } | null;
 };
 
 /** Fields a user can set when creating or editing a card. */

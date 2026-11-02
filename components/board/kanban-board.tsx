@@ -26,6 +26,8 @@ import { BoardColumn } from "@/components/board/board-column";
 import { isFiltering, matchesFilters, matchesQuery, NO_FILTERS, type BoardFilters, type TypeFilter } from "@/components/board/board-filters";
 import { BoardToolbar } from "@/components/board/board-toolbar";
 import { CardDialog, type CardDialogMode, type CardDialogSubmit } from "@/components/board/card-dialog";
+import { GithubSyncButton, GithubSyncNotice } from "@/components/board/github-sync-controls";
+import { useGithubSync } from "@/components/board/use-github-sync";
 import { ISSUE_TYPE_META } from "@/components/board/issue-meta";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
@@ -50,7 +52,18 @@ import { cn } from "@/lib/utils";
 
 const COLUMN_TITLE = Object.fromEntries(BOARD_COLUMNS.map((c) => [c.id, c.title])) as Record<BoardColumnId, string>;
 
-export function KanbanBoard({ workspaceId, initial, repo }: { workspaceId: number; initial: BoardData; repo: string }) {
+export function KanbanBoard({
+  workspaceId,
+  initial,
+  repo,
+  lastSyncedAt,
+}: {
+  workspaceId: number;
+  initial: BoardData;
+  repo: string;
+  /** Last GitHub issue sync (ISO), or null if this workspace never synced. */
+  lastSyncedAt: string | null;
+}) {
   const [cards, setCards] = useState(initial.cards);
   const [columns, setColumns] = useState<BoardColumns>(initial.columns);
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
@@ -76,6 +89,23 @@ export function KanbanBoard({ workspaceId, initial, repo }: { workspaceId: numbe
   }, [columns]);
   // Stable id keeps dnd-kit's generated aria-describedby ids identical on server and client.
   const dndId = useId();
+
+  // A synced board must not land mid-drag or before a move is saved: it would undo the move on screen.
+  const dragging = useRef(false);
+  const pendingMoves = useRef(0);
+  const github = useGithubSync({
+    workspaceId,
+    initialSyncedAt: lastSyncedAt,
+    isBusy: () => dragging.current || pendingMoves.current > 0,
+    onBoard: (board) => {
+      setCards(board.cards);
+      setColumns(board.columns);
+    },
+  });
+  const settle = () => {
+    if (!dragging.current && pendingMoves.current === 0) github.flushDeferred();
+  };
+  const connectHref = `/api/github/connect?next=${encodeURIComponent(`/dashboard/${workspaceId}/board`)}`;
 
   // ←/→ jump to the top of the neighbouring column; ↑/↓ reorder within the column (dnd-kit default).
   // The default getter alone picks "the nearest droppable" leftwards, which can be the card above.
@@ -167,6 +197,7 @@ export function KanbanBoard({ workspaceId, initial, repo }: { workspaceId: numbe
     const before = snapshot.current;
     snapshot.current = null;
     setActiveId(null);
+    dragging.current = false;
     lastDropAt.current = Date.now();
 
     let next = columns;
@@ -177,19 +208,23 @@ export function KanbanBoard({ workspaceId, initial, repo }: { workspaceId: numbe
       if (from !== to && to >= 0) next = { ...columns, [column]: arrayMove(columns[column], from, to) };
     }
     if (next !== columns) setColumns(next);
-    if (!before) return;
-
-    const changed = Object.fromEntries(
-      BOARD_COLUMNS.filter((c) => next[c.id].join() !== before[c.id].join()).map((c) => [c.id, next[c.id]])
-    );
-    if (Object.keys(changed).length === 0) return;
+    const changed = before
+      ? Object.fromEntries(BOARD_COLUMNS.filter((c) => next[c.id].join() !== before[c.id].join()).map((c) => [c.id, next[c.id]]))
+      : {};
+    if (!before || Object.keys(changed).length === 0) return settle();
 
     // Optimistic: the board already shows the move. Roll back if the server refuses it.
-    moveCardsAction(workspaceId, changed).then(({ ok }) => {
-      if (ok) return;
-      setColumns(before);
-      setSyncError("We couldn't save that move, so the card went back to where it was. Please try again.");
-    });
+    pendingMoves.current++;
+    moveCardsAction(workspaceId, changed)
+      .then(({ ok }) => {
+        if (ok) return;
+        setColumns(before);
+        setSyncError("We couldn't save that move, so the card went back to where it was. Please try again.");
+      })
+      .finally(() => {
+        pendingMoves.current--;
+        settle();
+      });
   };
 
   const titleOf = (id: UniqueIdentifier) => cards[String(id)]?.title ?? "card";
@@ -231,38 +266,43 @@ export function KanbanBoard({ workspaceId, initial, repo }: { workspaceId: numbe
         title="Board"
         description={
           total === 0
-            ? `No cards yet. Create a feature, bug or issue — agents pick up work from Todo and open pull requests on ${repo}.`
-            : `${total} ${total === 1 ? "card" : "cards"} across ${BOARD_COLUMNS.length} stages. Click a card for details, or drag it to move it.`
+            ? `No cards yet. Open issues from ${repo} appear here automatically, or create a feature, bug or issue.`
+            : `${total} ${total === 1 ? "card" : "cards"} across ${BOARD_COLUMNS.length} stages, kept in sync with ${repo}'s issues. Click a card for details, or drag it to move it.`
         }
         actions={
-          <DropdownMenu>
-            <DropdownMenuTrigger render={<Button className="h-10 px-4" />}>
-              <PlusIcon />
-              New
-              <ChevronDownIcon data-icon="inline-end" className="opacity-70" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={6} className="w-60">
-              <DropdownMenuGroup>
-                <DropdownMenuLabel className="eyebrow text-muted-foreground">Create</DropdownMenuLabel>
-                {ISSUE_TYPES.map((type) => {
-                  const meta = ISSUE_TYPE_META[type];
-                  return (
-                    <DropdownMenuItem key={type} onClick={() => openCreate({ type })} className="gap-2.5 py-2">
-                      <meta.icon className={cn("size-4", meta.tone)} />
-                      <span className="flex flex-col">
-                        <span className="font-medium">{meta.label}</span>
-                        <span className="text-xs text-muted-foreground">{meta.blurb}</span>
-                      </span>
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <>
+            <GithubSyncButton state={github.state} onSync={() => void github.sync({ manual: true })} repo={repo} />
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button className="h-10 px-4" />}>
+                <PlusIcon />
+                New
+                <ChevronDownIcon data-icon="inline-end" className="opacity-70" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={6} className="w-60">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="eyebrow text-muted-foreground">Create</DropdownMenuLabel>
+                  {ISSUE_TYPES.map((type) => {
+                    const meta = ISSUE_TYPE_META[type];
+                    return (
+                      <DropdownMenuItem key={type} onClick={() => openCreate({ type })} className="gap-2.5 py-2">
+                        <meta.icon className={cn("size-4", meta.tone)} />
+                        <span className="flex flex-col">
+                          <span className="font-medium">{meta.label}</span>
+                          <span className="text-xs text-muted-foreground">{meta.blurb}</span>
+                        </span>
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
         }
       />
 
       <BoardToolbar filters={filters} onChange={setFilters} counts={counts} visible={visibleTotal} total={total} />
+
+      <GithubSyncNotice state={github.state} repo={repo} connectHref={connectHref} onRetry={() => void github.sync({ manual: true })} />
 
       {syncError && (
         <div
@@ -289,6 +329,7 @@ export function KanbanBoard({ workspaceId, initial, repo }: { workspaceId: numbe
           },
         }}
         onDragStart={({ active }: DragStartEvent) => {
+          dragging.current = true;
           snapshot.current = columns;
           setActiveId(active.id);
           setOverlayWidth(active.rect.current.initial?.width);
@@ -300,6 +341,8 @@ export function KanbanBoard({ workspaceId, initial, repo }: { workspaceId: numbe
           if (snapshot.current) setColumns(snapshot.current);
           snapshot.current = null;
           setActiveId(null);
+          dragging.current = false;
+          settle();
         }}
       >
         {/*

@@ -39,8 +39,13 @@ function toBoardCard(task: Task, workspace: BoardWorkspace): BoardCard {
     dueDate: task.dueDate,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
+    github:
+      task.githubIssueNumber !== null && task.githubIssueUrl
+        ? { number: task.githubIssueNumber, url: task.githubIssueUrl, state: task.githubIssueState === "closed" ? "closed" : "open" }
+        : null,
   };
 }
+
 
 export async function getBoardData(workspace: BoardWorkspace): Promise<BoardData> {
   const rows = await db
@@ -62,13 +67,13 @@ export async function getBoardData(workspace: BoardWorkspace): Promise<BoardData
 
 // ── Validation ────────────────────────────────────────────────────────────────
 
-export type ValidationResult = { ok: true; value: BoardCardInput } | { ok: false; error: string };
+type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
+export type ValidationResult = Parsed<BoardCardInput>;
+type ContentFields = Pick<BoardCardInput, "title" | "description" | "labels">;
+type BoardFields = Pick<BoardCardInput, "type" | "priority" | "status" | "dueDate">;
 
-/** Validates untrusted input from the client. Never trust the dialog's own checks. */
-export function parseCardInput(raw: unknown): ValidationResult {
-  if (typeof raw !== "object" || raw === null) return { ok: false, error: "Invalid card." };
-  const input = raw as Record<string, unknown>;
-
+/** Title, description and labels. For GitHub-synced cards these come from GitHub instead. */
+function parseContent(input: Record<string, unknown>): Parsed<ContentFields> {
   const title = typeof input.title === "string" ? input.title.trim() : "";
   if (!title) return { ok: false, error: "Give the card a title." };
   if (title.length > TITLE_MAX) return { ok: false, error: `Keep the title under ${TITLE_MAX} characters.` };
@@ -76,6 +81,11 @@ export function parseCardInput(raw: unknown): ValidationResult {
   const description = typeof input.description === "string" ? input.description.trim() : "";
   if (description.length > DESCRIPTION_MAX) return { ok: false, error: "The description is too long." };
 
+  return { ok: true, value: { title, description, labels: cleanLabels(Array.isArray(input.labels) ? input.labels : []) } };
+}
+
+/** Fields the board always owns, synced card or not. */
+function parseBoardFields(input: Record<string, unknown>): Parsed<BoardFields> {
   if (!ISSUE_TYPES.includes(input.type as never)) return { ok: false, error: "Choose a type." };
   if (!ISSUE_PRIORITIES.includes(input.priority as never)) return { ok: false, error: "Choose a priority." };
   if (!isBoardColumnId(input.status)) return { ok: false, error: "Choose a status." };
@@ -85,24 +95,44 @@ export function parseCardInput(raw: unknown): ValidationResult {
   if (dueDate !== null && (typeof dueDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || Number.isNaN(Date.parse(dueDate)))) {
     return { ok: false, error: "Enter a valid due date." };
   }
-
-  const labels = Array.isArray(input.labels) ? input.labels : [];
-  const cleanLabels = [
-    ...new Set(labels.filter((l): l is string => typeof l === "string").map((l) => l.trim().toLowerCase().slice(0, LABEL_LENGTH_MAX)).filter(Boolean)),
-  ].slice(0, LABELS_MAX);
-
   return {
     ok: true,
     value: {
-      title,
-      description,
       type: input.type as BoardCardInput["type"],
       priority: input.priority as BoardCardInput["priority"],
       status: input.status,
       dueDate,
-      labels: cleanLabels,
     },
   };
+}
+
+/** Lowercase, trimmed, unique, at most LABELS_MAX of LABEL_LENGTH_MAX characters. */
+export function cleanLabels(labels: unknown[]) {
+  return [
+    ...new Set(
+      labels
+        .filter((l): l is string => typeof l === "string")
+        .map((l) => l.trim().toLowerCase().slice(0, LABEL_LENGTH_MAX))
+        .filter(Boolean)
+    ),
+  ].slice(0, LABELS_MAX);
+}
+
+/** Validates untrusted input from the client. Never trust the dialog's own checks. */
+export function parseCardInput(raw: unknown): ValidationResult {
+  if (typeof raw !== "object" || raw === null) return { ok: false, error: "Invalid card." };
+  const input = raw as Record<string, unknown>;
+  const content = parseContent(input);
+  if (!content.ok) return content;
+  const board = parseBoardFields(input);
+  if (!board.ok) return board;
+  return { ok: true, value: { ...content.value, ...board.value } };
+}
+
+/** Board-owned fields only — used when editing a GitHub-synced card. */
+export function parseBoardInput(raw: unknown): Parsed<BoardFields> {
+  if (typeof raw !== "object" || raw === null) return { ok: false, error: "Invalid card." };
+  return parseBoardFields(raw as Record<string, unknown>);
 }
 
 // ── Mutations ─────────────────────────────────────────────────────────────────
@@ -132,8 +162,20 @@ export async function createTask(workspace: BoardWorkspace, input: BoardCardInpu
   return toBoardCard(row, workspace);
 }
 
-/** Updates a card. Moving it to another column through the form appends it to the end of that column. */
-export async function updateTask(workspace: BoardWorkspace, taskId: number, input: BoardCardInput) {
+/** Whether a card mirrors a GitHub issue (its content is then read-only in the app). */
+export async function isGithubTask(workspace: BoardWorkspace, taskId: number) {
+  const [row] = await db
+    .select({ githubIssueId: tasks.githubIssueId })
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspace.id)));
+  return row ? row.githubIssueId !== null : null;
+}
+
+/**
+ * Updates a card. Moving it to another column through the form appends it to the end of that column.
+ * For GitHub-synced cards only board-owned fields are written; title, description and labels stay GitHub's.
+ */
+export async function updateTask(workspace: BoardWorkspace, taskId: number, input: BoardFields | BoardCardInput) {
   return db.transaction(async (tx) => {
     const [current] = await tx
       .select()
@@ -151,9 +193,14 @@ export async function updateTask(workspace: BoardWorkspace, taskId: number, inpu
       position = (bottom ?? -1) + 1;
     }
 
+    const { type, priority, status, dueDate } = input;
+    const content =
+      current.githubIssueId === null && "title" in input
+        ? { title: input.title, description: input.description, labels: input.labels }
+        : {};
     const [updated] = await tx
       .update(tasks)
-      .set({ ...input, position, updatedAt: new Date() })
+      .set({ type, priority, status, dueDate, ...content, position, updatedAt: new Date() })
       .where(eq(tasks.id, taskId))
       .returning();
     return toBoardCard(updated!, workspace);

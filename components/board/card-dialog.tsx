@@ -2,11 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { format, formatDistanceToNowStrict } from "date-fns";
-import { PlusIcon, SaveIcon } from "lucide-react";
+import { ExternalLinkIcon, PlusIcon, SaveIcon } from "lucide-react";
 
+import { GitHubIcon } from "@/components/auth/brand-icons";
 import { FormMessage } from "@/components/auth/form-parts";
 import { ISSUE_TYPE_META, PRIORITY_META } from "@/components/board/issue-meta";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -67,6 +68,8 @@ export function CardDialog({
 
 function CardForm({ mode, onSubmit }: { mode: CardDialogMode; onSubmit: CardDialogSubmit }) {
   const card = mode.kind === "edit" ? mode.card : null;
+  // GitHub owns a synced card's title, description and labels (see lib/github-issues.ts).
+  const synced = card?.github ?? null;
   const [type, setType] = useState<IssueType>(card?.type ?? (mode.kind === "create" ? mode.type : "feature"));
   const [title, setTitle] = useState(card?.title ?? "");
   const [description, setDescription] = useState(card?.description ?? "");
@@ -110,7 +113,12 @@ function CardForm({ mode, onSubmit }: { mode: CardDialogMode; onSubmit: CardDial
           <typeMeta.icon />
         </span>
         <div className="flex min-w-0 flex-col gap-1">
-          {card && <p className="eyebrow text-muted-foreground tabular-nums">{card.key}</p>}
+          {card && (
+            <p className="eyebrow text-muted-foreground tabular-nums">
+              {card.key}
+              {synced && ` · GitHub #${synced.number}`}
+            </p>
+          )}
           <DialogTitle className="text-lg font-bold">{card ? `${typeMeta.label} details` : `New ${noun}`}</DialogTitle>
           <DialogDescription>
             {card ? "Review and update this card." : "Add the details your AI team needs to pick this up."}
@@ -120,6 +128,28 @@ function CardForm({ mode, onSubmit }: { mode: CardDialogMode; onSubmit: CardDial
 
       <FieldGroup className="gap-5 px-6 py-5">
         <FormMessage message={formError ?? undefined} />
+
+        {synced && (
+          <div className="flex items-start gap-3 rounded-lg bg-muted/60 px-3.5 py-3 text-sm ring-1 ring-border/70">
+            <GitHubIcon className="mt-0.5 size-4 shrink-0" />
+            <p className="flex-1 text-muted-foreground">
+              Synced from{" "}
+              <span className="font-semibold text-foreground">
+                issue #{synced.number} ({synced.state})
+              </span>
+              . Title, description and labels are managed on GitHub; type, priority, status and due date are yours.
+            </p>
+            <a
+              href={synced.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={buttonVariants({ variant: "outline", size: "sm", className: "shrink-0" })}
+            >
+              Open
+              <ExternalLinkIcon data-icon="inline-end" />
+            </a>
+          </div>
+        )}
 
         <FieldSet className="gap-2.5">
           <FieldLegend variant="label">Type</FieldLegend>
@@ -164,9 +194,10 @@ function CardForm({ mode, onSubmit }: { mode: CardDialogMode; onSubmit: CardDial
             placeholder={
               type === "bug" ? "e.g. Logo upload fails for large PNGs" : type === "feature" ? "e.g. Invite teammates by email" : "e.g. Upgrade to the latest Next.js"
             }
-            maxLength={TITLE_MAX}
+            maxLength={synced ? undefined : TITLE_MAX}
             aria-invalid={!!titleError}
-            className="h-10"
+            readOnly={!!synced}
+            className={cn("h-10", synced && "bg-muted/50 text-muted-foreground")}
             autoFocus={!card}
             required
           />
@@ -185,7 +216,8 @@ function CardForm({ mode, onSubmit }: { mode: CardDialogMode; onSubmit: CardDial
                 : "What should be built, and how will we know it's done?"
             }
             rows={4}
-            className="min-h-24 resize-y"
+            readOnly={!!synced}
+            className={cn("min-h-24 resize-y", synced && "max-h-60 bg-muted/50 text-muted-foreground")}
           />
         </Field>
 
@@ -246,9 +278,12 @@ function CardForm({ mode, onSubmit }: { mode: CardDialogMode; onSubmit: CardDial
               onChange={(event) => setLabels(event.target.value)}
               placeholder="auth, ui"
               autoComplete="off"
-              className="h-10"
+              readOnly={!!synced}
+              className={cn("h-10", synced && "bg-muted/50 text-muted-foreground")}
             />
-            <FieldDescription className="text-xs">Comma-separated, up to {LABELS_MAX}.</FieldDescription>
+            <FieldDescription className="text-xs">
+              {synced ? "Labels come from GitHub." : `Comma-separated, up to ${LABELS_MAX}.`}
+            </FieldDescription>
           </Field>
         </div>
       </FieldGroup>

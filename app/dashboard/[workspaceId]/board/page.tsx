@@ -9,5 +9,12 @@ export const metadata: Metadata = { title: "Board" };
 export default async function BoardPage({ params }: PageProps<"/dashboard/[workspaceId]/board">) {
   const { workspace } = await getDashboardContext((await params).workspaceId);
   const data = await getBoardData(workspace);
-  return <KanbanBoard workspaceId={workspace.id} initial={data} repo={workspace.githubRepoFullName} />;
+  return (
+    <KanbanBoard
+      workspaceId={workspace.id}
+      initial={data}
+      repo={workspace.githubRepoFullName}
+      lastSyncedAt={workspace.githubIssuesSyncedAt?.toISOString() ?? null}
+    />
+  );
 }

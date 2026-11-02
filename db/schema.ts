@@ -57,6 +57,8 @@ export const workspaces = pgTable(
     githubRepoUrl: text("github_repo_url").notNull(),
     githubDefaultBranch: text("github_default_branch").notNull(),
     githubRepoPrivate: boolean("github_repo_private").notNull(),
+    // Last successful issue sync (lib/github-issues.ts). Used as GitHub's `since` for incremental syncs.
+    githubIssuesSyncedAt: timestamp("github_issues_synced_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -90,11 +92,20 @@ export const tasks = pgTable(
     labels: text("labels").array().notNull().default(sql`'{}'::text[]`),
     dueDate: date("due_date", { mode: "string" }),
     createdById: integer("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    // Set when the card mirrors a GitHub issue of the workspace's repo (null for cards created in the app).
+    // GitHub owns title, description, labels and open/closed state; the board owns column, type, priority, due date.
+    githubIssueId: bigint("github_issue_id", { mode: "number" }),
+    githubIssueNumber: integer("github_issue_number"),
+    githubIssueUrl: text("github_issue_url"),
+    githubIssueState: text("github_issue_state"),
+    githubUpdatedAt: timestamp("github_updated_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => [
     unique("tasks_workspace_number_unique").on(table.workspaceId, table.number),
+    // One card per issue; concurrent syncs can't duplicate (NULLs — app cards — don't conflict).
+    unique("tasks_workspace_github_issue_unique").on(table.workspaceId, table.githubIssueId),
     index("tasks_workspace_status_position_idx").on(table.workspaceId, table.status, table.position),
   ]
 );

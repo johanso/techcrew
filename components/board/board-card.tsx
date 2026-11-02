@@ -5,6 +5,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { differenceInCalendarDays, format, parseISO } from "date-fns";
 import { CalendarIcon, CalendarX2Icon } from "lucide-react";
 
+import { GitHubIcon } from "@/components/auth/brand-icons";
 import { IssueTypePill, PriorityBadge } from "@/components/board/issue-meta";
 import { AgentAvatar } from "@/components/dashboard/agent-avatar";
 import type { BoardCard } from "@/lib/board-config";
@@ -47,7 +48,16 @@ export function BoardCardView({
     >
       <div className="flex items-center justify-between gap-2">
         <IssueTypePill type={card.type} />
-        <span className="text-xs font-medium text-muted-foreground tabular-nums">{card.key}</span>
+        {card.github ? (
+          <span
+            className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground tabular-nums"
+            title={`GitHub issue #${card.github.number} · ${card.key}`}
+          >
+            <GitHubIcon className="size-3" />#{card.github.number}
+          </span>
+        ) : (
+          <span className="text-xs font-medium text-muted-foreground tabular-nums">{card.key}</span>
+        )}
       </div>
 
       <p className="line-clamp-3 text-sm leading-snug font-semibold">{card.title}</p>

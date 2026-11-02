@@ -53,7 +53,6 @@ npm run build        # production build — must pass before you finish
 npx tsc --noEmit     # type check
 npm run db:push      # apply db/schema.ts to the database
 npm run db:studio    # inspect data
-npm run db:seed:board [-- <workspaceId>]   # add sample board cards (idempotent: skips existing titles)
 npx next typegen     # regenerate PageProps / RouteContext types after adding routes
 npx shadcn add <c>   # add a shadcn component into components/ui
 ```
@@ -79,7 +78,7 @@ app/
       layout.tsx          Dashboard shell: sidebar + header. Owner check via getDashboardContext().
       page.tsx            Overview.
       board/ ai-team/ pull-requests/ activity/   One page.tsx per sidebar section.
-      board/actions.ts    createCardAction, updateCardAction, moveCardsAction (auth + validation).
+      board/actions.ts    createCardAction, updateCardAction, moveCardsAction, syncIssuesAction (auth + validation).
       settings/           Account (#account) and workspace (#workspace) settings.
   globals.css             THE theme: palette, semantic tokens, Tailwind mapping.
   layout.tsx              Root layout; loads Plus Jakarta Sans, ThemeProvider.
@@ -89,6 +88,7 @@ components/
   workspace/              Workspace UI (avatar, create form, appearance + repo pickers, draft storage).
   board/                  Kanban: kanban-board (state + DndContext), board-column, board-card, card-dialog (create + edit),
                           board-toolbar (search + type tabs), board-filters (pure matching logic),
+                          use-github-sync (polling hook), github-sync-controls (Refresh button, sync notice),
                           issue-meta (type/priority/column colors + PriorityBadge, IssueTypePill — reuse everywhere).
   dashboard/              Overview sections: stat-tile, upcoming-tasks, agent-office-placeholder, recent-activity,
                           agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS).
@@ -110,7 +110,8 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   agents.ts               Agent type, listAgents(), taskKeyPrefix(). ⚠️ DUMMY agents for now.
   board-config.ts         Board vocabulary shared by server + client: columns, issue types, priorities, BoardCard.
   board.ts                Board persistence (tasks table): getBoardData, createTask, updateTask, reorderTasks,
-                          parseCardInput (server-side validation).
+                          parseCardInput / parseBoardInput (server-side validation).
+  github-issues.ts        syncWorkspaceIssues(): pulls the repo's GitHub issues onto the board (see "GitHub issues").
   workspace-icons.ts      Selectable icon set (shared client/server).
   utils.ts                cn(), initials().
 db/                       Drizzle client (index.ts) and schema (schema.ts).
@@ -292,6 +293,19 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   board sends the full ordered id list of every column that changed (`moveCardsAction`); if the server refuses, it
   restores the pre-drag snapshot and shows an inline error. The server re-checks that every id belongs to the
   workspace. New cards take `min(position) - 1` (top); positions are sort keys, not indexes.
+- **GitHub issues** (`lib/github-issues.ts`): open issues of the linked repo become cards (pull requests are
+  skipped). The board syncs on mount, on tab refocus (≥15 s gap), every 60 s while visible, and via **Refresh**
+  (`useGithubSync`). Syncs are incremental via GitHub's `since` (`workspaces.github_issues_synced_at`, minus 60 s
+  overlap) and serialized by the same workspace row lock as card creation; `(workspace_id, github_issue_id)` is
+  unique so a card can never be duplicated. Ownership rules — keep them when adding fields:
+  - **GitHub owns** title, description, labels, open/closed. Refreshed when the issue changes; read-only in the
+    dialog ("Open on GitHub"); `updateCardAction` validates/saves only board fields for synced cards.
+  - **The board owns** column, type, priority, due date. Set once on import (type/priority from labels:
+    `typeFromLabels`, `priorityFromLabels`), never overwritten — except closing an issue moves it to Done and
+    reopening moves it back to Todo.
+  - A fresh board is never applied mid-drag or while a move is saving (it would undo the move on screen); the hook
+    defers it and refetches when the board settles. Auto-sync pauses on `not_connected` / `reconnect` / `no_access`.
+  - Cards created in the app have no GitHub issue (`github: null`) and are not pushed to GitHub.
 - **Drag and drop** uses `@dnd-kit/core` + `@dnd-kit/sortable` (stable v6/v10 API, not the 0.x `@dnd-kit/react`).
   Rules: `MouseSensor` (6 px distance) + `TouchSensor` (180 ms delay) + `KeyboardSensor` (Space only, so Enter can
   open the card; clicks within 250 ms of a drop are ignored) — never `PointerSensor`

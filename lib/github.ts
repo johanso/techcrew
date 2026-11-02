@@ -158,6 +158,73 @@ export async function getLinkableRepo(token: string, fullName: string) {
   return isLinkable(repo) ? toRepo(repo) : null;
 }
 
+// ── Issues ─────────────────────────────────────────────────────────────────────
+
+export type GithubIssue = {
+  id: number;
+  number: number;
+  title: string;
+  body: string;
+  state: "open" | "closed";
+  url: string;
+  labels: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ApiIssue = {
+  id: number;
+  number: number;
+  title: string;
+  body: string | null;
+  state: "open" | "closed";
+  html_url: string;
+  labels: (string | { name?: string })[];
+  created_at: string;
+  updated_at: string;
+  // Present when the "issue" is actually a pull request.
+  pull_request?: unknown;
+};
+
+/** Upper bound per sync, so one huge repo can't stall the board (5 pages × 100). */
+const ISSUE_PAGES_MAX = 5;
+
+/**
+ * Issues of a repository, most recently updated first, without pull requests.
+ * With `since`, returns every issue (open or closed) updated after it — enough to apply
+ * edits, closes and reopens incrementally. Without it, only open issues (a first sync).
+ */
+export async function listRepoIssues(token: string, fullName: string, since: Date | null) {
+  const issues: GithubIssue[] = [];
+  for (let page = 1; page <= ISSUE_PAGES_MAX; page++) {
+    const params = new URLSearchParams({
+      state: since ? "all" : "open",
+      sort: "updated",
+      direction: "desc",
+      per_page: "100",
+      page: String(page),
+    });
+    if (since) params.set("since", since.toISOString());
+    const batch = await githubRequest<ApiIssue[]>(token, `/repos/${fullName}/issues?${params}`);
+    for (const issue of batch) {
+      if (issue.pull_request) continue;
+      issues.push({
+        id: issue.id,
+        number: issue.number,
+        title: issue.title,
+        body: issue.body ?? "",
+        state: issue.state,
+        url: issue.html_url,
+        labels: issue.labels.map((label) => (typeof label === "string" ? label : label.name ?? "")).filter(Boolean),
+        createdAt: issue.created_at,
+        updatedAt: issue.updated_at,
+      });
+    }
+    if (batch.length < 100) break;
+  }
+  return issues;
+}
+
 // ── Persistence ────────────────────────────────────────────────────────────────
 
 export async function saveGithubConnection(

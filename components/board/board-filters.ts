@@ -11,15 +11,21 @@ export function isFiltering({ query, type }: BoardFilters) {
 }
 
 /**
- * Text match on title or key. The key matches however people type it:
- * "ACM-142", "acm142", "#142" or just "142".
+ * Text match on title, key or GitHub issue number. Keys match however people type them:
+ * "ACM-142", "acm142", "#142" or just "142" (the last two also match GitHub issue #142).
  */
 export function matchesQuery(card: BoardCard, rawQuery: string) {
   const query = rawQuery.trim().toLowerCase().replace(/^#/, "");
   if (!query) return true;
   const key = card.key.toLowerCase();
   const compact = (value: string) => value.replace(/[\s-]/g, "");
-  return card.title.toLowerCase().includes(query) || key.includes(query) || compact(key).includes(compact(query));
+  const issueNumber = card.github ? String(card.github.number) : null;
+  return (
+    card.title.toLowerCase().includes(query) ||
+    key.includes(query) ||
+    compact(key).includes(compact(query)) ||
+    (issueNumber !== null && /^\d+$/.test(query) && issueNumber.includes(query))
+  );
 }
 
 export function matchesFilters(card: BoardCard, filters: BoardFilters) {

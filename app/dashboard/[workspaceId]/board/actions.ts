@@ -1,7 +1,8 @@
 "use server";
 
-import { createTask, parseCardInput, reorderTasks, updateTask } from "@/lib/board";
-import type { BoardCard, BoardColumnId } from "@/lib/board-config";
+import { createTask, getBoardData, isGithubTask, parseBoardInput, parseCardInput, reorderTasks, updateTask } from "@/lib/board";
+import type { BoardCard, BoardColumnId, BoardData } from "@/lib/board-config";
+import { syncWorkspaceIssues, type SyncResult } from "@/lib/github-issues";
 import { requireUser } from "@/lib/current-user";
 import { getOwnedWorkspace } from "@/lib/workspaces";
 
@@ -34,10 +35,14 @@ export async function createCardAction(workspaceId: number, raw: unknown): Promi
 export async function updateCardAction(workspaceId: number, cardId: string, raw: unknown): Promise<CardActionResult> {
   const auth = await authorize(workspaceId);
   if (!auth) return { ok: false, error: "Workspace not found." };
-  const input = parseCardInput(raw);
+  const taskId = Number(cardId);
+  const synced = await isGithubTask(auth.workspace, taskId);
+  if (synced === null) return { ok: false, error: "This card no longer exists." };
+  // GitHub-synced cards: title, description and labels belong to GitHub, so only board fields are validated/saved.
+  const input = synced ? parseBoardInput(raw) : parseCardInput(raw);
   if (!input.ok) return input;
   try {
-    const card = await updateTask(auth.workspace, Number(cardId), input.value);
+    const card = await updateTask(auth.workspace, taskId, input.value);
     if (!card) return { ok: false, error: "This card no longer exists." };
     return { ok: true, card };
   } catch (error) {
@@ -63,4 +68,20 @@ export async function moveCardsAction(
     console.error("[board] move failed", error);
     return { ok: false };
   }
+}
+
+export type SyncIssuesResult = SyncResult & { board?: BoardData };
+
+/**
+ * Pulls new and changed GitHub issues onto the board. Returns the fresh board only when something
+ * changed (so idle polls don't re-render the client), or when the client asks for it because it had
+ * to skip an earlier one mid-drag.
+ */
+export async function syncIssuesAction(workspaceId: number, options: { includeBoard?: boolean } = {}): Promise<SyncIssuesResult> {
+  const auth = await authorize(workspaceId);
+  if (!auth) return { ok: false, reason: "error" };
+  const result = await syncWorkspaceIssues(auth.workspace);
+  if (!result.ok) return result;
+  const changed = result.added + result.updated + result.closed + result.reopened > 0;
+  return changed || options.includeBoard ? { ...result, board: await getBoardData(auth.workspace) } : result;
 }

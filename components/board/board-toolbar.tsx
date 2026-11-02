@@ -65,8 +65,8 @@ export function BoardToolbar({
               onChange({ ...filters, query: "" });
             }
           }}
-          placeholder="Search by title or key, e.g. ACM-142"
-          aria-label="Search cards by title or key"
+          placeholder="Search by title, key or #issue"
+          aria-label="Search cards by title, key or GitHub issue number"
           className="[&::-webkit-search-cancel-button]:hidden"
         />
         <InputGroupAddon align="inline-end">
