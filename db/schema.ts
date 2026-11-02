@@ -99,6 +99,10 @@ export const tasks = pgTable(
     githubIssueUrl: text("github_issue_url"),
     githubIssueState: text("github_issue_state"),
     githubUpdatedAt: timestamp("github_updated_at"),
+    // Agent id from lib/agents.ts the card is assigned to (set by Run), or null.
+    assigneeAgentId: text("assignee_agent_id"),
+    // Removed from the board. The row stays so keys aren't reused and a sync doesn't import the issue again.
+    removedAt: timestamp("removed_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },

@@ -53,6 +53,7 @@ npm run build        # production build — must pass before you finish
 npx tsc --noEmit     # type check
 npm run db:push      # apply db/schema.ts to the database
 npm run db:studio    # inspect data
+npm run inngest:dev  # local Inngest Dev Server — required for the board's Run action (agent jobs)
 npx next typegen     # regenerate PageProps / RouteContext types after adding routes
 npx shadcn add <c>   # add a shadcn component into components/ui
 ```
@@ -78,7 +79,8 @@ app/
       layout.tsx          Dashboard shell: sidebar + header. Owner check via getDashboardContext().
       page.tsx            Overview.
       board/ ai-team/ pull-requests/ activity/   One page.tsx per sidebar section.
-      board/actions.ts    createCardAction, updateCardAction, moveCardsAction, syncIssuesAction (auth + validation).
+      board/actions.ts    createCardAction, updateCardAction, moveCardsAction, removeCardAction, runCardAction,
+                          syncIssuesAction (auth + validation).
       settings/           Account (#account) and workspace (#workspace) settings.
   globals.css             THE theme: palette, semantic tokens, Tailwind mapping.
   layout.tsx              Root layout; loads Plus Jakarta Sans, ThemeProvider.
@@ -107,10 +109,11 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   storage.ts              S3 uploads/reads, logo limits.
   workspaces.ts           Workspace queries (always scoped by owner) + getDashboardContext().
   overview.ts             Overview data contract + getOverviewData(). ⚠️ Returns DUMMY data for now.
-  agents.ts               Agent type, listAgents(), taskKeyPrefix(). ⚠️ DUMMY agents for now.
+  agents.ts               Agent type, listAgents(), getAgent(), RUN_AGENT_ID (the analyst), taskKeyPrefix(). ⚠️ DUMMY agents for now.
   board-config.ts         Board vocabulary shared by server + client: columns, issue types, priorities, BoardCard.
   board.ts                Board persistence (tasks table): getBoardData, createTask, updateTask, reorderTasks,
-                          parseCardInput / parseBoardInput (server-side validation).
+                          removeTask, assignTask, parseCardInput / parseBoardInput (server-side validation).
+  inngest/agent-run.ts    agentTaskRun: the job Run queues (`agent/task.run`). ⚠️ PLACEHOLDER until agents exist.
   github-issues.ts        syncWorkspaceIssues(): pulls the repo's GitHub issues onto the board (see "GitHub issues").
   workspace-icons.ts      Selectable icon set (shared client/server).
   utils.ts                cn(), initials().
@@ -279,10 +282,17 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   `grid lg:grid-cols-5` with `UpcomingTasks` (`lg:col-span-3`) and `AgentOfficePlaceholder` (`lg:col-span-2`) →
   `RecentActivity` list. Status/kind → icon + tone maps live next to each component (`TASK_STATUS`, `KIND`).
 - **Board** (`/dashboard/[id]/board`): five columns — Todo, In Development, In Review, Testing, Done —
-  each with a light tint from `COLUMN_STYLE` (slate, sky, amber, orange, green). Cards show type pill, key, title,
-  labels, priority and due date. "New" (Feature / Bug / Issue) and each column's "+" open `CardDialog` in create
-  mode preset to that type/column; clicking a card (or Enter on a focused card) opens the same dialog in edit mode.
-  There is no assignee field until agents exist (cards render an agent avatar only when `assignee` is set). The board opts out of the page max width with
+  each with a light tint from `COLUMN_STYLE` (slate, sky, amber, orange, green). Cards show type pill, key
+  (`PREFIX-<number>`, always — GitHub cards add `#<issue>` in the footer), title, labels, priority, due date and the
+  assigned agent. "New" (Feature / Bug / Issue) and each column's "+" open `CardDialog` in create mode preset to that
+  type/column; clicking a card (or Enter on a focused card) opens the same dialog in edit mode.
+  Each card has a ▶ **Run** button and a **⋯** menu (Run, Remove task). They render as siblings of the card inside
+  the sortable wrapper (the card is only the drag *activator*), so they never start a drag or open the dialog.
+  - **Run** (`runCardAction`) queues `agent/task.run` in Inngest, then assigns the card to the analyst
+    (`assignee_agent_id`); if queuing fails nothing is assigned. Run locally with `npm run inngest:dev`.
+  - **Remove task** (`removeCardAction`, after an `AlertDialog` confirm) sets `removed_at`. Rows are never deleted:
+    keys aren't reused, and a removed GitHub card is never imported again (the issue stays open on GitHub).
+    Every board query goes through `onBoard()` in `lib/board.ts`, which skips removed rows. The board opts out of the page max width with
   `data-page-width="full"` and scrolls horizontally (snapping on mobile).
 - **Board filters** (`BoardToolbar` + `board-filters.ts`): a search box (title or key — "ACM-142", "acm142",
   "#142", "142"; `/` focuses it, Escape clears) and segmented type tabs (All / Features / Bugs / Issues, counts follow
@@ -306,6 +316,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   - A fresh board is never applied mid-drag or while a move is saving (it would undo the move on screen); the hook
     defers it and refetches when the board settles. Auto-sync pauses on `not_connected` / `reconnect` / `no_access`.
   - Cards created in the app have no GitHub issue (`github: null`) and are not pushed to GitHub.
+  - Every visit (navigation or reload) starts a sync, and the header says "Syncing with GitHub…" from the first paint.
+  - A removed card stays removed: the sync skips rows with `removed_at`, whatever happens to the issue.
 - **Drag and drop** uses `@dnd-kit/core` + `@dnd-kit/sortable` (stable v6/v10 API, not the 0.x `@dnd-kit/react`).
   Rules: `MouseSensor` (6 px distance) + `TouchSensor` (180 ms delay) + `KeyboardSensor` (Space only, so Enter can
   open the card; clicks within 250 ms of a drop are ignored) — never `PointerSensor`

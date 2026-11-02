@@ -14,6 +14,7 @@ import { GithubError, getGithubToken, listRepoIssues, type GithubIssue } from "@
  * - GitHub owns title, description, labels and open/closed state — refreshed whenever the issue changes.
  * - The board owns column, type, priority and due date — set once on import, then never touched by a sync,
  *   except that closing an issue moves its card to Done and reopening one moves it back to Todo.
+ * - A card removed from the board stays removed: its tombstone row keeps the issue from being imported again.
  */
 
 export type SyncCounts = { added: number; updated: number; closed: number; reopened: number };
@@ -85,6 +86,7 @@ export async function syncWorkspaceIssues(workspace: SyncWorkspace): Promise<Syn
             status: tasks.status,
             githubIssueState: tasks.githubIssueState,
             githubUpdatedAt: tasks.githubUpdatedAt,
+            removedAt: tasks.removedAt,
           })
           .from(tasks)
           .where(and(eq(tasks.workspaceId, workspace.id), inArray(tasks.githubIssueId, issues.map((i) => i.id))))
@@ -120,6 +122,9 @@ export async function syncWorkspaceIssues(workspace: SyncWorkspace): Promise<Syn
         counts.added++;
         continue;
       }
+
+      // Removed from the board by the user: leave it off, whatever happens to the issue.
+      if (row.removedAt) continue;
 
       const changed = !row.githubUpdatedAt || new Date(issue.updatedAt) > row.githubUpdatedAt;
       if (!changed) continue;

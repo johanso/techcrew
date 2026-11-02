@@ -17,8 +17,11 @@ export function BoardColumn({
   totalCount,
   filtering,
   highlightId,
+  runningIds,
   onAdd,
   onOpenCard,
+  onRunCard,
+  onRemoveCard,
 }: {
   column: (typeof BOARD_COLUMNS)[number];
   /** Cards to render (already filtered). */
@@ -27,8 +30,12 @@ export function BoardColumn({
   totalCount: number;
   filtering: boolean;
   highlightId: string | null;
+  /** Cards whose Run is being started. */
+  runningIds: ReadonlySet<string>;
   onAdd: () => void;
   onOpenCard: (card: BoardCard) => void;
+  onRunCard: (card: BoardCard) => void;
+  onRemoveCard: (card: BoardCard) => void;
 }) {
   // The column itself is a drop target, so empty columns accept cards too.
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
@@ -78,7 +85,10 @@ export function BoardColumn({
               card={card}
               done={column.id === "done"}
               highlight={card.id === highlightId}
+              running={runningIds.has(card.id)}
               onOpen={() => onOpenCard(card)}
+              onRun={() => onRunCard(card)}
+              onRemove={() => onRemoveCard(card)}
             />
           ))}
           {cards.length === 0 && (

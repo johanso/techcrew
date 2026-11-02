@@ -1,5 +1,6 @@
 import { serve } from 'inngest/next';
 import { inngest } from '@/lib/inngest/client';
+import { agentTaskRun } from '@/lib/inngest/agent-run';
 import {
   processTaskBackgroundJob,
   dailySyncScheduledJob,
@@ -11,5 +12,6 @@ export const { GET, POST, PUT } = serve({
   functions: [
     processTaskBackgroundJob,
     dailySyncScheduledJob,
+    agentTaskRun,
   ],
 });

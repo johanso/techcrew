@@ -20,7 +20,13 @@ import {
 import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { ChevronDownIcon, CircleAlertIcon, PlusIcon } from "lucide-react";
 
-import { createCardAction, moveCardsAction, updateCardAction } from "@/app/dashboard/[workspaceId]/board/actions";
+import {
+  createCardAction,
+  moveCardsAction,
+  removeCardAction,
+  runCardAction,
+  updateCardAction,
+} from "@/app/dashboard/[workspaceId]/board/actions";
 import { BoardCardView } from "@/components/board/board-card";
 import { BoardColumn } from "@/components/board/board-column";
 import { isFiltering, matchesFilters, matchesQuery, NO_FILTERS, type BoardFilters, type TypeFilter } from "@/components/board/board-filters";
@@ -30,6 +36,16 @@ import { GithubSyncButton, GithubSyncNotice } from "@/components/board/github-sy
 import { useGithubSync } from "@/components/board/use-github-sync";
 import { ISSUE_TYPE_META } from "@/components/board/issue-meta";
 import { PageHeader } from "@/components/dashboard/page-header";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -39,6 +55,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
 import {
   BOARD_COLUMNS,
   ISSUE_TYPES,
@@ -77,7 +94,14 @@ export function KanbanBoard({
     open: false,
     mode: { kind: "create", type: "feature", status: "todo" },
   });
-  const [syncError, setSyncError] = useState<string | null>(null);
+  const [boardError, setBoardError] = useState<string | null>(null);
+  const [runningIds, setRunningIds] = useState<ReadonlySet<string>>(new Set());
+  // The card the remove confirmation is about; kept while the dialog animates out.
+  const [removal, setRemoval] = useState<{ open: boolean; card: BoardCard | null; pending: boolean }>({
+    open: false,
+    card: null,
+    pending: false,
+  });
   // Column layout when the drag began: restored on Escape, and if saving the move fails.
   const snapshot = useRef<BoardColumns | null>(null);
   // A pointer drag that ends on its own card would also fire a click; ignore clicks right after a drop.
@@ -90,20 +114,20 @@ export function KanbanBoard({
   // Stable id keeps dnd-kit's generated aria-describedby ids identical on server and client.
   const dndId = useId();
 
-  // A synced board must not land mid-drag or before a move is saved: it would undo the move on screen.
+  // A synced board must not land mid-drag or before a move/removal is saved: it would undo it on screen.
   const dragging = useRef(false);
-  const pendingMoves = useRef(0);
+  const pendingWrites = useRef(0);
   const github = useGithubSync({
     workspaceId,
     initialSyncedAt: lastSyncedAt,
-    isBusy: () => dragging.current || pendingMoves.current > 0,
+    isBusy: () => dragging.current || pendingWrites.current > 0,
     onBoard: (board) => {
       setCards(board.cards);
       setColumns(board.columns);
     },
   });
   const settle = () => {
-    if (!dragging.current && pendingMoves.current === 0) github.flushDeferred();
+    if (!dragging.current && pendingWrites.current === 0) github.flushDeferred();
   };
   const connectHref = `/api/github/connect?next=${encodeURIComponent(`/dashboard/${workspaceId}/board`)}`;
 
@@ -171,6 +195,52 @@ export function KanbanBoard({
     });
   };
 
+  // Run: the server queues the analyst, then returns the card assigned to it.
+  const runCard = async (card: BoardCard) => {
+    if (runningIds.has(card.id)) return;
+    setRunningIds((prev) => new Set(prev).add(card.id));
+    try {
+      const result = await runCardAction(workspaceId, card.id);
+      if (result.ok) setCards((prev) => (prev[card.id] ? { ...prev, [card.id]: result.card } : prev));
+      else setBoardError(result.error);
+    } catch {
+      setBoardError(`We couldn't start the analyst on ${card.key}. Please try again.`);
+    } finally {
+      setRunningIds((prev) => {
+        const next = new Set(prev);
+        next.delete(card.id);
+        return next;
+      });
+    }
+  };
+
+  const confirmRemove = async () => {
+    const card = removal.card;
+    if (!card || removal.pending) return;
+    setRemoval((r) => ({ ...r, pending: true }));
+    pendingWrites.current++;
+    try {
+      const result = await removeCardAction(workspaceId, card.id);
+      if (!result.ok) {
+        setBoardError(result.error);
+      } else {
+        setColumns((prev) =>
+          Object.fromEntries(BOARD_COLUMNS.map((c) => [c.id, prev[c.id].filter((id) => id !== card.id)])) as BoardColumns
+        );
+        setCards((prev) => {
+          const { [card.id]: _removed, ...rest } = prev;
+          return rest;
+        });
+      }
+    } catch {
+      setBoardError("We couldn't remove the card. Please try again.");
+    } finally {
+      pendingWrites.current--;
+      setRemoval((r) => ({ ...r, open: false, pending: false }));
+      settle();
+    }
+  };
+
   // Cross-column moves happen while dragging, so the placeholder follows the pointer between columns.
   const handleDragOver = ({ active, over }: DragOverEvent) => {
     if (!over) return;
@@ -214,15 +284,15 @@ export function KanbanBoard({
     if (!before || Object.keys(changed).length === 0) return settle();
 
     // Optimistic: the board already shows the move. Roll back if the server refuses it.
-    pendingMoves.current++;
+    pendingWrites.current++;
     moveCardsAction(workspaceId, changed)
       .then(({ ok }) => {
         if (ok) return;
         setColumns(before);
-        setSyncError("We couldn't save that move, so the card went back to where it was. Please try again.");
+        setBoardError("We couldn't save that move, so the card went back to where it was. Please try again.");
       })
       .finally(() => {
-        pendingMoves.current--;
+        pendingWrites.current--;
         settle();
       });
   };
@@ -304,14 +374,14 @@ export function KanbanBoard({
 
       <GithubSyncNotice state={github.state} repo={repo} connectHref={connectHref} onRetry={() => void github.sync({ manual: true })} />
 
-      {syncError && (
+      {boardError && (
         <div
           role="alert"
           className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2.5 text-sm text-destructive"
         >
           <CircleAlertIcon className="size-4 shrink-0" />
-          <p className="flex-1">{syncError}</p>
-          <Button variant="ghost" size="sm" onClick={() => setSyncError(null)} className="text-destructive">
+          <p className="flex-1">{boardError}</p>
+          <Button variant="ghost" size="sm" onClick={() => setBoardError(null)} className="text-destructive">
             Dismiss
           </Button>
         </div>
@@ -359,8 +429,11 @@ export function KanbanBoard({
               totalCount={columns[column.id].length}
               filtering={filtering}
               highlightId={highlightId}
+              runningIds={runningIds}
               onAdd={() => openCreate({ status: column.id })}
               onOpenCard={openCard}
+              onRunCard={(card) => void runCard(card)}
+              onRemoveCard={(card) => setRemoval({ open: true, card, pending: false })}
             />
           ))}
         </div>
@@ -383,6 +456,26 @@ export function KanbanBoard({
         mode={dialog.mode}
         onSubmit={submitCard}
       />
+
+      <AlertDialog open={removal.open} onOpenChange={(open) => !removal.pending && setRemoval((r) => ({ ...r, open }))}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {removal.card?.key} from the board?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {removal.card?.github
+                ? `“${removal.card.title}” leaves the board for good. Issue #${removal.card.github.number} stays open on GitHub and won't be synced back.`
+                : `“${removal.card?.title ?? ""}” leaves the board for good. Its key won't be reused.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removal.pending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => void confirmRemove()} disabled={removal.pending}>
+              {removal.pending && <Spinner />}
+              {removal.pending ? "Removing…" : "Remove task"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

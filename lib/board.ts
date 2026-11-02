@@ -1,9 +1,9 @@
 import "server-only";
 
-import { and, asc, eq, inArray, max, min } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, max, min } from "drizzle-orm";
 
 import { db, tasks, workspaces, type Task, type Workspace } from "@/db";
-import { taskKeyPrefix } from "@/lib/agents";
+import { getAgent, taskKeyPrefix, type AgentId } from "@/lib/agents";
 import {
   DESCRIPTION_MAX,
   emptyColumns,
@@ -26,6 +26,9 @@ import {
 
 type BoardWorkspace = Pick<Workspace, "id" | "name">;
 
+/** Cards of this workspace that are still on the board. */
+const onBoard = (workspace: BoardWorkspace) => and(eq(tasks.workspaceId, workspace.id), isNull(tasks.removedAt));
+
 function toBoardCard(task: Task, workspace: BoardWorkspace): BoardCard {
   return {
     id: String(task.id),
@@ -34,7 +37,7 @@ function toBoardCard(task: Task, workspace: BoardWorkspace): BoardCard {
     title: task.title,
     description: task.description,
     priority: task.priority as BoardCard["priority"],
-    assignee: null,
+    assignee: getAgent(task.assigneeAgentId),
     labels: task.labels,
     dueDate: task.dueDate,
     createdAt: task.createdAt.toISOString(),
@@ -51,7 +54,7 @@ export async function getBoardData(workspace: BoardWorkspace): Promise<BoardData
   const rows = await db
     .select()
     .from(tasks)
-    .where(eq(tasks.workspaceId, workspace.id))
+    .where(onBoard(workspace))
     .orderBy(asc(tasks.position), asc(tasks.id));
 
   const cards: BoardData["cards"] = {};
@@ -167,7 +170,7 @@ export async function isGithubTask(workspace: BoardWorkspace, taskId: number) {
   const [row] = await db
     .select({ githubIssueId: tasks.githubIssueId })
     .from(tasks)
-    .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspace.id)));
+    .where(and(eq(tasks.id, taskId), onBoard(workspace)));
   return row ? row.githubIssueId !== null : null;
 }
 
@@ -180,7 +183,7 @@ export async function updateTask(workspace: BoardWorkspace, taskId: number, inpu
     const [current] = await tx
       .select()
       .from(tasks)
-      .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspace.id)))
+      .where(and(eq(tasks.id, taskId), onBoard(workspace)))
       .for("update");
     if (!current) return null;
 
@@ -221,7 +224,7 @@ export async function reorderTasks(workspace: BoardWorkspace, columns: Partial<R
     const owned = await tx
       .select({ id: tasks.id })
       .from(tasks)
-      .where(and(eq(tasks.workspaceId, workspace.id), inArray(tasks.id, ids)));
+      .where(and(onBoard(workspace), inArray(tasks.id, ids)));
     if (owned.length !== ids.length) return false;
 
     const now = new Date();
@@ -232,4 +235,27 @@ export async function reorderTasks(workspace: BoardWorkspace, columns: Partial<R
     }
     return true;
   });
+}
+
+/**
+ * Takes a card off the board. The row stays as a tombstone: keys are never reused, and the next sync
+ * doesn't import a GitHub issue again (the issue itself stays open on GitHub). False if it's already gone.
+ */
+export async function removeTask(workspace: BoardWorkspace, taskId: number) {
+  const removed = await db
+    .update(tasks)
+    .set({ removedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(tasks.id, taskId), onBoard(workspace)))
+    .returning({ id: tasks.id });
+  return removed.length > 0;
+}
+
+/** Assigns a card to an agent (null unassigns). Returns the updated card, or null if it's gone. */
+export async function assignTask(workspace: BoardWorkspace, taskId: number, agentId: AgentId | null) {
+  const [updated] = await db
+    .update(tasks)
+    .set({ assigneeAgentId: agentId, updatedAt: new Date() })
+    .where(and(eq(tasks.id, taskId), onBoard(workspace)))
+    .returning();
+  return updated ? toBoardCard(updated, workspace) : null;
 }

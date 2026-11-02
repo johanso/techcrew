@@ -1,9 +1,22 @@
 "use server";
 
-import { createTask, getBoardData, isGithubTask, parseBoardInput, parseCardInput, reorderTasks, updateTask } from "@/lib/board";
+import { getAgent, RUN_AGENT_ID } from "@/lib/agents";
+import {
+  assignTask,
+  createTask,
+  getBoardData,
+  isGithubTask,
+  parseBoardInput,
+  parseCardInput,
+  removeTask,
+  reorderTasks,
+  updateTask,
+} from "@/lib/board";
 import type { BoardCard, BoardColumnId, BoardData } from "@/lib/board-config";
 import { syncWorkspaceIssues, type SyncResult } from "@/lib/github-issues";
 import { requireUser } from "@/lib/current-user";
+import { inngest } from "@/lib/inngest/client";
+import { AGENT_TASK_RUN, type AgentTaskRunData } from "@/lib/inngest/agent-run";
 import { getOwnedWorkspace } from "@/lib/workspaces";
 
 export type CardActionResult = { ok: true; card: BoardCard } | { ok: false; error: string };
@@ -48,6 +61,52 @@ export async function updateCardAction(workspaceId: number, cardId: string, raw:
   } catch (error) {
     console.error("[board] update failed", error);
     return { ok: false, error: "We couldn't save your changes. Please try again." };
+  }
+}
+
+/** Takes a card off the board (see removeTask: GitHub issues are left untouched). A card already gone counts as removed. */
+export async function removeCardAction(workspaceId: number, cardId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const auth = await authorize(workspaceId);
+  if (!auth) return { ok: false, error: "Workspace not found." };
+  const taskId = Number(cardId);
+  if (!Number.isSafeInteger(taskId)) return { ok: true };
+  try {
+    await removeTask(auth.workspace, taskId);
+    return { ok: true };
+  } catch (error) {
+    console.error("[board] remove failed", error);
+    return { ok: false, error: "We couldn't remove the card. Please try again." };
+  }
+}
+
+/**
+ * Run: hands the card to the analyst agent. The job is queued first, so a card is only shown as assigned
+ * once the agent has really been asked to work on it; the job itself skips cards removed meanwhile.
+ */
+export async function runCardAction(workspaceId: number, cardId: string): Promise<CardActionResult> {
+  const auth = await authorize(workspaceId);
+  if (!auth) return { ok: false, error: "Workspace not found." };
+  const taskId = Number(cardId);
+  if (!Number.isSafeInteger(taskId) || (await isGithubTask(auth.workspace, taskId)) === null) {
+    return { ok: false, error: "This card no longer exists." };
+  }
+  const agent = getAgent(RUN_AGENT_ID)!;
+  try {
+    const data: AgentTaskRunData = { workspaceId: auth.workspace.id, taskId, agentId: agent.id };
+    await inngest.send({ name: AGENT_TASK_RUN, data });
+  } catch (error) {
+    console.error("[board] run failed to queue", error);
+    // Locally the usual cause is the Inngest Dev Server not running; say so instead of a generic retry.
+    const hint = process.env.NODE_ENV === "production" ? "Please try again." : "Is the Inngest Dev Server running? Start it with `npm run inngest:dev`.";
+    return { ok: false, error: `We couldn't start ${agent.name} on this card. ${hint}` };
+  }
+  try {
+    const card = await assignTask(auth.workspace, taskId, RUN_AGENT_ID);
+    if (!card) return { ok: false, error: "This card no longer exists." };
+    return { ok: true, card };
+  } catch (error) {
+    console.error("[board] run failed to assign", error);
+    return { ok: false, error: "We couldn't save the assignment. Please try again." };
   }
 }
 

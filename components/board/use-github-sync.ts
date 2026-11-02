@@ -47,7 +47,8 @@ export function useGithubSync({
   isBusy: () => boolean;
   onBoard: (board: BoardData) => void;
 }) {
-  const [state, setState] = useState<GithubSyncState>({ status: "idle", lastSyncedAt: initialSyncedAt });
+  // Every visit (navigation or reload) starts with a sync, so say so from the first paint.
+  const [state, setState] = useState<GithubSyncState>({ status: "syncing", lastSyncedAt: initialSyncedAt });
   const inFlight = useRef(false);
   const lastStartedAt = useRef(0);
   // A changed board arrived while busy; ask for it again once the board is idle.

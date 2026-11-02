@@ -3,11 +3,21 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { differenceInCalendarDays, format, parseISO } from "date-fns";
-import { CalendarIcon, CalendarX2Icon } from "lucide-react";
+import { CalendarIcon, CalendarX2Icon, EllipsisIcon, PlayIcon, Trash2Icon } from "lucide-react";
 
 import { GitHubIcon } from "@/components/auth/brand-icons";
 import { IssueTypePill, PriorityBadge } from "@/components/board/issue-meta";
 import { AgentAvatar } from "@/components/dashboard/agent-avatar";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { BoardCard } from "@/lib/board-config";
 import { cn } from "@/lib/utils";
 
@@ -46,18 +56,10 @@ export function BoardCardView({
       )}
       {...props}
     >
-      <div className="flex items-center justify-between gap-2">
+      {/* pr-16 leaves room for the Run / ⋯ buttons, which sit on top of the card (see SortableBoardCard). */}
+      <div className="flex min-w-0 items-center gap-2 pr-16">
         <IssueTypePill type={card.type} />
-        {card.github ? (
-          <span
-            className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground tabular-nums"
-            title={`GitHub issue #${card.github.number} · ${card.key}`}
-          >
-            <GitHubIcon className="size-3" />#{card.github.number}
-          </span>
-        ) : (
-          <span className="text-xs font-medium text-muted-foreground tabular-nums">{card.key}</span>
-        )}
+        <span className="truncate text-xs font-semibold text-muted-foreground tabular-nums">{card.key}</span>
       </div>
 
       <p className="line-clamp-3 text-sm leading-snug font-semibold">{card.title}</p>
@@ -75,6 +77,11 @@ export function BoardCardView({
       <div className="flex items-center justify-between gap-2 border-t border-border/70 pt-3 text-xs text-muted-foreground">
         <PriorityBadge priority={card.priority} />
         <div className="flex min-w-0 items-center gap-2.5">
+          {card.github && (
+            <span className="inline-flex items-center gap-1 font-medium tabular-nums" title={`GitHub issue #${card.github.number}`}>
+              <GitHubIcon className="size-3" />#{card.github.number}
+            </span>
+          )}
           {card.dueDate && <DueDate date={card.dueDate} done={done} />}
           {card.assignee && <AgentAvatar agent={card.assignee} className="size-6 text-[10px]" />}
         </div>
@@ -83,46 +90,120 @@ export function BoardCardView({
   );
 }
 
+/** Run (▶) and the ⋯ menu. Rendered beside the card, not inside it, so they never start a drag or open it. */
+function CardActions({
+  card,
+  running,
+  onRun,
+  onRemove,
+}: {
+  card: BoardCard;
+  running: boolean;
+  onRun: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="absolute top-2.5 right-2.5 flex items-center gap-0.5">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onRun}
+              disabled={running}
+              aria-label={running ? `Starting the analyst on ${card.key}` : `Run ${card.key}: assign it to the analyst`}
+              className="text-muted-foreground hover:bg-muted hover:text-brand-emphasis"
+            />
+          }
+        >
+          {running ? <Spinner /> : <PlayIcon />}
+        </TooltipTrigger>
+        <TooltipContent>{card.assignee ? `Run again with ${card.assignee.name}` : "Run: assign to the analyst"}</TooltipContent>
+      </Tooltip>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Actions for ${card.key}`}
+              className="text-muted-foreground hover:bg-muted hover:text-foreground data-popup-open:bg-muted"
+            />
+          }
+        >
+          <EllipsisIcon />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" sideOffset={4} className="w-44">
+          <DropdownMenuItem onClick={onRun} disabled={running} className="gap-2 py-1.5">
+            <PlayIcon />
+            Run
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" onClick={onRemove} className="gap-2 py-1.5">
+            <Trash2Icon />
+            Remove task
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
 /**
  * Draggable card inside a column. While dragging, it stays in place as a faded placeholder.
  * Click or Enter opens its details; Space (keyboard) and a 6 px pointer move start a drag.
+ * The wrapper is what moves; only the card itself (the activator) picks it up.
  */
 export function SortableBoardCard({
   card,
   done,
   highlight,
+  running,
   onOpen,
+  onRun,
+  onRemove,
 }: {
   card: BoardCard;
   done: boolean;
   highlight: boolean;
+  running: boolean;
   onOpen: () => void;
+  onRun: () => void;
+  onRemove: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: card.id });
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
+    id: card.id,
+  });
 
   return (
-    <BoardCardView
+    <div
       ref={setNodeRef}
-      card={card}
-      done={done}
       style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={cn(
-        "cursor-grab touch-manipulation active:cursor-grabbing",
-        isDragging && "opacity-40",
-        highlight && "animate-in fade-in zoom-in-95 border-brand/40 duration-300"
-      )}
-      {...attributes}
-      {...listeners}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        listeners?.onKeyDown?.(event);
-        if (event.key === "Enter" && !event.defaultPrevented && !isDragging) {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-      aria-roledescription="Draggable card"
-      aria-label={`${card.key}: ${card.title}`}
-    />
+      className={cn("relative min-w-0", isDragging && "opacity-40")}
+    >
+      <BoardCardView
+        ref={setActivatorNodeRef}
+        card={card}
+        done={done}
+        className={cn(
+          "cursor-grab touch-manipulation active:cursor-grabbing",
+          highlight && "animate-in fade-in zoom-in-95 border-brand/40 duration-300"
+        )}
+        {...attributes}
+        {...listeners}
+        onClick={onOpen}
+        onKeyDown={(event) => {
+          listeners?.onKeyDown?.(event);
+          if (event.key === "Enter" && !event.defaultPrevented && !isDragging) {
+            event.preventDefault();
+            onOpen();
+          }
+        }}
+        aria-roledescription="Draggable card"
+        aria-label={`${card.key}: ${card.title}`}
+      />
+      {!isDragging && <CardActions card={card} running={running} onRun={onRun} onRemove={onRemove} />}
+    </div>
   );
 }
