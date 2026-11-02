@@ -13,6 +13,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 Read this file before changing anything. It sets the design system, typography, coding
 conventions and folder structure every agent and contributor must follow.
 
+Human-oriented documentation lives in [`README.md`](README.md) and [`docs/`](docs): setup, architecture, data model,
+features, GitHub integration, background jobs, security and project status. Keep it current when behavior changes.
+
 ## 1. What the app does
 
 A user signs in, creates a **workspace**, and links **exactly one GitHub repository** to it.
