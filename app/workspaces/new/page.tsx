@@ -34,7 +34,7 @@ export default async function NewWorkspacePage({ searchParams }: PageProps<"/wor
   const githubStatus = GITHUB_STATUSES.find((status) => status === githubParam);
 
   return (
-    <div className="min-h-svh bg-lightest">
+    <div className="min-h-svh bg-canvas">
       <AppHeader user={user} />
       <main className="mx-auto flex max-w-2xl flex-col gap-8 px-6 py-10">
         <div className="flex flex-col gap-1">

@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import { Open_Sans } from "next/font/google";
+import { ThemeProvider } from "next-themes";
 
 // Brand typeface (see AGENTS.md → Typography). Exposed as --font-sans for Tailwind's font-sans / font-heading.
 const openSans = Open_Sans({ subsets: ["latin"], weight: ["300", "400", "500", "600", "700"], variable: "--font-sans" });
@@ -19,9 +20,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={openSans.variable}>
+    // next-themes toggles the `dark` class on <html> before hydration.
+    <html lang="en" className={openSans.variable} suppressHydrationWarning>
       <body style={{ margin: 0, padding: 0 }} className="antialiased">
-        {children}
+        <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -19,14 +19,15 @@ A user signs in, creates a **workspace**, and links **exactly one GitHub reposit
 AI agents then work on that repository on the workspace's behalf.
 
 ```
-sign-in / sign-up ─▶ /workspaces ──(no workspaces)──▶ /workspaces/new ──Next──▶ /dashboard?workspace=<id>
+sign-in / sign-up ─▶ /workspaces ──(no workspaces)──▶ /workspaces/new ──Next──▶ /dashboard/<id>
                          │                                  │
-                         └──(pick one)──▶ /dashboard        ├─ name
+                         └──(pick one)──▶ /dashboard/<id>   ├─ name
                                                             ├─ icon or uploaded logo
                                                             └─ connect GitHub ─▶ select repository
 ```
 
-- `/dashboard` with no workspaces redirects to `/workspaces/new`.
+- `/dashboard` redirects to the newest workspace (`/dashboard/<id>`), or to `/workspaces/new` if there is none.
+- `/dashboard/<id>/…` 404s unless the signed-in user owns workspace `<id>`.
 - An agent acting on a workspace uses the **owner's** GitHub token: `getGithubToken(workspace.ownerId)` from `lib/github.ts`.
   Work only on `workspace.githubRepoFullName`. Never use one workspace's token or repo for another.
 
@@ -71,13 +72,22 @@ app/
     page.tsx              Workspace picker (post-sign-in landing). Redirects to /new if empty.
     new/page.tsx          Create-workspace page.
     actions.ts            createWorkspace, disconnectGithub server actions.
-  dashboard/page.tsx      Workspace dashboard (?workspace=<id>).
+  dashboard/
+    page.tsx              Redirects to the newest workspace.
+    [workspaceId]/
+      layout.tsx          Dashboard shell: sidebar + header. Owner check via getDashboardContext().
+      page.tsx            Overview.
+      board/ ai-team/ pull-requests/ activity/   One page.tsx per sidebar section.
+      settings/           Account (#account) and workspace (#workspace) settings.
   globals.css             THE theme: palette, semantic tokens, Tailwind mapping.
   layout.tsx              Root layout; loads Open Sans.
 components/
   ui/                     shadcn primitives. Generated — do not hand-edit; restyle via tokens.
   auth/                   Auth-only UI (forms, social buttons, brand icons, FormMessage).
   workspace/              Workspace UI (avatar, create form, appearance + repo pickers, draft storage).
+  dashboard/              Dashboard shell: app-sidebar, workspace-switcher, user-menu, dashboard-header,
+                          nav.ts (sidebar sections — server-safe), use-dashboard-section.ts (client hook),
+                          page-header (PageHeader, DetailGrid), section-empty.
   app-header.tsx          Signed-in top bar.
   brand.tsx               Product mark.
 hooks/                    Client hooks (use-field-errors, use-mobile …).
@@ -87,7 +97,7 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   github.ts               GitHub OAuth + REST + connection persistence.
   crypto.ts               encrypt / decrypt for secrets at rest.
   storage.ts              S3 uploads/reads, logo limits.
-  workspaces.ts           Workspace queries (always scoped by owner).
+  workspaces.ts           Workspace queries (always scoped by owner) + getDashboardContext().
   workspace-icons.ts      Selectable icon set (shared client/server).
   utils.ts                cn(), initials().
 db/                       Drizzle client (index.ts) and schema (schema.ts).
@@ -100,6 +110,10 @@ Where new code goes:
 - Feature UI → `components/<feature>/`; only cross-feature UI at `components/` root.
 - DB queries and third-party API calls → `lib/<domain>.ts`, never inline in components.
 - Route handlers only for things server actions can't do: OAuth redirects, binary responses, webhooks.
+- A new dashboard section → add it to `DASHBOARD_NAV` in `components/dashboard/nav.ts` and create
+  `app/dashboard/[workspaceId]/<segment>/page.tsx`. Sidebar, breadcrumb and switcher pick it up automatically.
+- Keep config modules (like `nav.ts`) free of hooks so Server Components can import them; put hooks in a
+  separate `"use client"` file.
 
 ## 5. Coding conventions
 
@@ -116,6 +130,8 @@ Where new code goes:
 
 **Auth & authorization**
 - Get the user with `requireUser(returnTo)` (pages/actions) or `getCurrentUser()` (route handlers). `proxy.ts` is only an optimistic guard.
+- Pages under `/dashboard/[workspaceId]` call `getDashboardContext(workspaceId)` — never query the workspace by id
+  directly. It is `cache()`d, so layout and page share one lookup.
 - Every id that comes from a request is untrusted: load it with an owner-scoped query (`getOwnedWorkspace(ownerId, id)`).
 - Post-auth redirects go through `isSafeRedirectPath` — never redirect to a raw query value.
 
@@ -149,7 +165,7 @@ To re-skin the app, edit the palette there — no component changes needed.
 | brand | `#006fbb` | `bg-brand` `text-brand` (also `primary`) | Primary buttons, selected states, links, brand mark, completed steps. |
 | accent | `#fbc100` | `bg-brand-accent` `text-brand-accent` | Sparse highlights only: a badge, a key word on a dark panel. Never large fills or body text. Text on it: `text-brand-accent-foreground`. |
 | darkest | `#21262c` | `bg-darkest` `text-darkest` (also `foreground`) | Body text, dark panels, GitHub/neutral-dark buttons, dark-mode background. |
-| lightest | `#eef1f3` | `bg-lightest` (also `muted`, `secondary`, `accent`) | App page background, subtle panels, hover surfaces. |
+| lightest | `#eef1f3` | `bg-lightest` (also `muted`, `secondary`, `accent`, `canvas`) | Subtle surfaces. Same in light and dark — for theme-aware backgrounds use `bg-canvas` / `bg-muted`. |
 
 **Secondary**
 
@@ -166,9 +182,13 @@ To re-skin the app, edit the palette there — no component changes needed.
 1. Never write hex/rgb/oklch values or Tailwind palette colors (`sky-500`, `zinc-950`, `emerald-600` …) in components. If a token is missing, add it to `globals.css` (palette → semantic → `@theme inline`).
 2. Prefer semantic shadcn tokens (`bg-background`, `text-muted-foreground`, `border`) for generic UI; use palette utilities (`bg-brand`, `text-success`) when the meaning is the brand color itself.
 3. Name clash: shadcn's `accent` is the subtle hover surface. The yellow palette accent is `brand-accent`.
-4. Contrast (WCAG AA): `success`, `warning`, `action` and `dark` are **below 4.5:1 on white** — use them for icons, borders, fills and large text, not small body text on light backgrounds. Pair text-on-color with its `-foreground` token (`bg-success text-success-foreground`). `brand`, `error`, `darkest` and `muted-foreground` are safe for text on white.
-5. Tints: use opacity modifiers on tokens — `bg-brand/10`, `border-destructive/30`, `bg-lightest/60`.
-6. Dark mode: tokens are redefined under `.dark` in `globals.css`. Components must not use `dark:` color overrides for theme colors; fix the token instead.
+4. Palette utilities (`bg-lightest`, `text-brand` …) do **not** change with the theme. For surfaces use the
+   semantic tokens: `bg-canvas` (page background behind cards: lightest → darkest), `bg-card`, `bg-muted`.
+   For brand-colored text on sidebar/nav surfaces use `text-sidebar-primary` (brand → action in dark).
+5. Contrast (WCAG AA): `success`, `warning`, `action` and `dark` are **below 4.5:1 on white** — use them for icons, borders, fills and large text, not small body text on light backgrounds. Pair text-on-color with its `-foreground` token (`bg-success text-success-foreground`). `brand`, `error`, `darkest` and `muted-foreground` are safe for text on white.
+6. Tints: use opacity modifiers on tokens — `bg-brand/10`, `border-destructive/30`, `bg-muted/60`.
+7. Dark mode: `next-themes` toggles `.dark` on `<html>` (user menu → Theme; default light). Tokens are redefined
+   under `.dark` in `globals.css`. Components must not use `dark:` color overrides; fix or add a token instead.
 
 ### 6.2 Typography
 
@@ -196,7 +216,15 @@ The app's base size is **14 px** (`text-sm`); headings use `font-semibold` and t
 
 ### 6.3 Layout, surfaces & components
 
-- **Page shell (signed in):** `min-h-svh bg-lightest` → `<AppHeader user={user} />` → `<main className="mx-auto max-w-5xl px-6 py-10">` (forms and lists: `max-w-2xl`).
+- **Dashboard shell (`/dashboard/[workspaceId]/*`):** provided by the layout — collapsible sidebar (`collapsible="icon"`,
+  state persisted in the `sidebar_state` cookie, toggle with ⌘/Ctrl+B) and a sticky `h-14` header. Pages render only
+  their content: start with `<PageHeader title description actions? />` (the page's one `h1`), then sections.
+  Empty sections use `<SectionEmpty icon title description />`. Every sidebar item needs a `tooltip` (icon-only mode).
+- **Other signed-in pages** (`/workspaces*`): `min-h-svh bg-canvas` → `<AppHeader user={user} />` →
+  `<main className="mx-auto max-w-2xl px-6 py-10">`.
+- **Menus:** `DropdownMenu*` from `components/ui/dropdown-menu` (Base UI). Navigation items use
+  `<DropdownMenuItem render={<Link href=… />}>`; `DropdownMenuLabel` must sit inside a `DropdownMenuGroup`.
+  Triggers styled as other components use `render` (`<DropdownMenuTrigger render={<SidebarMenuButton />}>`).
 - **Surfaces:** cards are `rounded-xl border bg-card shadow-xs` (hero form panels `rounded-2xl`). Don't stack shadows; one level of elevation.
 - **Spacing:** 4-px grid via Tailwind spacing. Use `gap-*` on flex/grid, not margins between siblings. Typical: `gap-1` title+description, `gap-4` within a section, `gap-8` between page sections, `p-6` card padding.
 - **Radius:** derived from `--radius` (0.625rem): `rounded-lg` controls, `rounded-xl` cards, `rounded-full` avatars/pills.

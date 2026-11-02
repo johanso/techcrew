@@ -53,6 +53,8 @@
     --error-foreground: var(--palette-white);
 
     /* ── 2. Semantic — surfaces & UI (light) ───────────────────────────────── */
+    /* App page background behind cards (signed-in pages). Cards sit on it in --card. */
+    --canvas: var(--palette-lightest);
     --background: var(--palette-white);
     --foreground: var(--palette-darkest);
     --card: var(--palette-white);
@@ -91,6 +93,7 @@
 
 .dark {
     /* ── 2. Semantic — surfaces & UI (dark) ────────────────────────────────── */
+    --canvas: var(--palette-darkest);
     --background: var(--palette-darkest);
     --foreground: var(--palette-lightest);
     --card: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 4%);
@@ -141,6 +144,8 @@
     --color-warning-foreground: var(--warning-foreground);
     --color-error: var(--error);
     --color-error-foreground: var(--error-foreground);
+
+    --color-canvas: var(--canvas);
 
     /* shadcn/ui semantic utilities */
     --color-sidebar-ring: var(--sidebar-ring);

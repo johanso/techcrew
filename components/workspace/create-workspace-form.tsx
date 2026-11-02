@@ -80,7 +80,7 @@ export function CreateWorkspaceForm({
       }}
       className="flex flex-col gap-6"
     >
-      <div className="flex items-center gap-4 rounded-xl border bg-lightest/60 p-4">
+      <div className="flex items-center gap-4 rounded-xl border bg-muted/60 p-4">
         <WorkspaceAvatar icon={icon} logoSrc={logoUrl} size="lg" />
         <div className="flex min-w-0 flex-col gap-0.5">
           <p className={cn("truncate text-lg font-semibold", !name.trim() && "text-muted-foreground")}>

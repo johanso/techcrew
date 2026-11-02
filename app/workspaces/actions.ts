@@ -69,7 +69,7 @@ export async function createWorkspace(_prev: WorkspaceFormState, formData: FormD
     return { message: "We couldn't create the workspace. Please try again." };
   }
 
-  redirect(`/dashboard?workspace=${workspaceId}`);
+  redirect(`/dashboard/${workspaceId}`);
 }
 
 export async function disconnectGithub() {

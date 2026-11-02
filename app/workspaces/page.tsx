@@ -20,7 +20,7 @@ export default async function WorkspacesPage() {
   if (workspaces.length === 0) redirect("/workspaces/new");
 
   return (
-    <div className="min-h-svh bg-lightest">
+    <div className="min-h-svh bg-canvas">
       <AppHeader user={user} />
       <main className="mx-auto flex max-w-2xl flex-col gap-8 px-6 py-10">
         <div className="flex flex-wrap items-end justify-between gap-4">
@@ -38,7 +38,7 @@ export default async function WorkspacesPage() {
           {workspaces.map((workspace) => (
             <li key={workspace.id} className="border-b last:border-b-0">
               <Link
-                href={`/dashboard?workspace=${workspace.id}`}
+                href={`/dashboard/${workspace.id}`}
                 className="group flex items-center gap-4 p-4 transition-colors outline-none hover:bg-muted/60 focus-visible:bg-muted/60 sm:p-5"
               >
                 <WorkspaceAvatar icon={workspace.icon} logoSrc={workspaceLogoSrc(workspace)} />

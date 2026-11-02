@@ -55,7 +55,7 @@ export function GithubRepoPicker({
     return (
       <div className="flex flex-col gap-3">
         {statusMessage && <FormMessage message={statusMessage} />}
-        <div className="flex flex-col items-start gap-4 rounded-xl border border-dashed bg-lightest/60 p-5 sm:flex-row sm:items-center">
+        <div className="flex flex-col items-start gap-4 rounded-xl border border-dashed bg-muted/60 p-5 sm:flex-row sm:items-center">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-darkest text-lightest">
             <GitHubIcon className="size-5" />
           </span>
