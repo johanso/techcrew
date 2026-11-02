@@ -1,0 +1,199 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * THEME
+ * ─────
+ * This file is the single source of truth for color. To re-skin the app, edit the
+ * palette below — every component reads semantic tokens that point at it.
+ *
+ *   1. Palette   (--palette-*)  raw brand colors. The only place hex values live.
+ *   2. Semantic  (--primary, --border, --success …) what a color is *for*. Light + dark.
+ *   3. Tailwind  (@theme inline) exposes semantic tokens as utilities: bg-brand, text-success …
+ *
+ * Components must never hard-code hex/oklch values or Tailwind palette colors (sky-500, zinc-950 …).
+ */
+
+:root {
+    /* ── 1. Palette — primary ──────────────────────────────────────────────── */
+    --palette-brand: #006fbb;
+    --palette-accent: #fbc100;
+    --palette-darkest: #21262c;
+    --palette-lightest: #eef1f3;
+
+    /* ── 1. Palette — secondary ────────────────────────────────────────────── */
+    --palette-dark: #7f90a4;
+    --palette-light: #d7d7d7;
+    --palette-action: #009cdf;
+    --palette-success: #61bf33;
+    --palette-warning: #e96b1a;
+    --palette-error: #df1919;
+
+    --palette-white: #ffffff;
+
+    /* ── 2. Semantic — brand colors (same role in light and dark) ──────────── */
+    --brand: var(--palette-brand);
+    --brand-foreground: var(--palette-white);
+    --brand-accent: var(--palette-accent);
+    --brand-accent-foreground: var(--palette-darkest);
+    --darkest: var(--palette-darkest);
+    --lightest: var(--palette-lightest);
+    --dark: var(--palette-dark);
+    --light: var(--palette-light);
+    --action: var(--palette-action);
+    --action-foreground: var(--palette-white);
+    --success: var(--palette-success);
+    --success-foreground: var(--palette-darkest);
+    --warning: var(--palette-warning);
+    --warning-foreground: var(--palette-white);
+    --error: var(--palette-error);
+    --error-foreground: var(--palette-white);
+
+    /* ── 2. Semantic — surfaces & UI (light) ───────────────────────────────── */
+    --background: var(--palette-white);
+    --foreground: var(--palette-darkest);
+    --card: var(--palette-white);
+    --card-foreground: var(--palette-darkest);
+    --popover: var(--palette-white);
+    --popover-foreground: var(--palette-darkest);
+    --primary: var(--palette-brand);
+    --primary-foreground: var(--palette-white);
+    --secondary: var(--palette-lightest);
+    --secondary-foreground: var(--palette-darkest);
+    --muted: var(--palette-lightest);
+    /* "dark" alone is 3.3:1 on white; deepened toward "darkest" to pass WCAG AA for body text. */
+    --muted-foreground: color-mix(in oklab, var(--palette-dark), var(--palette-darkest) 45%);
+    /* shadcn's "accent" is the subtle hover/selected surface — not the yellow palette accent. */
+    --accent: var(--palette-lightest);
+    --accent-foreground: var(--palette-darkest);
+    --destructive: var(--palette-error);
+    --border: var(--palette-light);
+    --input: var(--palette-light);
+    --ring: var(--palette-action);
+    --chart-1: var(--palette-brand);
+    --chart-2: var(--palette-action);
+    --chart-3: var(--palette-accent);
+    --chart-4: var(--palette-success);
+    --chart-5: var(--palette-warning);
+    --radius: 0.625rem;
+    --sidebar: var(--palette-lightest);
+    --sidebar-foreground: var(--palette-darkest);
+    --sidebar-primary: var(--palette-brand);
+    --sidebar-primary-foreground: var(--palette-white);
+    --sidebar-accent: color-mix(in oklab, var(--palette-light) 45%, var(--palette-lightest));
+    --sidebar-accent-foreground: var(--palette-darkest);
+    --sidebar-border: var(--palette-light);
+    --sidebar-ring: var(--palette-action);
+}
+
+.dark {
+    /* ── 2. Semantic — surfaces & UI (dark) ────────────────────────────────── */
+    --background: var(--palette-darkest);
+    --foreground: var(--palette-lightest);
+    --card: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 4%);
+    --card-foreground: var(--palette-lightest);
+    --popover: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 6%);
+    --popover-foreground: var(--palette-lightest);
+    --primary: var(--palette-brand);
+    --primary-foreground: var(--palette-white);
+    --secondary: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 10%);
+    --secondary-foreground: var(--palette-lightest);
+    --muted: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 8%);
+    --muted-foreground: var(--palette-dark);
+    --accent: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 10%);
+    --accent-foreground: var(--palette-lightest);
+    --destructive: var(--palette-error);
+    --border: rgb(255 255 255 / 10%);
+    --input: rgb(255 255 255 / 15%);
+    --ring: var(--palette-action);
+    --sidebar: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 4%);
+    --sidebar-foreground: var(--palette-lightest);
+    --sidebar-primary: var(--palette-action);
+    --sidebar-primary-foreground: var(--palette-darkest);
+    --sidebar-accent: color-mix(in oklab, var(--palette-darkest), var(--palette-white) 10%);
+    --sidebar-accent-foreground: var(--palette-lightest);
+    --sidebar-border: rgb(255 255 255 / 10%);
+    --sidebar-ring: var(--palette-action);
+}
+
+/* ── 3. Tailwind utilities ─────────────────────────────────────────────────── */
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: var(--font-sans);
+
+    /* Brand palette utilities: bg-brand, text-brand-accent, border-light, ring-action … */
+    --color-brand: var(--brand);
+    --color-brand-foreground: var(--brand-foreground);
+    --color-brand-accent: var(--brand-accent);
+    --color-brand-accent-foreground: var(--brand-accent-foreground);
+    --color-darkest: var(--darkest);
+    --color-lightest: var(--lightest);
+    --color-dark: var(--dark);
+    --color-light: var(--light);
+    --color-action: var(--action);
+    --color-action-foreground: var(--action-foreground);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-error: var(--error);
+    --color-error-foreground: var(--error-foreground);
+
+    /* shadcn/ui semantic utilities */
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    }
+  h1, h2, h3, h4 {
+    @apply font-heading tracking-tight text-balance;
+    }
+}
