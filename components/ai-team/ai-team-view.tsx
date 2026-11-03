@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { BotIcon, CoinsIcon, ShieldCheckIcon, SparklesIcon } from "lucide-react";
 
 import { AgentRoster } from "@/components/ai-team/agent-roster";
@@ -5,7 +6,7 @@ import { AGENT_STATUS, AgentPortrait } from "@/components/ai-team/agent-visuals"
 import { AgentOfficePlaceholder } from "@/components/dashboard/agent-office-placeholder";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatTile } from "@/components/dashboard/stat-tile";
-import { MICROS_PER_USD, formatCents, formatMicros } from "@/lib/agent-config";
+import { MICROS_PER_USD, formatCents, formatMicros, type AgentProvider, type ProviderStatus } from "@/lib/agent-config";
 import { trustGrade } from "@/lib/agent-trust";
 import type { AgentTeamStats, AgentView } from "@/lib/agents";
 import { cn } from "@/lib/utils";
@@ -16,11 +17,15 @@ export function AiTeamView({
   agents,
   stats,
   aiEnabled,
+  providers,
+  provider,
 }: {
   workspace: { id: number; githubRepoFullName: string };
   agents: AgentView[];
   stats: AgentTeamStats;
   aiEnabled: boolean;
+  providers: ProviderStatus;
+  provider: AgentProvider;
 }) {
   const budgetMicros = stats.monthBudgetCents * (MICROS_PER_USD / 100);
   const usedPercent = budgetMicros > 0 ? (stats.monthSpendMicros / budgetMicros) * 100 : 0;
@@ -35,13 +40,14 @@ export function AiTeamView({
         description={`Your agents work on ${workspace.githubRepoFullName}. Configure what each one does, what it may touch and how much it can spend.`}
         actions={
           !aiEnabled && (
-            <span
-              className="inline-flex items-center gap-1.5 rounded-full bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground ring-1 ring-border"
-              title="Set OPENAI_API_KEY to enable AI drafting and AI-assisted trust scans"
+            <Link
+              href={`/dashboard/${workspace.id}/settings#ai`}
+              className="inline-flex items-center gap-1.5 rounded-full bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground ring-1 ring-border transition-colors hover:text-foreground hover:ring-brand/30"
+              title="Add an API key to run agents, draft instructions with AI and get AI-assisted trust scans"
             >
               <SparklesIcon className="size-3.5" />
-              OpenAI not connected
-            </span>
+              No AI provider connected · Add a key
+            </Link>
           )
         }
       />
@@ -99,6 +105,8 @@ export function AiTeamView({
         workspaceId={workspace.id}
         repoFullName={workspace.githubRepoFullName}
         aiEnabled={aiEnabled}
+        providers={providers}
+        provider={provider}
       />
 
       <AgentOfficePlaceholder title="Live Agent Office Workspace" description="Watch your agents work in real time" className="min-h-96">

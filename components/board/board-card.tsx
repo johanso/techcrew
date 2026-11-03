@@ -3,9 +3,10 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { differenceInCalendarDays, format, parseISO } from "date-fns";
-import { CalendarIcon, CalendarX2Icon, EllipsisIcon, PlayIcon, Trash2Icon } from "lucide-react";
+import { CalendarIcon, CalendarX2Icon, CircleCheckIcon, CircleStopIcon, EllipsisIcon, ExternalLinkIcon, GitMergeIcon, PlayIcon, Trash2Icon } from "lucide-react";
 
 import { GitHubIcon } from "@/components/auth/brand-icons";
+import { AgentRunStatus } from "@/components/board/agent-run-status";
 import { IssueTypePill, PriorityBadge } from "@/components/board/issue-meta";
 import { AgentAvatar } from "@/components/dashboard/agent-avatar";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { isActiveRun } from "@/lib/agent-run-config";
 import type { BoardCard } from "@/lib/board-config";
 import { cn } from "@/lib/utils";
 
@@ -64,6 +66,8 @@ export function BoardCardView({
 
       <p className="line-clamp-3 text-sm leading-snug font-semibold">{card.title}</p>
 
+      {card.run && <AgentRunStatus run={card.run} />}
+
       {card.labels.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {card.labels.map((label) => (
@@ -90,37 +94,79 @@ export function BoardCardView({
   );
 }
 
-/** Run (▶) and the ⋯ menu. Rendered beside the card, not inside it, so they never start a drag or open it. */
+/**
+ * Run (▶) — or Merge, when the card's pull request waits for a manual merge, or a check in Done — and the ⋯ menu
+ * (which keeps Run, for the rare rerun of a finished card). Rendered beside the card, not inside it, so they never
+ * start a drag or open it.
+ */
 function CardActions({
   card,
+  done,
   running,
+  merging,
   onRun,
+  onStop,
+  onMerge,
   onRemove,
 }: {
   card: BoardCard;
+  done: boolean;
   running: boolean;
+  merging: boolean;
   onRun: () => void;
+  onStop: () => void;
+  onMerge: () => void;
   onRemove: () => void;
 }) {
+  // The agents are on it: Run would start a second pass, so it waits until the run ends (or is stopped).
+  const working = card.run !== null && isActiveRun(card.run.status);
+  const runLabel = working ? `Agents are working on ${card.key}` : running ? `Starting the agents on ${card.key}` : `Run ${card.key}: start the agents`;
+  const pullRequest = card.run?.status === "awaiting_merge" ? card.run.pullRequest : null;
   return (
     <div className="absolute top-2.5 right-2.5 flex items-center gap-0.5">
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={onRun}
-              disabled={running}
-              aria-label={running ? `Starting the analyst on ${card.key}` : `Run ${card.key}: assign it to the analyst`}
-              className="text-muted-foreground hover:bg-muted hover:text-brand-emphasis"
-            />
-          }
-        >
-          {running ? <Spinner /> : <PlayIcon />}
-        </TooltipTrigger>
-        <TooltipContent>{card.assignee ? `Run again with ${card.assignee.name}` : "Run: assign to the analyst"}</TooltipContent>
-      </Tooltip>
+      {pullRequest ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={onMerge}
+                disabled={merging}
+                aria-label={merging ? `Merging PR #${pullRequest.number}` : `Merge PR #${pullRequest.number} of ${card.key}`}
+                className="text-success hover:bg-success/10 hover:text-success"
+              />
+            }
+          >
+            {merging ? <Spinner /> : <GitMergeIcon />}
+          </TooltipTrigger>
+          <TooltipContent>Merge PR #{pullRequest.number}</TooltipContent>
+        </Tooltip>
+      ) : done && !working ? (
+        // A status, not an action: the column and the run line already say how it got here.
+        <span className="flex size-7 items-center justify-center text-success" title="Done">
+          <CircleCheckIcon aria-hidden className="size-4" />
+          <span className="sr-only">{card.key} is done</span>
+        </span>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={onRun}
+                disabled={running || working}
+                aria-label={runLabel}
+                className="text-muted-foreground hover:bg-muted hover:text-brand-emphasis"
+              />
+            }
+          >
+            {running || working ? <Spinner /> : <PlayIcon />}
+          </TooltipTrigger>
+          <TooltipContent>{working ? "Agents are working on it" : card.run ? "Run the agents again" : "Run: the analyst picks it up"}</TooltipContent>
+        </Tooltip>
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -134,11 +180,35 @@ function CardActions({
         >
           <EllipsisIcon />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" sideOffset={4} className="w-44">
-          <DropdownMenuItem onClick={onRun} disabled={running} className="gap-2 py-1.5">
-            <PlayIcon />
-            Run
-          </DropdownMenuItem>
+        <DropdownMenuContent align="end" sideOffset={4} className="w-48">
+          {pullRequest && (
+            <>
+              <DropdownMenuItem onClick={onMerge} disabled={merging} className="gap-2 py-1.5">
+                <GitMergeIcon />
+                Merge PR #{pullRequest.number}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                render={<a href={pullRequest.url} target="_blank" rel="noopener noreferrer" />}
+                className="gap-2 py-1.5"
+              >
+                <ExternalLinkIcon />
+                View PR on GitHub
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
+          {working ? (
+            <DropdownMenuItem onClick={onStop} className="gap-2 py-1.5">
+              <CircleStopIcon />
+              Stop agents
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onClick={onRun} disabled={running} className="gap-2 py-1.5">
+              <PlayIcon />
+              {/* A rerun continues on the same branch and pull request (runCardAction). */}
+              {card.run?.pullRequest ? `Run again on PR #${card.run.pullRequest.number}` : card.run ? "Run again" : "Run"}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={onRemove} className="gap-2 py-1.5">
             <Trash2Icon />
@@ -160,16 +230,22 @@ export function SortableBoardCard({
   done,
   highlight,
   running,
+  merging,
   onOpen,
   onRun,
+  onStop,
+  onMerge,
   onRemove,
 }: {
   card: BoardCard;
   done: boolean;
   highlight: boolean;
   running: boolean;
+  merging: boolean;
   onOpen: () => void;
   onRun: () => void;
+  onStop: () => void;
+  onMerge: () => void;
   onRemove: () => void;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
@@ -203,7 +279,18 @@ export function SortableBoardCard({
         aria-roledescription="Draggable card"
         aria-label={`${card.key}: ${card.title}`}
       />
-      {!isDragging && <CardActions card={card} running={running} onRun={onRun} onRemove={onRemove} />}
+      {!isDragging && (
+        <CardActions
+          card={card}
+          done={done}
+          running={running}
+          merging={merging}
+          onRun={onRun}
+          onStop={onStop}
+          onMerge={onMerge}
+          onRemove={onRemove}
+        />
+      )}
     </div>
   );
 }

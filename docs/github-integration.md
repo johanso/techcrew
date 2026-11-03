@@ -163,10 +163,29 @@ Cards created in the app have no GitHub issue (`github: null`) and are **not** p
 During workspace creation, a 401 deletes the stale connection and asks to connect again; a 404 says the repository
 no longer exists or access was lost.
 
+## Agent pipeline writes
+
+The agent pipeline (see [features.md](features.md#agent-pipeline)) is the only part of the app that writes to GitHub,
+always with the owner's token and always on the linked repository:
+
+| Write | When | API |
+| --- | --- | --- |
+| Create branch `agent/<key>-<slug>` | Development starts (once per run) | `POST /git/refs` |
+| Commit a file change | Each Developer write/edit/delete | `PUT` / `DELETE /contents/{path}` |
+| Open pull request (`Closes #<issue>` for GitHub cards) | Development done | `POST /pulls` |
+| Review comment | Reviewer verdict (*Review pull requests*) | `POST /pulls/{n}/reviews` (event `COMMENT`) |
+| Test report comment | Tester verdict (*Comment on issues*) | `POST /issues/{n}/comments` |
+| Question on the issue | Analyst needs info (*Comment on issues*) | `POST /issues/{n}/comments` |
+| Squash merge | Manual Merge, or auto-merge after review + tests + CI | `PUT /pulls/{n}/merge` (with the head sha) |
+| Follow-up issue | Merge blocked by conflict / failing build (*File issues*) | `POST /issues` (label `bug`) |
+
+Reads: tree, contents, code search (default branch only), compare, PR state and mergeability, check runs and commit
+statuses. A `401` stops the run with "Reconnect GitHub" instead of retrying.
+
 ## Not supported yet
 
 - Webhooks / real-time updates.
-- Writing back to GitHub (creating issues from app cards, closing issues from Done, comments).
-- Pull requests on the board, assignees, milestones, or issue comments.
+- Writing app-created cards back as issues, or closing issues from Done (merged PRs close theirs via `Closes #n`).
+- Assignees, milestones, or reading issue comments.
 - Updating a workspace's repository metadata after a rename, or changing the linked repository.
 - Syncing with the token of anyone but the workspace owner.

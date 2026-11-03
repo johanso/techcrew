@@ -5,7 +5,7 @@ import { useState } from "react";
 import { AgentActivitySheet } from "@/components/ai-team/agent-activity-sheet";
 import { AgentCard } from "@/components/ai-team/agent-card";
 import { AgentConfigDialog } from "@/components/ai-team/agent-config-dialog";
-import type { AgentKey } from "@/lib/agent-config";
+import type { AgentKey, AgentProvider, ProviderStatus } from "@/lib/agent-config";
 import type { AgentView } from "@/lib/agents";
 
 /**
@@ -17,11 +17,15 @@ export function AgentRoster({
   workspaceId,
   repoFullName,
   aiEnabled,
+  providers,
+  provider,
 }: {
   agents: AgentView[];
   workspaceId: number;
   repoFullName: string;
   aiEnabled: boolean;
+  providers: ProviderStatus;
+  provider: AgentProvider;
 }) {
   const [configuring, setConfiguring] = useState<AgentKey | null>(null);
   const [viewing, setViewing] = useState<AgentKey | null>(null);
@@ -61,6 +65,8 @@ export function AgentRoster({
           workspaceId={workspaceId}
           repoFullName={repoFullName}
           aiEnabled={aiEnabled}
+          providers={providers}
+          provider={provider}
         />
       )}
       {activityAgent && (

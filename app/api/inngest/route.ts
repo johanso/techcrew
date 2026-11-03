@@ -1,5 +1,6 @@
 import { serve } from 'inngest/next';
 import { inngest } from '@/lib/inngest/client';
+import { agentAutoPickup } from '@/lib/inngest/agent-pickup';
 import { agentTaskRun } from '@/lib/inngest/agent-run';
 import {
   processTaskBackgroundJob,
@@ -13,5 +14,6 @@ export const { GET, POST, PUT } = serve({
     processTaskBackgroundJob,
     dailySyncScheduledJob,
     agentTaskRun,
+    agentAutoPickup,
   ],
 });

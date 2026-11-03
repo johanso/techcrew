@@ -2,11 +2,12 @@ import "server-only";
 
 import { and, desc, eq, gte, isNotNull, isNull, ne, sql } from "drizzle-orm";
 
-import { agentActivity, agents, db, tasks, type AgentRow, type Workspace } from "@/db";
+import { agentActivity, agents, db, tasks, workspaces, type AgentRow, type Workspace } from "@/db";
 import {
   AGENT_KEYS,
   AGENT_MODELS,
   AGENT_ROLES,
+  PROVIDERS,
   BUDGET_MAX_USD,
   BUDGET_MIN_USD,
   DESCRIPTION_MAX,
@@ -17,12 +18,18 @@ import {
   isAgentKey,
   isAgentModelId,
   isSkillId,
+  agentModelFor,
+  modelInfo,
+  workspaceProvider,
   type Agent,
   type AgentKey,
   type AgentModelId,
+  type AgentProvider,
   type AgentTone,
   type SkillId,
 } from "@/lib/agent-config";
+import { MAX_TURNS_MAX, MAX_TURNS_MIN, STAGE_META } from "@/lib/agent-run-config";
+import { getWorkingStages } from "@/lib/agent-runs";
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
 
 /**
@@ -58,8 +65,10 @@ export const AGENT_ACTIVITY_KINDS = [
   "generated",
   "scan",
   "task_assigned",
-  // Reserved for the agent runtime: model spend while working on a card.
+  // One pipeline stage on a card; its cost grows turn by turn while the agent works.
   "task_run",
+  "pull_request",
+  "issue_filed",
 ] as const;
 export type AgentActivityKind = (typeof AGENT_ACTIVITY_KINDS)[number];
 
@@ -83,6 +92,32 @@ export async function logAgentActivity(values: {
   await db.insert(agentActivity).values({ ...values, costMicros: values.costMicros ?? 0 });
 }
 
+/** Starts a stage's activity row; the pipeline adds cost to it each turn and rewrites the title when done. */
+export async function startAgentActivity(values: { workspaceId: number; agentId: number; title: string; detail?: string | null; taskId: number }) {
+  const [row] = await db
+    .insert(agentActivity)
+    .values({ ...values, kind: "task_run" })
+    .returning({ id: agentActivity.id });
+  return row!.id;
+}
+
+export async function addActivityCost(activityId: number, costMicros: number) {
+  if (costMicros <= 0) return;
+  await db
+    .update(agentActivity)
+    .set({ costMicros: sql`${agentActivity.costMicros} + ${costMicros}` })
+    .where(eq(agentActivity.id, activityId));
+}
+
+export async function updateAgentActivity(activityId: number, values: { title: string; detail?: string | null }) {
+  await db.update(agentActivity).set(values).where(eq(agentActivity.id, activityId));
+}
+
+/** Turns per stage: the configured value, else the role default. */
+export function agentMaxTurns(row: Pick<AgentRow, "key" | "maxTurns">) {
+  return row.maxTurns ?? (isAgentKey(row.key) ? AGENT_ROLES[row.key].defaults.maxTurns : 20);
+}
+
 // ── Defaults ───────────────────────────────────────────────────────────────────
 
 /**
@@ -93,6 +128,8 @@ export async function ensureDefaultAgents(workspaceId: number) {
   const existing = await db.select({ key: agents.key }).from(agents).where(eq(agents.workspaceId, workspaceId));
   const missing = AGENT_KEYS.filter((key) => !existing.some((row) => row.key === key));
   if (!missing.length) return;
+  const [workspace] = await db.select({ aiProvider: workspaces.aiProvider }).from(workspaces).where(eq(workspaces.id, workspaceId));
+  const provider = workspace ? workspaceProvider(workspace) : "openai";
 
   const now = new Date();
   const inserted = await db
@@ -107,9 +144,11 @@ export async function ensureDefaultAgents(workspaceId: number) {
           key,
           description: defaults.description,
           instructions: defaults.instructions,
-          model: defaults.model,
+          model: defaults.models[provider],
+          providerModels: { [provider]: defaults.models[provider] },
           skills: defaults.skills,
           monthlyBudgetCents,
+          maxTurns: defaults.maxTurns,
           trustScore: report.score,
           trustReport: report,
           trustScannedAt: now,
@@ -154,7 +193,7 @@ function monthWindow(now = new Date()) {
   return { start, end };
 }
 
-async function monthSpendMicros(agentId: number) {
+export async function monthSpendMicros(agentId: number) {
   const [row] = await db
     .select({ total: sql<number>`coalesce(sum(${agentActivity.costMicros}), 0)::int` })
     .from(agentActivity)
@@ -181,6 +220,7 @@ export type AgentView = Agent & {
   model: AgentModelId;
   skills: SkillId[];
   monthlyBudgetCents: number;
+  maxTurns: number;
   enabled: boolean;
   status: AgentStatus;
   /** Cards assigned to this agent that aren't Done. */
@@ -209,11 +249,12 @@ export type AgentTeamStats = {
 const ACTIVITY_PER_AGENT = 50;
 
 /** Everything the AI Team page shows. Creates the default agents on first visit. */
-export async function getAgentTeam(workspace: Pick<Workspace, "id">): Promise<{ agents: AgentView[]; stats: AgentTeamStats }> {
+export async function getAgentTeam(workspace: Pick<Workspace, "id" | "aiProvider">): Promise<{ agents: AgentView[]; stats: AgentTeamStats }> {
+  const provider = workspaceProvider(workspace);
   await ensureDefaultAgents(workspace.id);
   const { start, end } = monthWindow();
 
-  const [rows, spendRows, taskRows, activityRows] = await Promise.all([
+  const [rows, spendRows, taskRows, activityRows, workingStages] = await Promise.all([
     db.select().from(agents).where(eq(agents.workspaceId, workspace.id)),
     db
       .select({
@@ -237,7 +278,9 @@ export async function getAgentTeam(workspace: Pick<Workspace, "id">): Promise<{ 
       .where(eq(agentActivity.workspaceId, workspace.id))
       .orderBy(desc(agentActivity.createdAt), desc(agentActivity.id))
       .limit(ACTIVITY_PER_AGENT * AGENT_KEYS.length),
+    getWorkingStages(workspace.id),
   ]);
+  const working = new Set(workingStages.map((stage) => STAGE_META[stage].agent));
 
   const now = Date.now();
   const elapsedDays = Math.max(1, (now - start.getTime()) / 86_400_000);
@@ -261,11 +304,12 @@ export async function getAgentTeam(workspace: Pick<Workspace, "id">): Promise<{ 
         ...getAgent(key)!,
         description: row.description,
         instructions: row.instructions,
-        model: isAgentModelId(row.model) ? row.model : AGENT_ROLES[key].defaults.model,
+        model: activeAgentModel(row, provider),
         skills: row.skills.filter(isSkillId),
         monthlyBudgetCents: row.monthlyBudgetCents,
+        maxTurns: agentMaxTurns(row),
         enabled: row.enabled,
-        status: !row.enabled ? "paused" : overBudget ? "over_budget" : openTasks > 0 ? "working" : "ready",
+        status: !row.enabled ? "paused" : overBudget ? "over_budget" : working.has(key) ? "working" : "ready",
         openTasks,
         spend: {
           monthMicros,
@@ -314,10 +358,11 @@ export type AgentConfigInput = {
   model: AgentModelId;
   skills: SkillId[];
   monthlyBudgetCents: number;
+  maxTurns: number;
   enabled: boolean;
 };
 
-export type AgentConfigField = "description" | "instructions" | "model" | "skills" | "budget";
+export type AgentConfigField = "description" | "instructions" | "model" | "skills" | "budget" | "maxTurns";
 
 export type ParseResult =
   | { ok: true; value: AgentConfigInput }
@@ -347,6 +392,11 @@ export function parseAgentConfigInput(raw: unknown): ParseResult {
     errors.budget = `Set a budget between $${BUDGET_MIN_USD} and $${BUDGET_MAX_USD.toLocaleString()}.`;
   }
 
+  const maxTurns = typeof input.maxTurns === "number" ? input.maxTurns : Number.NaN;
+  if (!Number.isInteger(maxTurns) || maxTurns < MAX_TURNS_MIN || maxTurns > MAX_TURNS_MAX) {
+    errors.maxTurns = `Allow between ${MAX_TURNS_MIN} and ${MAX_TURNS_MAX} turns.`;
+  }
+
   if (Object.keys(errors).length) return { ok: false, error: "Check the highlighted fields.", errors };
   return {
     ok: true,
@@ -356,6 +406,7 @@ export function parseAgentConfigInput(raw: unknown): ParseResult {
       model: input.model as AgentModelId,
       skills,
       monthlyBudgetCents: Math.round(budget * 100),
+      maxTurns,
       enabled: input.enabled !== false,
     },
   };
@@ -380,6 +431,7 @@ function describeChanges(row: AgentRow, next: AgentConfigInput) {
   if (row.monthlyBudgetCents !== next.monthlyBudgetCents) {
     changes.push(`budget (${formatCents(row.monthlyBudgetCents)} → ${formatCents(next.monthlyBudgetCents)})`);
   }
+  if (agentMaxTurns(row) !== next.maxTurns) changes.push(`max turns (${agentMaxTurns(row)} → ${next.maxTurns})`);
   return changes;
 }
 
@@ -390,6 +442,7 @@ function describeChanges(row: AgentRow, next: AgentConfigInput) {
 export async function updateAgentConfig(workspaceId: number, key: AgentKey, input: AgentConfigInput) {
   const row = await getAgentRow(workspaceId, key);
   if (!row) return null;
+  const provider = modelInfo(input.model).provider;
 
   const changes = describeChanges(row, input);
   const trustInputsChanged =
@@ -403,6 +456,8 @@ export async function updateAgentConfig(workspaceId: number, key: AgentKey, inpu
     .update(agents)
     .set({
       ...input,
+      // Remembered per provider, so a provider switch and back keeps this choice.
+      providerModels: { ...row.providerModels, [provider]: input.model },
       updatedAt: now,
       ...(report ? { trustScore: report.score, trustReport: report, trustScannedAt: now } : {}),
     })
@@ -428,6 +483,38 @@ export async function updateAgentConfig(workspaceId: number, key: AgentKey, inpu
     });
   }
   return { changed: changes.length > 0 || row.enabled !== input.enabled };
+}
+
+/** The model an agent runs on now: its model on the workspace's provider (a legacy cross-provider model maps over). */
+export function activeAgentModel(row: AgentRow, provider: AgentProvider) {
+  return agentModelFor(row.key as AgentKey, provider, row.model, row.providerModels);
+}
+
+/**
+ * Settings → AI providers: puts every agent on its model for `provider` — the one picked there before, else the
+ * closest equivalent (agentModelFor) — and remembers the model it leaves, so switching back restores it.
+ * Running stages keep their model; the next stage uses the new one.
+ */
+export async function switchAgentsToProvider(workspaceId: number, provider: AgentProvider) {
+  await ensureDefaultAgents(workspaceId);
+  const rows = await db.select().from(agents).where(eq(agents.workspaceId, workspaceId));
+  let switched = 0;
+  for (const row of rows) {
+    const next = activeAgentModel(row, provider);
+    const remembered = { ...row.providerModels, [provider]: next };
+    if (isAgentModelId(row.model) && modelInfo(row.model).provider !== provider) remembered[modelInfo(row.model).provider] = row.model;
+    await db.update(agents).set({ model: next, providerModels: remembered, updatedAt: new Date() }).where(eq(agents.id, row.id));
+    if (row.model === next) continue;
+    await logAgentActivity({
+      workspaceId,
+      agentId: row.id,
+      kind: "configured",
+      title: `Switched to ${PROVIDERS[provider].label}`,
+      detail: `Changed model (${modelLabel(row.model)} → ${modelLabel(next)}) from Settings → AI providers.`,
+    });
+    switched++;
+  }
+  return switched;
 }
 
 export async function saveTrustScan(row: AgentRow, report: TrustReport, costMicros: number) {

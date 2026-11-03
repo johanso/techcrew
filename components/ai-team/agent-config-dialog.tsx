@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { CheckIcon, RotateCcwIcon, SaveIcon, SparklesIcon, Undo2Icon } from "lucide-react";
 
 import { generateAgentAction, saveAgentAction } from "@/app/dashboard/[workspaceId]/ai-team/actions";
@@ -13,26 +14,31 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } fr
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  AGENT_MODELS,
   AGENT_ROLES,
   BUDGET_MAX_USD,
   BUDGET_MIN_USD,
   BUDGET_PRESETS_USD,
   DESCRIPTION_MAX,
   INSTRUCTIONS_MAX,
+  PROVIDERS,
   SKILL_CATEGORIES,
   SKILLS,
   formatMicros,
   isAgentModelId,
+  modelInfo,
+  modelsFor,
   type AgentModelId,
+  type AgentProvider,
+  type ProviderStatus,
   type SkillId,
   type SkillRisk,
 } from "@/lib/agent-config";
+import { MAX_TURNS_MAX, MAX_TURNS_MIN } from "@/lib/agent-run-config";
 import type { AgentConfigField, AgentView } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 
@@ -52,6 +58,8 @@ export function AgentConfigDialog({
   workspaceId,
   repoFullName,
   aiEnabled,
+  providers,
+  provider,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -59,6 +67,8 @@ export function AgentConfigDialog({
   workspaceId: number;
   repoFullName: string;
   aiEnabled: boolean;
+  providers: ProviderStatus;
+  provider: AgentProvider;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -69,6 +79,8 @@ export function AgentConfigDialog({
           workspaceId={workspaceId}
           repoFullName={repoFullName}
           aiEnabled={aiEnabled}
+          providers={providers}
+          provider={provider}
           onSaved={() => onOpenChange(false)}
         />
       </DialogContent>
@@ -81,12 +93,16 @@ function ConfigForm({
   workspaceId,
   repoFullName,
   aiEnabled,
+  providers,
+  provider,
   onSaved,
 }: {
   agent: AgentView;
   workspaceId: number;
   repoFullName: string;
   aiEnabled: boolean;
+  providers: ProviderStatus;
+  provider: AgentProvider;
   onSaved: () => void;
 }) {
   const defaults = AGENT_ROLES[agent.id].defaults;
@@ -96,6 +112,7 @@ function ConfigForm({
   const [model, setModel] = useState<AgentModelId>(agent.model);
   const [skills, setSkills] = useState<SkillId[]>(agent.skills);
   const [budget, setBudget] = useState(String(agent.monthlyBudgetCents / 100));
+  const [maxTurns, setMaxTurns] = useState(String(agent.maxTurns));
   const [errors, setErrors] = useState<Partial<Record<AgentConfigField, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
@@ -108,7 +125,8 @@ function ConfigForm({
     instructions.trim() !== agent.instructions ||
     model !== agent.model ||
     !sameSkills(skills, agent.skills) ||
-    budgetCents !== agent.monthlyBudgetCents;
+    budgetCents !== agent.monthlyBudgetCents ||
+    Number(maxTurns) !== agent.maxTurns;
 
   const clearError = (field: AgentConfigField) => setErrors((current) => (current[field] ? { ...current, [field]: undefined } : current));
 
@@ -123,6 +141,7 @@ function ConfigForm({
         model,
         skills,
         monthlyBudgetUsd: budget.trim() === "" ? Number.NaN : budgetUsd,
+        maxTurns: maxTurns.trim() === "" ? Number.NaN : Number(maxTurns),
       });
       if (result.ok) return onSaved();
       setErrors(("errors" in result && result.errors) || {});
@@ -220,7 +239,7 @@ function ConfigForm({
             <Field data-invalid={!!errors.model}>
               <FieldLabel htmlFor="agent-model">Model</FieldLabel>
               <Select
-                items={AGENT_MODELS.map((m) => ({ value: m.id, label: m.label }))}
+                items={modelsFor(provider).map((m) => ({ value: m.id, label: m.label }))}
                 value={model}
                 onValueChange={(value) => {
                   if (isAgentModelId(value)) setModel(value);
@@ -231,19 +250,29 @@ function ConfigForm({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {AGENT_MODELS.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      <span className="flex flex-col gap-0.5 py-0.5">
-                        <span className="font-medium">{m.label}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {m.hint} · ${m.pricing.input} / ${m.pricing.output} per 1M tokens
+                  <SelectGroup>
+                    <SelectLabel>{PROVIDERS[provider].label} models</SelectLabel>
+                    {modelsFor(provider).map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        <span className="flex flex-col gap-0.5 py-0.5">
+                          <span className="font-medium">{m.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {m.hint} · ${m.pricing.input} / ${m.pricing.output} per 1M tokens
+                          </span>
                         </span>
-                      </span>
-                    </SelectItem>
-                  ))}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
                 </SelectContent>
               </Select>
-              <FieldDescription>{AGENT_MODELS.find((m) => m.id === model)?.hint}</FieldDescription>
+              <FieldDescription>
+                {providers[provider] ? modelInfo(model).hint : `Add an ${PROVIDERS[provider].label} API key in Settings → AI providers to run this agent.`}{" "}
+                The team works with {PROVIDERS[provider].label};{" "}
+                <Link href={`/dashboard/${workspaceId}/settings#ai`} className="font-medium text-brand-emphasis hover:underline">
+                  change company
+                </Link>
+                .
+              </FieldDescription>
               <FieldError>{errors.model}</FieldError>
             </Field>
 
@@ -288,6 +317,33 @@ function ConfigForm({
               </div>
               <FieldError>{errors.budget}</FieldError>
             </Field>
+
+            <Field data-invalid={!!errors.maxTurns}>
+              <FieldLabel htmlFor="agent-max-turns">Max turns per stage</FieldLabel>
+              <InputGroup className="h-10">
+                <InputGroupInput
+                  id="agent-max-turns"
+                  type="number"
+                  inputMode="numeric"
+                  min={MAX_TURNS_MIN}
+                  max={MAX_TURNS_MAX}
+                  step="1"
+                  value={maxTurns}
+                  onChange={(event) => {
+                    setMaxTurns(event.target.value);
+                    clearError("maxTurns");
+                  }}
+                  aria-invalid={!!errors.maxTurns}
+                  className="tabular-nums"
+                />
+                <InputGroupAddon align="inline-end">turns</InputGroupAddon>
+              </InputGroup>
+              <FieldDescription>
+                Model calls the agent may make on one card before it must hand in its result. Default for the {agent.name}:{" "}
+                {defaults.maxTurns}.
+              </FieldDescription>
+              <FieldError>{errors.maxTurns}</FieldError>
+            </Field>
           </div>
         </div>
 
@@ -315,7 +371,7 @@ function ConfigForm({
   );
 }
 
-/** Instructions textarea with "Draft with AI" (OpenAI) and an undo for the last draft. */
+/** Instructions textarea with "Draft with AI" and an undo for the last draft. */
 function InstructionsField({
   agent,
   workspaceId,
@@ -377,7 +433,7 @@ function InstructionsField({
             onClick={() => setComposing((v) => !v)}
             disabled={!aiEnabled || generating}
             aria-expanded={composing}
-            title={aiEnabled ? undefined : "Add OPENAI_API_KEY to enable"}
+            title={aiEnabled ? undefined : "Add an API key in Settings → AI providers to enable"}
           >
             <SparklesIcon data-icon="inline-start" className="text-brand-emphasis" />
             Draft with AI
@@ -387,8 +443,7 @@ function InstructionsField({
 
       {!aiEnabled && (
         <FieldDescription>
-          AI drafting is off. Add <code className="font-mono text-xs">OPENAI_API_KEY</code> to your environment to let OpenAI tailor these
-          instructions to {repoFullName}.
+          AI drafting is off. Add an OpenAI or Anthropic API key in Settings → AI providers to tailor these instructions to {repoFullName}.
         </FieldDescription>
       )}
 
@@ -397,7 +452,7 @@ function InstructionsField({
           <div className="flex gap-3">
             <SparklesIcon className="mt-0.5 size-4 shrink-0 text-brand-emphasis" />
             <p className="text-xs text-muted-foreground">
-              OpenAI writes a description and instructions for the <span className="font-semibold text-foreground">{agent.name}</span>,
+              AI writes a description and instructions for the <span className="font-semibold text-foreground">{agent.name}</span>,
               tailored to <span className="font-semibold text-foreground">{repoFullName}</span> and the skills and budget below. Nothing is
               saved until you review it and click Save.
             </p>

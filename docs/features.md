@@ -9,6 +9,7 @@ What each part of the product does, from the user's point of view, with pointers
 - [Board](#board)
 - [GitHub issues on the board](#github-issues-on-the-board)
 - [Card actions: Run and Remove](#card-actions-run-and-remove)
+- [Agent pipeline](#agent-pipeline)
 - [AI Team](#ai-team)
 - [Pull Requests, Activity](#pull-requests-activity)
 - [Settings](#settings)
@@ -112,7 +113,7 @@ The board has real data now; wiring the Overview to it is a suggested next step 
 
 `/dashboard/[workspaceId]/board` — the Kanban board, persisted in the `tasks` table.
 
-**Columns** — Todo, In Development, In Review, Testing, Done. Each has a light tint (slate, sky, amber, orange,
+**Columns** — Todo, Analysis, In Development, In Review, Testing, Done. Each has a light tint (slate, brand blue, sky, amber, orange,
 green), a count, and a **+** button that opens the create dialog preset to that column. Empty columns say what
 belongs there ("Ready to be picked up. Drop a card here.").
 
@@ -149,7 +150,7 @@ to the end of that column. For GitHub cards, title, description and labels are r
 - While filtering, column badges show `visible/total`, empty columns say "No matching cards.", and "Showing X of Y
   cards · Clear filters" appears. Filters only **hide** cards: dragging while filtered keeps the hidden cards' order.
 
-**Layout** — the board scrolls horizontally when the five columns don't fit (snapping to columns on mobile).
+**Layout** — the board scrolls horizontally when the six columns don't fit (snapping to columns on mobile).
 
 Code: `components/board/*`, `lib/board.ts`, `lib/board-config.ts`, `app/dashboard/[workspaceId]/board/actions.ts`.
 
@@ -173,20 +174,58 @@ Open issues from the workspace's repository become cards automatically.
 
 Full rules and limits: [github-integration.md](github-integration.md#issue-sync).
 
-## Card actions: Run and Remove
+## Card actions: Run, Merge and Remove
 
-Each card has a **▶** button and a **⋯** menu with **Run** and **Remove task**. They sit beside the card's drag area,
-so using them never starts a drag or opens the dialog.
+Each card has a **▶** button and a **⋯** menu (**Run** or **Stop agents**, and **Remove task**). In **Done**, ▶ is replaced by a green check (a
+status, not a button); **Run again** stays in the ⋯ menu. When the card's pull
+request is ready for a manual merge ("PR #n ready to merge"), ▶ becomes a green **Merge** button and the menu adds
+**Merge PR #n** and **View PR on GitHub**. Merging runs the same checks as the Pull Requests page; the board then
+reloads: the card moves to Done, or, if GitHub reports a conflict or failing build, the Tester's follow-up card appears
+in Todo and the reason shows above the board.
 
-- **Run** hands the card to the **Analyst** agent: the server queues an `agent/task.run` job in Inngest and, only if
-  that succeeds, assigns the card (its avatar appears on the card). While starting, ▶ shows a spinner and is
-  disabled. Running an assigned card again re-queues it ("Run again with Analyst"). Run is refused while the Analyst
-  is paused or has used its monthly budget, and each run is logged in the Analyst's activity. ⚠️ The job is a placeholder: it
-  checks the card still exists and logs — see [background-jobs.md](background-jobs.md#agent-task-run).
+Running a card again starts over from Analysis. If the card already has an open pull request, the new run continues on
+that branch and PR ("Run again on PR #n" in the menu) instead of opening another; the Developer is told to build on
+the existing commits, and review and tests start over. They sit beside the
+card's drag area, so using them never starts a drag or opens the dialog.
+
+- **Run** starts the agent pipeline (see [Agent pipeline](#agent-pipeline)): the card moves to **Analysis**, the
+  Analyst's avatar appears and the card shows "Queued for the agents". ▶ stays disabled (spinner) while the agents
+  work. Run is refused when the agents are already on the card, when an agent's model has no provider key (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`; `AGENTS_SIMULATED=true` runs scripted agents instead), or while the Analyst is
+  paused or over budget.
+- **Stop agents** (while a run is active) cancels it between steps. The card is unassigned and stays in its column
+  (back to Todo if it was still in Analysis); the branch and pull request, if any, are kept.
 - **Remove task** asks for confirmation, then takes the card off the board. For GitHub cards the issue stays open
   on GitHub and won't be synced back. The row is kept as a tombstone so the key isn't reused.
 
 Locally, Run needs the Inngest Dev Server (`npm run inngest:dev`); otherwise it shows an error saying so.
+
+## Agent pipeline
+
+A run takes a card through the board's columns, one agent per stage:
+
+| Column | Agent | What happens |
+| --- | --- | --- |
+| Analysis | Analyst | Reads the card and the code (read-only). Hands it to the Developer with acceptance criteria, a plan, relevant files and notes, or asks one question (**needs info**: comment on the GitHub issue with *Comment on issues*, card back to Todo). |
+| In Development | Developer | Creates `agent/<key>-<slug>` from the default branch and commits to it through the GitHub API (write, edit, delete files). Then a pull request is opened (`Closes #<issue>` for GitHub cards). |
+| In Review | Reviewer | Reads the diff against the acceptance criteria. Approves, or requests changes with file-level findings (posted on the PR with *Review pull requests*). |
+| Testing | Tester | Verifies statically (no test runner): automated pre-checks (branch exists and has commits, reported files are in the diff, no conflict markers, PR open) plus its own review and CI results. |
+| Done | — | After the merge. |
+
+- Requested changes or failed verification send the work back to the Developer (same branch and PR) — at most
+  **2 rework rounds**, then the run stops and the PR waits for a human.
+- **Merging** follows **Settings → Agents**: *Manual* leaves the card in Testing with "PR #n ready to merge" and a
+  **Merge** button on the Pull Requests page; *Automatic* merges as soon as GitHub says the PR is mergeable and CI is
+  green (it waits up to 10 minutes for checks). A **conflict or failing build** makes the Tester file a follow-up bug
+  card on top of Todo (and a GitHub issue with *File issues*); the original run ends with the reason.
+- **Task pickup** (Settings → Agents): *Manual* = Run; *Automatic* = every 2 minutes the Analyst takes the top Todo
+  card that was never run, one card at a time per workspace.
+- **Max turns** (per agent, AI Team → Configure): model calls allowed per stage. The last turn forces the agent to
+  submit its result. Pausing an agent or reaching its budget stops the run at its next turn.
+- **Skills are enforced**: an agent only gets the tools its skills allow (*Read repository* → list/read/search files;
+  *Write code* → write/edit/delete on the run's branch; *Read CI results* → checks). Dependency manifests need
+  *Manage dependencies*; CI workflows, `.env*` files (except `.env.example`) and `.git/` can never be written.
+- Each card shows its run: stage in progress, "Analyst needs info" + the question, "Agents stopped" + the reason,
+  "PR #n ready to merge" or "Merged PR #n". The board refreshes every 10 s while any run is active.
 
 ## AI Team
 
@@ -196,46 +235,64 @@ written instructions, default skills, a model and a monthly budget.
 
 - **Stats** — Active agents (active/total, how many are working on cards or paused), Skill Trust Score (team average,
   grade, lowest agent), Monthly spending (all agents, against the sum of their budgets).
-- **Agent cards** — role avatar with a status dot, status (Ready, Working = has assigned cards not in Done, Paused,
+- **Agent cards** — role avatar with a status dot, status (Ready, Working = a run is at this agent's stage, Paused,
   Over budget), description, model, skill count, trust score, open cards and a budget bar (turns warning at 75 %,
   error at 100 %). Buttons: **Configure** and **View activity**.
 - **Configure** (dialog) — Active/Paused switch, description, instructions (**Reset to default**; **Draft with AI**
-  asks OpenAI for a description and instructions tailored to the repository's description, languages, topics and
+  asks the AI (OpenAI, else Claude) for a description and instructions tailored to the repository's description, languages, topics and
   README, the selected skills and budget, plus an optional focus; **Undo** restores the previous text; nothing is
   saved until **Save changes**), skills by category with risk level and *Default* tags (**Reset to defaults**), model
-  (with prices) and monthly budget (presets $25/$50/$100/$250). The side panel shows the **Skill Trust Score** (ring,
+  (only the workspace's company — OpenAI or Anthropic — with prices, and a *change company* link to Settings; a warning
+  shows when that company has no key) and monthly budget (presets $25/$50/$100/$250). The side panel shows the **Skill Trust Score** (ring,
   grade — Trusted ≥ 85, Needs review ≥ 70, At risk — summary, checks passed, findings, **Scan again**) and
   **Spending** for the month (spent, budget bar, remaining, projection, reset date, breakdown: task runs, AI drafting,
   trust scans). Saving logs exactly what changed and re-scores the agent.
 - **View activity** (drawer) — this month's event count and spend, open cards, then events grouped by day: joined,
-  configuration changes, pauses, AI drafts and scans (with their cost), cards assigned by Run.
+  configuration changes, pauses, AI drafts and scans (with their cost), cards assigned by Run, each pipeline stage
+  (with its cost and turn count), pull requests opened/merged and follow-up issues filed.
 - **Live Agent Office Workspace** — placeholder with one empty desk per agent.
 
-Without `OPENAI_API_KEY` the page shows "OpenAI not connected", **Draft with AI** is disabled and scans are rule-based.
+Without `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` the page shows "No AI provider connected", **Draft with AI** is disabled and scans are rule-based.
 
-**Skills vs. what exists today.** Skills are stored and scored, but no agent runtime executes them yet:
+**Skills vs. what the runtime does.** The pipeline enforces skills as tools:
 
 | Skill | Platform support today |
 | --- | --- |
-| Read repository, Read board & issues | ✅ Possible with the owner's GitHub token (`repo` scope) and the `tasks` table. |
-| Comment on / file issues, open pull requests, write code on branches, write tests, manage dependencies, review pull requests, merge pull requests, read CI results | 🟡 Allowed by the `repo` scope, but no tool code yet. |
-| Run tests in a sandbox | ❌ Needs a sandbox (container/VM) service. |
+| Read repository, Read board & issues | ✅ list/read/search files (GitHub API); the card is in the agent's brief. |
+| Write code on branches, Open pull requests | ✅ Developer commits through the GitHub contents API; the pipeline opens the PR. |
+| Review pull requests, Comment on issues, File issues, Read CI results | ✅ Reviews and test reports posted on the PR, needs-info comments, merge follow-up issues, check runs/statuses. |
+| Manage dependencies | ✅ Gate only: without it, manifests and lockfiles can't be written. |
+| Merge pull requests | 🟡 Not an agent tool: merging is controlled by Settings → Agents (manual or automatic). |
+| Write tests, Run tests in a sandbox | 🟡 / ❌ Tests can be written as files; nothing executes them (needs a sandbox service). |
 | Web research | ❌ Needs a search tool (e.g. OpenAI's web search tool in the Responses API). |
 | Read environment secrets | ❌ No per-workspace secrets store. |
 
 ## Pull Requests, Activity
 
-Pages exist with headers and empty states only:
-- **Pull Requests** — "No agent pull requests yet" + **View pull requests on GitHub** (opens the repo's `/pulls`).
-- **Activity** — "No activity yet".
+- **Pull Requests** — every pull request the agents opened: title, number, branch → base, card key, Review and Tests
+  verdicts, merge error if the last merge was blocked, and **Merge** once review and tests passed (manual mode; same
+  checks and follow-up rules as auto-merge). Opening the page picks up merges and closes done directly on GitHub
+  (cards move to Done). Empty state: "No agent pull requests yet". **View on GitHub** opens the repo's `/pulls`.
+- **Activity** — "No activity yet" (empty state).
 
 ## Settings
 
-`/dashboard/[workspaceId]/settings` (also reachable from the user menu, which jumps to `#account` or `#workspace`):
+`/dashboard/[workspaceId]/settings` (also reachable from the user menu, which jumps to `#account`, `#workspace` or `#ai`):
 - **Account** — avatar, name, verified-email badge, email, member since, last sign-in, account id.
 - **Workspace** — avatar, name, repository, default branch, visibility, creation date, **Open repository**.
+- **AI providers** (`#ai`) — **Agents work on** OpenAI or Anthropic: each agent then picks its model from that company on
+  the AI Team page and remembers one per company, so switching back restores those choices. The first time, each agent
+  gets the closest model (GPT-6.1 Sol ↔ Claude Sonnet 5.5, GPT-6 Astra ↔ Claude Opus 5.5, GPT-6 Luna ↔ Claude Haiku 5.5;
+  Terra → Sonnet). Every change is logged on the agent; a company without a key can't be chosen. Below, one key field per
+  provider: status (Connected with the masked key, Using the server's key, or Not connected), a password field with a
+  show/hide eye, **Save key** / **Replace key** (checked with the provider first; errors stay next to the field) and
+  **Remove** (confirmation dialog). The AI Team's "No AI provider connected" chip links here.
+- **Agent automation** (`#agents`) — **Task pickup** (Manual: Run on each card / Automatic: the Analyst picks the top
+  never-run Todo card every 2 minutes) and **Merging pull requests** (Manual: from the Pull Requests page / Automatic:
+  once review, tests and CI pass). Both default to Manual. A note explains that a blocked merge makes the Tester file a
+  follow-up card.
 
-Read-only for now.
+Account and workspace details are read-only.
 
 ## Theme
 

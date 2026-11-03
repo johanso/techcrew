@@ -18,6 +18,8 @@ export type GithubSyncState = {
 
 // Polling stands in for webhooks (which would need a public URL and admin rights on the repo).
 const POLL_MS = 60_000;
+// While agents work on a card, the board follows their progress (stage moves, PRs) at this pace.
+const LIVE_POLL_MS = 10_000;
 const REFOCUS_MIN_GAP_MS = 15_000;
 
 function summarize({ added, updated, closed, reopened }: SyncCounts) {
@@ -33,17 +35,20 @@ function summarize({ added, updated, closed, reopened }: SyncCounts) {
 
 /**
  * Keeps the board in sync with the repository's GitHub issues: on mount, when the tab regains focus,
- * every minute while visible, and on demand. `isBusy` reports a drag or an unsaved move — a fresh board
+ * every minute while visible (every 10 s, with the full board, while `live`), and on demand. `isBusy` reports a drag or an unsaved move — a fresh board
  * must not land then (it would undo the move on screen), so it's fetched again via `flushDeferred` later.
  */
 export function useGithubSync({
   workspaceId,
   initialSyncedAt,
+  live,
   isBusy,
   onBoard,
 }: {
   workspaceId: number;
   initialSyncedAt: string | null;
+  /** Agents are working on a card: poll often and always fetch the board. */
+  live: boolean;
   isBusy: () => boolean;
   onBoard: (board: BoardData) => void;
 }) {
@@ -61,13 +66,13 @@ export function useGithubSync({
   });
 
   const sync = useCallback(
-    async ({ manual = false }: { manual?: boolean } = {}) => {
+    async ({ manual = false, includeBoard = false }: { manual?: boolean; includeBoard?: boolean } = {}) => {
       if (inFlight.current || (!manual && paused.current)) return;
       inFlight.current = true;
       lastStartedAt.current = Date.now();
       setState((s) => ({ ...s, status: "syncing" }));
       try {
-        const result = await syncIssuesAction(workspaceId, { includeBoard: deferred.current });
+        const result = await syncIssuesAction(workspaceId, { includeBoard: includeBoard || deferred.current });
         if (!result.ok) {
           paused.current = result.reason !== "error";
           setState((s) => ({ ...s, status: "error", failure: result.reason }));
@@ -117,6 +122,14 @@ export function useGithubSync({
       window.removeEventListener("focus", onReturn);
     };
   }, [sync]);
+
+  useEffect(() => {
+    if (!live) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void sync({ includeBoard: true });
+    }, LIVE_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [live, sync]);
 
   return { state, sync, flushDeferred };
 }

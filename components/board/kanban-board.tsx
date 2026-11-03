@@ -24,7 +24,9 @@ import {
   createCardAction,
   moveCardsAction,
   removeCardAction,
+  mergeCardAction,
   runCardAction,
+  stopCardAction,
   updateCardAction,
 } from "@/app/dashboard/[workspaceId]/board/actions";
 import { BoardCardView } from "@/components/board/board-card";
@@ -65,6 +67,7 @@ import {
   type BoardColumns,
   type BoardData,
 } from "@/lib/board-config";
+import { isActiveRun } from "@/lib/agent-run-config";
 import { cn } from "@/lib/utils";
 
 const COLUMN_TITLE = Object.fromEntries(BOARD_COLUMNS.map((c) => [c.id, c.title])) as Record<BoardColumnId, string>;
@@ -96,6 +99,7 @@ export function KanbanBoard({
   });
   const [boardError, setBoardError] = useState<string | null>(null);
   const [runningIds, setRunningIds] = useState<ReadonlySet<string>>(new Set());
+  const [mergingIds, setMergingIds] = useState<ReadonlySet<string>>(new Set());
   // The card the remove confirmation is about; kept while the dialog animates out.
   const [removal, setRemoval] = useState<{ open: boolean; card: BoardCard | null; pending: boolean }>({
     open: false,
@@ -117,9 +121,12 @@ export function KanbanBoard({
   // A synced board must not land mid-drag or before a move/removal is saved: it would undo it on screen.
   const dragging = useRef(false);
   const pendingWrites = useRef(0);
+  // While agents work on any card, poll faster and always take the fresh board, so stages move on screen.
+  const agentsWorking = Object.values(cards).some((card) => card.run !== null && isActiveRun(card.run.status));
   const github = useGithubSync({
     workspaceId,
     initialSyncedAt: lastSyncedAt,
+    live: agentsWorking,
     isBusy: () => dragging.current || pendingWrites.current > 0,
     onBoard: (board) => {
       setCards(board.cards);
@@ -186,7 +193,8 @@ export function KanbanBoard({
     const result = await updateCardAction(workspaceId, dialog.mode.card.id, input);
     if (!result.ok) return result.error;
     const { card } = result;
-    setCards((prev) => ({ ...prev, [card.id]: card }));
+    // The edit response doesn't carry the agent run; keep the one the board already shows.
+    setCards((prev) => ({ ...prev, [card.id]: { ...card, run: prev[card.id]?.run ?? card.run } }));
     // A status change from the form appends the card to its new column (same as the server).
     setColumns((prev) => {
       const from = BOARD_COLUMNS.find((c) => prev[c.id].includes(card.id))?.id;
@@ -195,14 +203,19 @@ export function KanbanBoard({
     });
   };
 
-  // Run: the server queues the analyst, then returns the card assigned to it.
+  // Run: the server starts the agent pipeline, then returns the card assigned to the analyst.
   const runCard = async (card: BoardCard) => {
     if (runningIds.has(card.id)) return;
     setRunningIds((prev) => new Set(prev).add(card.id));
     try {
       const result = await runCardAction(workspaceId, card.id);
-      if (result.ok) setCards((prev) => (prev[card.id] ? { ...prev, [card.id]: result.card } : prev));
-      else setBoardError(result.error);
+      if (!result.ok) return setBoardError(result.error);
+      setCards((prev) => (prev[card.id] ? { ...prev, [card.id]: result.card } : prev));
+      // The analyst takes it: the server put it on top of Analysis.
+      setColumns((prev) => {
+        const without = Object.fromEntries(BOARD_COLUMNS.map((c) => [c.id, prev[c.id].filter((id) => id !== card.id)])) as BoardColumns;
+        return { ...without, analysis: [card.id, ...without.analysis] };
+      });
     } catch {
       setBoardError(`We couldn't start the analyst on ${card.key}. Please try again.`);
     } finally {
@@ -211,6 +224,49 @@ export function KanbanBoard({
         next.delete(card.id);
         return next;
       });
+    }
+  };
+
+  const stopCard = async (card: BoardCard) => {
+    pendingWrites.current++;
+    try {
+      const result = await stopCardAction(workspaceId, card.id);
+      if (!result.ok) return setBoardError(result.error);
+      setCards((prev) => (prev[card.id] ? { ...prev, [card.id]: result.card } : prev));
+      // A card stopped during analysis goes back to Todo on the server; mirror it.
+      setColumns((prev) => {
+        const from = BOARD_COLUMNS.find((c) => prev[c.id].includes(card.id))?.id;
+        if (from !== "analysis") return prev;
+        return { ...prev, analysis: prev.analysis.filter((id) => id !== card.id), todo: [card.id, ...prev.todo] };
+      });
+    } catch {
+      setBoardError(`We couldn't stop the agents on ${card.key}. Please try again.`);
+    } finally {
+      pendingWrites.current--;
+      settle();
+    }
+  };
+
+  // Merge: the server merges the card's PR (or the Tester files a follow-up when it can't), then the fresh board
+  // shows the result — the card in Done, or the follow-up card in Todo.
+  const mergeCard = async (card: BoardCard) => {
+    if (mergingIds.has(card.id)) return;
+    setMergingIds((prev) => new Set(prev).add(card.id));
+    pendingWrites.current++;
+    try {
+      const result = await mergeCardAction(workspaceId, card.id);
+      if (!result.ok) setBoardError(`${card.key}: ${result.error}`);
+    } catch {
+      setBoardError(`We couldn't merge ${card.key}'s pull request. Please try again.`);
+    } finally {
+      setMergingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(card.id);
+        return next;
+      });
+      pendingWrites.current--;
+      settle();
+      void github.sync({ includeBoard: true });
     }
   };
 
@@ -430,9 +486,12 @@ export function KanbanBoard({
               filtering={filtering}
               highlightId={highlightId}
               runningIds={runningIds}
+              mergingIds={mergingIds}
               onAdd={() => openCreate({ status: column.id })}
               onOpenCard={openCard}
               onRunCard={(card) => void runCard(card)}
+              onStopCard={(card) => void stopCard(card)}
+              onMergeCard={(card) => void mergeCard(card)}
               onRemoveCard={(card) => setRemoval({ open: true, card, pending: false })}
             />
           ))}

@@ -1,11 +1,16 @@
 import type { Metadata } from "next";
 import { format } from "date-fns";
-import { BadgeCheckIcon, ExternalLinkIcon } from "lucide-react";
+import { BadgeCheckIcon, BotIcon, ExternalLinkIcon, KeyRoundIcon } from "lucide-react";
 
 import { DetailGrid, PageHeader, SurfaceHeader } from "@/components/dashboard/page-header";
+import { AgentAutomationForm } from "@/components/settings/agent-automation-form";
+import { ProviderKeyForm } from "@/components/settings/provider-key-form";
+import { ProviderSwitchForm } from "@/components/settings/provider-switch-form";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { WorkspaceAvatar, workspaceLogoSrc } from "@/components/workspace/workspace-avatar";
+import { workspaceProvider } from "@/lib/agent-config";
+import { getProviderKeyViews } from "@/lib/ai-keys";
 import { initials } from "@/lib/utils";
 import { getDashboardContext } from "@/lib/workspaces";
 
@@ -13,6 +18,8 @@ export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage({ params }: PageProps<"/dashboard/[workspaceId]/settings">) {
   const { user, workspace } = await getDashboardContext((await params).workspaceId);
+  const keys = await getProviderKeyViews(workspace.id);
+  const provider = workspaceProvider(workspace);
 
   return (
     <>
@@ -74,6 +81,44 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
             { label: "Created", value: format(workspace.createdAt, "MMMM d, yyyy") },
           ]}
         />
+      </section>
+
+      <section id="ai" className="surface scroll-mt-24">
+        <SurfaceHeader
+          icon={
+            <span className="icon-tile text-brand-emphasis">
+              <KeyRoundIcon />
+            </span>
+          }
+          title="AI providers"
+          description="The models your agents run on and the API keys that pay for them. Keys are encrypted and never shown again."
+          actions={<span className="eyebrow text-muted-foreground">AI</span>}
+        />
+        <div className="flex flex-col gap-6 border-t border-border/70 p-6">
+          <ProviderSwitchForm
+            workspaceId={workspace.id}
+            provider={provider}
+            connected={{ openai: keys.openai.source !== null, anthropic: keys.anthropic.source !== null }}
+          />
+          <div className="flex flex-col gap-6 border-t border-border/70 pt-6">
+            <ProviderKeyForm workspaceId={workspace.id} provider="openai" view={keys.openai} />
+            <ProviderKeyForm workspaceId={workspace.id} provider="anthropic" view={keys.anthropic} />
+          </div>
+        </div>
+      </section>
+
+      <section id="agents" className="surface scroll-mt-24">
+        <SurfaceHeader
+          icon={
+            <span className="icon-tile text-brand-emphasis">
+              <BotIcon />
+            </span>
+          }
+          title="Agent automation"
+          description="How cards reach your AI team and what happens when their pull requests are ready."
+          actions={<span className="eyebrow text-muted-foreground">Agents</span>}
+        />
+        <AgentAutomationForm workspaceId={workspace.id} autoPickup={workspace.agentAutoPickup} autoMerge={workspace.agentAutoMerge} />
       </section>
     </>
   );

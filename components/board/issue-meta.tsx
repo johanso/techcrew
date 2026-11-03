@@ -27,6 +27,7 @@ export const PRIORITY_META: Record<IssuePriority, { label: string; dot: string }
 /** Light tint per column: background, hairline ring, and the header dot. */
 export const COLUMN_STYLE: Record<BoardColumnId, { tint: string; ring: string; dot: string; over: string }> = {
   todo: { tint: "bg-dark/7", ring: "ring-dark/15", dot: "bg-dark", over: "ring-dark/45" },
+  analysis: { tint: "bg-brand/6", ring: "ring-brand/15", dot: "bg-brand", over: "ring-brand/45" },
   in_development: { tint: "bg-action/7", ring: "ring-action/20", dot: "bg-action", over: "ring-action/60" },
   in_review: { tint: "bg-brand-accent/10", ring: "ring-brand-accent/30", dot: "bg-brand-accent", over: "ring-brand-accent/70" },
   testing: { tint: "bg-warning/7", ring: "ring-warning/20", dot: "bg-warning", over: "ring-warning/60" },

@@ -57,21 +57,89 @@ export const SKILL_CATEGORIES: { id: SkillCategory; label: string }[] = [
 
 // ── Models ─────────────────────────────────────────────────────────────────────
 
-/** USD per 1M tokens (OpenAI standard tier, prompts ≤ 272K tokens). Update when OpenAI changes prices. */
-export type ModelPricing = { input: number; cachedInput: number; cacheWrite: number; output: number };
+export type AgentProvider = "openai" | "anthropic";
+
+export const PROVIDERS: Record<AgentProvider, { label: string; envVar: string }> = {
+  openai: { label: "OpenAI", envVar: "OPENAI_API_KEY" },
+  anthropic: { label: "Anthropic", envVar: "ANTHROPIC_API_KEY" },
+};
+
+/** Which providers have an API key on the server. Computed server-side, passed to the client as plain data. */
+export type ProviderStatus = Record<AgentProvider, boolean>;
+
+/**
+ * USD per 1M tokens, standard tier. Update when a provider changes prices.
+ * OpenAI: prompts ≤ 272K tokens. Anthropic: cacheWrite is the 5-minute cache write (1.25 × input);
+ * `longPrompt` is the higher rate a model charges for the whole request above that many input tokens.
+ */
+export type ModelPricing = {
+  input: number;
+  cachedInput: number;
+  cacheWrite: number;
+  output: number;
+  longPrompt?: { aboveTokens: number; input: number; output: number };
+};
 
 export const AGENT_MODELS = [
-  { id: "gpt-6-astra", label: "GPT-6 Astra", hint: "Flagship · hardest reasoning and coding", pricing: { input: 10, cachedInput: 1, cacheWrite: 12.5, output: 50 } },
-  { id: "gpt-6.1-sol", label: "GPT-6.1 Sol", hint: "Balanced · complex coding at lower cost", pricing: { input: 2, cachedInput: 0.1, cacheWrite: 2.5, output: 10 } },
-  { id: "gpt-6.1-terra", label: "GPT-6.1 Terra", hint: "Efficient · everyday tasks", pricing: { input: 1, cachedInput: 0.05, cacheWrite: 1.25, output: 5 } },
-  { id: "gpt-6-luna", label: "GPT-6 Luna", hint: "Fastest · high-volume, simple tasks", pricing: { input: 0.1, cachedInput: 0.01, cacheWrite: 0.125, output: 0.5 } },
-] as const satisfies readonly { id: string; label: string; hint: string; pricing: ModelPricing }[];
+  { id: "gpt-6-astra", provider: "openai", label: "GPT-6 Astra", hint: "Flagship · hardest reasoning and coding", pricing: { input: 10, cachedInput: 1, cacheWrite: 12.5, output: 50 } },
+  { id: "gpt-6.1-sol", provider: "openai", label: "GPT-6.1 Sol", hint: "Balanced · complex coding at lower cost", pricing: { input: 2, cachedInput: 0.1, cacheWrite: 2.5, output: 10 } },
+  { id: "gpt-6.1-terra", provider: "openai", label: "GPT-6.1 Terra", hint: "Efficient · everyday tasks", pricing: { input: 1, cachedInput: 0.05, cacheWrite: 1.25, output: 5 } },
+  { id: "gpt-6-luna", provider: "openai", label: "GPT-6 Luna", hint: "Fastest · high-volume, simple tasks", pricing: { input: 0.1, cachedInput: 0.01, cacheWrite: 0.125, output: 0.5 } },
+  { id: "claude-opus-5-5", provider: "anthropic", label: "Claude Opus 5.5", hint: "Flagship · hardest reasoning and agentic coding", pricing: { input: 4, cachedInput: 0.2, cacheWrite: 5, output: 20 } },
+  { id: "claude-sonnet-5-5", provider: "anthropic", label: "Claude Sonnet 5.5", hint: "Balanced · everyday coding and agents", pricing: { input: 2, cachedInput: 0.2, cacheWrite: 2.5, output: 10 } },
+  {
+    id: "claude-haiku-5-5",
+    provider: "anthropic",
+    label: "Claude Haiku 5.5",
+    hint: "Fastest · high-volume, simple tasks",
+    pricing: { input: 0.1, cachedInput: 0.01, cacheWrite: 0.125, output: 0.5, longPrompt: { aboveTokens: 100_000, input: 0.5, output: 2.5 } },
+  },
+] as const satisfies readonly { id: string; provider: AgentProvider; label: string; hint: string; pricing: ModelPricing }[];
 
 export type AgentModelId = (typeof AGENT_MODELS)[number]["id"];
 
 export function isAgentModelId(value: unknown): value is AgentModelId {
   return typeof value === "string" && AGENT_MODELS.some((m) => m.id === value);
 }
+
+export function modelInfo(id: AgentModelId) {
+  return AGENT_MODELS.find((m) => m.id === id)!;
+}
+
+export function isAgentProvider(value: unknown): value is AgentProvider {
+  return value === "openai" || value === "anthropic";
+}
+
+/** A workspace's provider (workspaces.ai_provider is plain text in the database). */
+export function workspaceProvider(workspace: { aiProvider: string }): AgentProvider {
+  return isAgentProvider(workspace.aiProvider) ? workspace.aiProvider : "openai";
+}
+
+export function modelsFor(provider: AgentProvider) {
+  return AGENT_MODELS.filter((m) => m.provider === provider);
+}
+
+/**
+ * The model an agent uses on `provider`: the one it was set to there before, else the closest equivalent of its
+ * current model (tier for tier, EQUIVALENT_MODEL), else the role default.
+ */
+export function agentModelFor(key: AgentKey, provider: AgentProvider, current: string, remembered: Partial<Record<AgentProvider, AgentModelId>>) {
+  const saved = remembered[provider];
+  if (saved && isAgentModelId(saved) && modelInfo(saved).provider === provider) return saved;
+  if (isAgentModelId(current)) return modelInfo(current).provider === provider ? current : EQUIVALENT_MODEL[current];
+  return AGENT_ROLES[key].defaults.models[provider];
+}
+
+/** The other provider's closest model by tier, used the first time an agent moves to a provider. */
+export const EQUIVALENT_MODEL: Record<AgentModelId, AgentModelId> = {
+  "gpt-6-astra": "claude-opus-5-5",
+  "gpt-6.1-sol": "claude-sonnet-5-5",
+  "gpt-6.1-terra": "claude-sonnet-5-5",
+  "gpt-6-luna": "claude-haiku-5-5",
+  "claude-opus-5-5": "gpt-6-astra",
+  "claude-sonnet-5-5": "gpt-6.1-sol",
+  "claude-haiku-5-5": "gpt-6-luna",
+};
 
 // ── Limits (validated on the server, mirrored by the dialog) ──────────────────
 
@@ -87,9 +155,12 @@ export const BUDGET_PRESETS_USD = [25, 50, 100, 250];
 export type AgentDefaults = {
   description: string;
   instructions: string;
-  model: AgentModelId;
+  /** Starting model on each provider: capable models where judgment matters, a fast one for routine checks. */
+  models: Record<AgentProvider, AgentModelId>;
   skills: SkillId[];
   monthlyBudgetUsd: number;
+  /** Model turns per pipeline stage (see MAX_TURNS_MIN/MAX in agent-run-config). */
+  maxTurns: number;
 };
 
 export type AgentRole = Agent & { defaults: AgentDefaults };
@@ -102,9 +173,10 @@ export const AGENT_ROLES: Record<AgentKey, AgentRole> = {
     tone: "action",
     defaults: {
       description: "Breaks cards down into clear plans with acceptance criteria, risks and estimates before work starts.",
-      model: "gpt-6.1-sol",
+      models: { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5" },
       skills: ["repo.read", "issues.read", "issues.comment", "web.research"],
       monthlyBudgetUsd: 25,
+      maxTurns: 12,
       instructions: `You are the Analyst on this team. You turn a board card into a clear, buildable plan before anyone writes code.
 
 When you pick up a card:
@@ -132,9 +204,10 @@ Boundaries:
     tone: "brand",
     defaults: {
       description: "Implements planned cards on a branch and opens small, tested pull requests.",
-      model: "gpt-6.1-sol",
+      models: { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5" },
       skills: ["repo.read", "issues.read", "code.write", "pr.open", "tests.run", "ci.read"],
       monthlyBudgetUsd: 100,
+      maxTurns: 40,
       instructions: `You are the Developer on this team. You implement planned cards as small, reviewable pull requests.
 
 Workflow:
@@ -160,9 +233,10 @@ Boundaries:
     tone: "warning",
     defaults: {
       description: "Reviews pull requests for correctness, security and code quality before a human approves them.",
-      model: "gpt-6.1-sol",
+      models: { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5" },
       skills: ["repo.read", "issues.read", "pr.review", "ci.read", "issues.comment"],
       monthlyBudgetUsd: 50,
+      maxTurns: 15,
       instructions: `You are the Reviewer on this team. You review pull requests from agents and teammates before a human approves them.
 
 For every pull request:
@@ -188,9 +262,10 @@ Boundaries:
     tone: "success",
     defaults: {
       description: "Writes and runs tests, reproduces bugs and reports results on cards and pull requests.",
-      model: "gpt-6.1-terra",
+      models: { openai: "gpt-6-luna", anthropic: "claude-haiku-5-5" },
       skills: ["repo.read", "issues.read", "tests.write", "tests.run", "ci.read", "issues.create"],
       monthlyBudgetUsd: 50,
+      maxTurns: 12,
       instructions: `You are the Tester on this team. You make sure every change works as intended and keeps working.
 
 For each card or pull request you test:

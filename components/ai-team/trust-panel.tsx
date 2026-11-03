@@ -145,7 +145,7 @@ export function TrustPanel({
               ? "Save your changes to scan them."
               : aiEnabled
                 ? "Rule checks plus an AI security review."
-                : "Rule checks only. Add OPENAI_API_KEY for an AI review."}
+                : "Rule checks only. Add an API key in Settings → AI providers for an AI review."}
           </p>
         </div>
       </div>

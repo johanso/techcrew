@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
-import { isAgentKey, isSkillId, type AgentKey } from "@/lib/agent-config";
-import { generateAgentConfig, scanAgentWithAI } from "@/lib/agent-ai";
+import { PROVIDERS, isAgentKey, isSkillId, modelInfo, workspaceProvider, type AgentKey } from "@/lib/agent-config";
+import { configAIErrorMessage, generateAgentConfig, getWorkspaceConfigAI, scanAgentWithAI } from "@/lib/agent-ai";
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
 import {
   getAgentRow,
@@ -14,7 +14,6 @@ import {
   type AgentConfigField,
 } from "@/lib/agents";
 import { requireUser } from "@/lib/current-user";
-import { isOpenAIConfigured, openAIErrorMessage } from "@/lib/openai";
 import { getOwnedWorkspace } from "@/lib/workspaces";
 
 type Failure = { ok: false; error: string };
@@ -38,6 +37,12 @@ export async function saveAgentAction(workspaceId: number, key: string, raw: unk
   if (!auth) return { ok: false, error: "Agent not found." };
   const input = parseAgentConfigInput(raw);
   if (!input.ok) return input;
+  // The team works with one company at a time (Settings → AI providers); each agent picks a model from it.
+  const provider = workspaceProvider(auth.workspace);
+  if (modelInfo(input.value.model).provider !== provider) {
+    const label = PROVIDERS[provider].label;
+    return { ok: false, error: "Check the highlighted fields.", errors: { model: `Pick an ${label} model, or switch company in Settings → AI providers.` } };
+  }
   try {
     await updateAgentConfig(auth.workspace.id, auth.key, input.value);
   } catch (error) {
@@ -51,7 +56,7 @@ export async function saveAgentAction(workspaceId: number, key: string, raw: unk
 export type ScanAgentResult = { ok: true; report: TrustReport; notice?: string } | Failure;
 
 /**
- * Scan again: re-scores the saved configuration. Uses OpenAI when configured; if that fails the rule scan still
+ * Scan again: re-scores the saved configuration. Adds an AI review when the workspace has a provider key; if that fails the rule scan still
  * runs, so the user always gets a fresh score.
  */
 export async function scanAgentAction(workspaceId: number, key: string): Promise<ScanAgentResult> {
@@ -69,11 +74,12 @@ export async function scanAgentAction(workspaceId: number, key: string): Promise
   let report: TrustReport;
   let costMicros = 0;
   let notice: string | undefined;
-  if (isOpenAIConfigured()) {
+  const ai = await getWorkspaceConfigAI(auth.workspace);
+  if (ai) {
     try {
-      ({ report, costMicros } = await scanAgentWithAI(input));
+      ({ report, costMicros } = await scanAgentWithAI({ ...input, ai }));
     } catch (error) {
-      notice = `${openAIErrorMessage(error)} Showing the rule-based scan.`;
+      notice = `${configAIErrorMessage(ai, error)} Showing the rule-based scan.`;
       report = scanAgentRules(input);
     }
   } else {
@@ -95,13 +101,14 @@ export type GenerateAgentResult =
   | Failure;
 
 /**
- * Drafts a description and instructions with OpenAI for the dialog's current skills and budget. Nothing is saved
+ * Drafts a description and instructions with AI for the dialog's current skills and budget. Nothing is saved
  * until the user saves the dialog, but the model cost is logged right away (it was spent).
  */
 export async function generateAgentAction(workspaceId: number, key: string, raw: unknown): Promise<GenerateAgentResult> {
   const auth = await authorize(workspaceId, key);
   if (!auth) return { ok: false, error: "Agent not found." };
-  if (!isOpenAIConfigured()) return { ok: false, error: "Add OPENAI_API_KEY to your environment to generate with AI." };
+  const ai = await getWorkspaceConfigAI(auth.workspace);
+  if (!ai) return { ok: false, error: "Add an OpenAI or Anthropic API key in Settings → AI providers to generate with AI." };
 
   const input = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
   const skills = Array.isArray(input.skills) ? [...new Set(input.skills.filter(isSkillId))] : [];
@@ -111,6 +118,7 @@ export async function generateAgentAction(workspaceId: number, key: string, raw:
 
   try {
     const result = await generateAgentConfig({
+      ai,
       key: auth.key,
       workspace: auth.workspace,
       skills,
@@ -128,6 +136,6 @@ export async function generateAgentAction(workspaceId: number, key: string, raw:
     refresh(workspaceId);
     return { ok: true, ...result };
   } catch (error) {
-    return { ok: false, error: openAIErrorMessage(error) };
+    return { ok: false, error: configAIErrorMessage(ai, error) };
   }
 }

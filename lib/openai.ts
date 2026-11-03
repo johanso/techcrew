@@ -5,20 +5,9 @@ import type { ResponseUsage } from "openai/resources/responses/responses";
 
 import { AGENT_MODELS, MICROS_PER_USD, type AgentModelId } from "@/lib/agent-config";
 
-/** Model for configuration helpers (writing instructions, trust reviews): strong writing at a moderate price. */
-export const CONFIG_MODEL: AgentModelId = "gpt-6.1-sol";
-
-let client: OpenAI | null = null;
-
-export function isOpenAIConfigured() {
-  return Boolean(process.env.OPENAI_API_KEY);
-}
-
-/** Shared client, or null when OPENAI_API_KEY isn't set (AI features then degrade instead of failing). */
-export function getOpenAI() {
-  if (!isOpenAIConfigured()) return null;
-  client ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 2, timeout: 60_000 });
-  return client;
+/** Client for one workspace's key (lib/ai-keys.ts). Clients are cheap; keys differ per workspace, so none is shared. */
+export function openAIClient(apiKey: string) {
+  return new OpenAI({ apiKey, maxRetries: 2, timeout: 60_000 });
 }
 
 /** Cost of one response in micro-dollars, from the token usage OpenAI reports and AGENT_MODELS pricing. */
@@ -38,8 +27,8 @@ export function responseCostMicros(model: AgentModelId, usage: ResponseUsage | n
 /** One message for users when OpenAI fails, without leaking API details. */
 export function openAIErrorMessage(error: unknown) {
   if (error instanceof OpenAI.APIError) {
-    if (error.status === 401) return "OpenAI rejected the API key. Check OPENAI_API_KEY.";
-    if (error.status === 429) return "OpenAI rate limit or quota reached. Try again in a minute.";
+    if (error.status === 401) return "OpenAI rejected the API key. Check it in Settings → AI providers.";
+    if (error.status === 429) return "OpenAI rate limit or quota reached. Add credit, wait a minute, or switch provider in Settings.";
     if (error.status && error.status >= 500) return "OpenAI is having trouble right now. Try again shortly.";
   }
   console.error("[openai]", error);

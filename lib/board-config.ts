@@ -1,3 +1,4 @@
+import type { BoardCardRun } from "@/lib/agent-run-config";
 import type { Agent } from "@/lib/agents";
 
 /**
@@ -7,6 +8,7 @@ import type { Agent } from "@/lib/agents";
 
 export const BOARD_COLUMNS = [
   { id: "todo", title: "Todo", hint: "Ready to be picked up" },
+  { id: "analysis", title: "Analysis", hint: "The analyst is planning it" },
   { id: "in_development", title: "In Development", hint: "Agents are building it" },
   { id: "in_review", title: "In Review", hint: "Waiting for code review" },
   { id: "testing", title: "Testing", hint: "Being verified" },
@@ -29,8 +31,10 @@ export type BoardCard = {
   title: string;
   description: string;
   priority: IssuePriority;
-  /** Not settable yet (no agents table); kept so cards can show an agent once assignment exists. */
+  /** The agent working on the card (set by the pipeline at each stage). */
   assignee: Agent | null;
+  /** Latest agent run, or null if the card was never run. */
+  run: BoardCardRun | null;
   labels: string[];
   /** Calendar date, "yyyy-MM-dd". */
   dueDate: string | null;
@@ -66,7 +70,7 @@ export type BoardData = {
 };
 
 export function emptyColumns(): BoardColumns {
-  return { todo: [], in_development: [], in_review: [], testing: [], done: [] };
+  return { todo: [], analysis: [], in_development: [], in_review: [], testing: [], done: [] };
 }
 
 export function isBoardColumnId(value: unknown): value is BoardColumnId {

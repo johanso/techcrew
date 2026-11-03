@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
 
 import { db, workspaces, type NewWorkspace } from "@/db";
+import type { AgentProvider } from "@/lib/agent-config";
 import { requireUser } from "@/lib/current-user";
 
 export function listWorkspaces(ownerId: number) {
@@ -24,6 +25,19 @@ export async function getOwnedWorkspace(ownerId: number, id: number) {
     .from(workspaces)
     .where(and(eq(workspaces.id, id), eq(workspaces.ownerId, ownerId)));
   return row ?? null;
+}
+
+/** Settings → Agents. The caller has already checked ownership. */
+export async function updateAgentAutomation(workspaceId: number, values: { agentAutoPickup: boolean; agentAutoMerge: boolean }) {
+  await db
+    .update(workspaces)
+    .set({ ...values, updatedAt: new Date() })
+    .where(eq(workspaces.id, workspaceId));
+}
+
+/** Settings → AI providers. The caller has already checked ownership and that the provider has a key. */
+export async function updateAIProvider(workspaceId: number, provider: AgentProvider) {
+  await db.update(workspaces).set({ aiProvider: provider, updatedAt: new Date() }).where(eq(workspaces.id, workspaceId));
 }
 
 export async function insertWorkspace(values: NewWorkspace) {

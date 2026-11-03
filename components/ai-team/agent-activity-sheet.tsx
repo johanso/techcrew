@@ -2,7 +2,9 @@
 
 import { format, formatDistanceToNowStrict, isToday, isYesterday } from "date-fns";
 import {
+  BugIcon,
   CpuIcon,
+  GitPullRequestIcon,
   HistoryIcon,
   ListTodoIcon,
   PauseIcon,
@@ -29,6 +31,8 @@ const KIND: Record<AgentActivityKind, { icon: LucideIcon; tone: string }> = {
   scan: { icon: ShieldCheckIcon, tone: "text-success" },
   task_assigned: { icon: ListTodoIcon, tone: "text-warning" },
   task_run: { icon: CpuIcon, tone: "text-action" },
+  pull_request: { icon: GitPullRequestIcon, tone: "text-brand-emphasis" },
+  issue_filed: { icon: BugIcon, tone: "text-error" },
 };
 
 function dayLabel(date: Date) {

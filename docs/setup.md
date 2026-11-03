@@ -47,13 +47,15 @@ All variables live in `.env`. Restart `npm run dev` after changing them.
 | `AUTH_SECRET_KEY` | no | — | Server-only key of the auth project. Not used by the current flows. |
 | `GITHUB_CLIENT_ID` | for GitHub | `lib/github.ts` | Client ID of your GitHub OAuth App. |
 | `GITHUB_CLIENT_SECRET` | for GitHub | `lib/github.ts` | Client secret of your GitHub OAuth App. |
-| `TOKEN_ENCRYPTION_KEY` | for GitHub | `lib/crypto.ts` | 32 random bytes, base64. Encrypts GitHub access tokens at rest. Generate with `openssl rand -base64 32`. **Changing it makes every stored token unreadable**: users must reconnect GitHub. |
+| `TOKEN_ENCRYPTION_KEY` | for GitHub | `lib/crypto.ts` | 32 random bytes, base64. Encrypts GitHub access tokens and AI provider keys at rest. Generate with `openssl rand -base64 32`. **Changing it makes every stored token unreadable**: users must reconnect GitHub and re-enter AI keys. |
 | `S3_ENDPOINT` | for logos | `lib/storage.ts` | S3 API endpoint, e.g. `https://s3.us-east-1.amazonaws.com`. Any S3-compatible service works. |
 | `S3_REGION` | for logos | `lib/storage.ts` | Bucket region. |
 | `S3_BUCKET` | for logos | `lib/storage.ts` | Bucket name. Keep it **private**; logos are served through the app. |
 | `S3_ACCESS_KEY_ID` | for logos | `lib/storage.ts` | Access key with `s3:PutObject` and `s3:GetObject` on the bucket. |
 | `S3_SECRET_ACCESS_KEY` | for logos | `lib/storage.ts` | Matching secret. |
-| `OPENAI_API_KEY` | optional | `lib/openai.ts` | AI Team: **Draft with AI** and AI-assisted trust scans. Without it the page works with default instructions and rule-based scans. Calls use `gpt-6.1-sol` (`CONFIG_MODEL`) and their cost is charged to the agent's monthly budget. |
+| `OPENAI_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback; workspaces normally save their own key in Settings → AI providers. Agents on GPT models; **Draft with AI** and AI-assisted trust scans (on `gpt-6.1-sol`). Without any provider key the page works with default instructions and rule-based scans. Model cost is charged to the agent's monthly budget. |
+| `ANTHROPIC_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback, as above. Agents on Claude models (Opus / Sonnet / Haiku 5.5). Also drafting and trust scans (on `claude-sonnet-5-5`) when `OPENAI_API_KEY` isn't set. A Console API key (pay as you go); a Claude.ai subscription can't be used. |
+| `AGENTS_SIMULATED` | no | `lib/agent-simulated.ts` | Local testing. `true` runs the agent pipeline with scripted agents: no model calls and no spend, but real GitHub work on the linked repo (a branch, one note file `agent-simulations/<branch>.md`, a pull request). Each turn waits 4 s so you can watch the card move. Leave `false` in production. |
 | `INNGEST_EVENT_KEY` | production | `lib/inngest/client.ts` | Inngest Cloud event key. Not needed locally (the Dev Server is used). |
 | `INNGEST_SIGNING_KEY` | production | Inngest `serve()` | Verifies requests from Inngest Cloud to `/api/inngest`. Not needed locally. |
 | `INNGEST_DEV` | no | Inngest SDK | Set to `1` to force Dev Mode, `0` to force Cloud Mode. If unset, the SDK (v3) infers Dev Mode unless the environment looks like production (`NODE_ENV=production`, Vercel/Netlify production, …). |

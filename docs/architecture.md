@@ -71,15 +71,24 @@ lib/                         Server logic (most files start with `import "server
   board.ts                   Board persistence and validation
   board-config.ts            Board vocabulary shared by server and client (no server-only)
   crypto.ts                  AES-256-GCM encrypt/decrypt
+  ai-keys.ts                 Workspace AI provider keys (encrypted; env fallback), verification, masking
   storage.ts                 S3 uploads and reads
   agents.ts                  Agents persistence, team view, activity/spend ledger, task key prefix
   agent-config.ts            Agent roles, skills, models (shared client/server)
   agent-trust.ts             Skill Trust Score rule scan (pure)
-  agent-ai.ts                OpenAI: instruction drafting, AI trust review
+  agent-ai.ts                Config AI (OpenAI, else Anthropic): instruction drafting, AI trust review
+  agent-run-config.ts        Pipeline stages, run statuses, report types (shared client/server)
+  agent-runs.ts              agent_runs persistence, card placement, auto-pickup query
+  agent-pipeline.ts          Stage work: prompts, stage start/turns, branch, PR, review/test recording
+  agent-loop.ts              One model turn with function tools (OpenAI Responses or Anthropic Messages)
+  agent-simulated.ts         Scripted agents for AGENTS_SIMULATED=true
+  agent-tools.ts             Agent tools on the GitHub API, gated by stage and skills
+  pull-requests.ts           Agent PRs: merge, Tester follow-up on conflicts/failing builds, refresh, list
   openai.ts                  OpenAI client and cost accounting
+  anthropic.ts               Anthropic client, cost accounting, tool schema conversion
   overview.ts                Overview data (dummy)
   workspace-icons.ts         Selectable workspace icons (shared client/server)
-  inngest/                   Inngest client, boilerplate functions, agent-run job
+  inngest/                   Inngest client, boilerplate functions, agent pipeline + auto pickup
   utils.ts                   cn(), initials()
 proxy.ts                     Optimistic auth guard for /dashboard and /workspaces
 drizzle.config.ts            drizzle-kit config (public schema only)
@@ -102,7 +111,7 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `/dashboard/[workspaceId]` | owner | Overview. |
 | `/dashboard/[workspaceId]/board` | owner | Kanban board. |
 | `/dashboard/[workspaceId]/ai-team` | owner | AI Team: agents, configure dialog, trust score, spending, activity. |
-| `/dashboard/[workspaceId]/pull-requests` | owner | Empty state + link to the repo's PRs on GitHub. |
+| `/dashboard/[workspaceId]/pull-requests` | owner | Agent pull requests (refreshed from GitHub on load), review/test verdicts, **Merge**. |
 | `/dashboard/[workspaceId]/activity` | owner | Empty state. |
 | `/dashboard/[workspaceId]/settings` | owner | Account (`#account`) and workspace (`#workspace`) details. |
 
@@ -125,7 +134,9 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | --- | --- |
 | `app/(auth)/actions.ts` | `signUp`, `signIn`, `completeSocialSignIn`, `signOut` |
 | `app/workspaces/actions.ts` | `createWorkspace`, `disconnectGithub` |
-| `app/dashboard/[workspaceId]/board/actions.ts` | `createCardAction`, `updateCardAction`, `moveCardsAction`, `removeCardAction`, `runCardAction`, `syncIssuesAction` |
+| `app/dashboard/[workspaceId]/board/actions.ts` | `createCardAction`, `updateCardAction`, `moveCardsAction`, `removeCardAction`, `runCardAction`, `stopCardAction`, `syncIssuesAction` |
+| `app/dashboard/[workspaceId]/pull-requests/actions.ts` | `mergePullRequestAction` |
+| `app/dashboard/[workspaceId]/settings/actions.ts` | `saveAutomationAction` |
 
 Server Actions are POST endpoints. Each one re-checks the session and ownership itself; never assume the page that
 rendered the form already did.
@@ -244,4 +255,4 @@ The full design system — palette table, contrast rules, typography scale, layo
 | Auth service | `lib/auth.ts` (server only) | Friendly form errors; `503` → "temporarily unavailable". |
 | GitHub | `lib/github.ts`, `lib/github-issues.ts` | `401` → "reconnect", `403/404` → "no access", others → retry later. See [github-integration.md](github-integration.md). |
 | S3 | `lib/storage.ts` | Upload errors fail workspace creation with a generic message; read errors → 404 for the logo. |
-| Inngest | `lib/inngest/*`, `/api/inngest` | `send` failure → Run shows an error and nothing is assigned. See [background-jobs.md](background-jobs.md). |
+| Inngest | `lib/inngest/*`, `/api/inngest` | `send` failure → Run shows an error, the run is marked failed and nothing moves. See [background-jobs.md](background-jobs.md). |

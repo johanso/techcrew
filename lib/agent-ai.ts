@@ -6,17 +6,82 @@ import {
   INSTRUCTIONS_MAX,
   SKILL_BY_ID,
   formatCents,
+  workspaceProvider,
   type AgentKey,
+  type AgentModelId,
+  type AgentProvider,
   type SkillId,
 } from "@/lib/agent-config";
 import { scanAgentRules, sortFindings, type TrustFinding, type TrustReport, type TrustSeverity } from "@/lib/agent-trust";
+import { getAIKeys, type AIKeys } from "@/lib/ai-keys";
+import { anthropicClient, anthropicErrorMessage, messageCostMicros } from "@/lib/anthropic";
 import { getGithubToken, getRepoContext, type RepoContext } from "@/lib/github";
-import { CONFIG_MODEL, getOpenAI, responseCostMicros } from "@/lib/openai";
+import { openAIClient, openAIErrorMessage, responseCostMicros } from "@/lib/openai";
 
 /**
- * OpenAI-assisted agent configuration: writing instructions tailored to the workspace's repository, and an AI
- * review layered on the rule-based Skill Trust Score. Callers check isOpenAIConfigured() first.
+ * AI-assisted agent configuration: writing instructions tailored to the workspace's repository, and an AI
+ * review layered on the rule-based Skill Trust Score. Runs on the workspace's provider (Settings → AI providers),
+ * or on the other one when only that has a key. Callers get a ConfigAI from configAI() first.
  */
+
+/** Model for configuration helpers per provider: strong writing at a moderate price. */
+const CONFIG_MODELS = { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5" } as const satisfies Record<AgentProvider, AgentModelId>;
+
+export type ConfigAI = { provider: AgentProvider; apiKey: string };
+
+/** The provider and key for configuration helpers, or null when the workspace has no key at all. */
+export function configAI(keys: AIKeys, preferred: AgentProvider): ConfigAI | null {
+  const other: AgentProvider = preferred === "openai" ? "anthropic" : "openai";
+  for (const provider of [preferred, other]) {
+    const apiKey = keys[provider];
+    if (apiKey) return { provider, apiKey };
+  }
+  return null;
+}
+
+/** configAI() for a workspace: its keys and its chosen provider (Settings → AI providers). */
+export async function getWorkspaceConfigAI(workspace: { id: number; aiProvider: string }) {
+  return configAI(await getAIKeys(workspace.id), workspaceProvider(workspace));
+}
+
+/** One message for users when the AI request fails. */
+export function configAIErrorMessage(ai: ConfigAI, error: unknown) {
+  return ai.provider === "openai" ? openAIErrorMessage(error) : anthropicErrorMessage(error);
+}
+
+/** One structured (JSON schema) completion on the workspace's provider. */
+async function structuredCompletion<T>(
+  ai: ConfigAI,
+  input: { system: string; user: string; name: string; schema: Record<string, unknown> }
+) {
+  if (ai.provider === "openai") {
+    const openai = openAIClient(ai.apiKey);
+    const model = CONFIG_MODELS.openai;
+    const response = await openai.responses.create({
+      model,
+      input: [
+        { role: "system", content: input.system },
+        { role: "user", content: input.user },
+      ],
+      text: { format: { type: "json_schema", name: input.name, strict: true, schema: input.schema } },
+    });
+    return { data: JSON.parse(response.output_text) as T, model, costMicros: responseCostMicros(model, response.usage) };
+  }
+
+  const anthropic = anthropicClient(ai.apiKey);
+  const model = CONFIG_MODELS.anthropic;
+  const response = await anthropic.messages.create({
+    model,
+    max_tokens: 16_000,
+    system: input.system,
+    messages: [{ role: "user", content: input.user }],
+    output_config: { format: { type: "json_schema", schema: input.schema } },
+  });
+  if (response.stop_reason === "refusal") throw new Error("The model declined this request.");
+  const text = response.content.find((block) => block.type === "text");
+  if (!text || text.type !== "text") throw new Error("The model returned no text.");
+  return { data: JSON.parse(text.text) as T, model, costMicros: messageCostMicros(model, response.model, response.usage) };
+}
 
 type WorkspaceRepo = { ownerId: number; githubRepoFullName: string; githubDefaultBranch: string };
 
@@ -59,14 +124,13 @@ const GENERATE_SCHEMA = {
 } as const;
 
 export async function generateAgentConfig(input: {
+  ai: ConfigAI;
   key: AgentKey;
   workspace: WorkspaceRepo;
   skills: SkillId[];
   monthlyBudgetCents: number;
   focus: string;
 }) {
-  const openai = getOpenAI();
-  if (!openai) throw new Error("OPENAI_API_KEY is not set");
   const role = AGENT_ROLES[input.key];
   const repo = await loadRepoContext(input.workspace);
 
@@ -86,20 +150,16 @@ export async function generateAgentConfig(input: {
     .filter(Boolean)
     .join("\n\n");
 
-  const response = await openai.responses.create({
-    model: CONFIG_MODEL,
-    input: [
-      { role: "system", content: GENERATE_SYSTEM },
-      { role: "user", content: context },
-    ],
-    text: { format: { type: "json_schema", name: "agent_config", strict: true, schema: GENERATE_SCHEMA } },
+  const { data: parsed, costMicros } = await structuredCompletion<{ description: string; instructions: string }>(input.ai, {
+    system: GENERATE_SYSTEM,
+    user: context,
+    name: "agent_config",
+    schema: GENERATE_SCHEMA,
   });
-
-  const parsed = JSON.parse(response.output_text) as { description: string; instructions: string };
   return {
     description: parsed.description.trim().slice(0, DESCRIPTION_MAX),
     instructions: parsed.instructions.trim().slice(0, INSTRUCTIONS_MAX),
-    costMicros: responseCostMicros(CONFIG_MODEL, response.usage),
+    costMicros,
     repoAware: repo !== null,
   };
 }
@@ -133,18 +193,17 @@ const REVIEW_SCHEMA = {
 } as const;
 
 /**
- * Rule scan plus an OpenAI review. The final score averages both, so the AI can neither hide a rule finding nor
+ * Rule scan plus an AI review. The final score averages both, so the AI can neither hide a rule finding nor
  * swing the score alone; its findings are added next to the rule findings.
  */
 export async function scanAgentWithAI(input: {
+  ai: ConfigAI;
   key: AgentKey;
   description: string;
   instructions: string;
   skills: SkillId[];
   monthlyBudgetCents: number;
 }): Promise<{ report: TrustReport; costMicros: number }> {
-  const openai = getOpenAI();
-  if (!openai) throw new Error("OPENAI_API_KEY is not set");
   const rules = scanAgentRules(input);
   const role = AGENT_ROLES[input.key];
 
@@ -157,20 +216,11 @@ export async function scanAgentWithAI(input: {
     `Instructions:\n"""\n${input.instructions}\n"""`,
   ].join("\n\n");
 
-  const response = await openai.responses.create({
-    model: CONFIG_MODEL,
-    input: [
-      { role: "system", content: REVIEW_SYSTEM },
-      { role: "user", content: config },
-    ],
-    text: { format: { type: "json_schema", name: "agent_trust_review", strict: true, schema: REVIEW_SCHEMA } },
-  });
-
-  const ai = JSON.parse(response.output_text) as {
+  const { data: ai, model, costMicros } = await structuredCompletion<{
     score: number;
     summary: string;
     findings: { severity: TrustSeverity; title: string; detail: string }[];
-  };
+  }>(input.ai, { system: REVIEW_SYSTEM, user: config, name: "agent_trust_review", schema: REVIEW_SCHEMA });
   const aiScore = Math.max(0, Math.min(100, Math.round(ai.score)));
   const aiFindings: TrustFinding[] = ai.findings.slice(0, 5).map((f, i) => ({
     id: `ai-${i + 1}`,
@@ -187,8 +237,8 @@ export async function scanAgentWithAI(input: {
       summary: ai.summary.trim().slice(0, 300) || rules.summary,
       findings: sortFindings([...rules.findings, ...aiFindings]),
       mode: "ai",
-      model: CONFIG_MODEL,
+      model,
     },
-    costMicros: responseCostMicros(CONFIG_MODEL, response.usage),
+    costMicros,
   };
 }

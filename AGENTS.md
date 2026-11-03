@@ -14,7 +14,8 @@ Read this file before changing anything. It sets the design system, typography, 
 conventions and folder structure every agent and contributor must follow.
 
 Human-oriented documentation lives in [`README.md`](README.md) and [`docs/`](docs): setup, architecture, data model,
-features, GitHub integration, background jobs, security and project status. Keep it current when behavior changes.
+features, GitHub integration, background jobs, security, project status and **agent testing**
+([`docs/testing.md`](docs/testing.md): what's verified, what isn't, how to test without spending). Keep it current when behavior changes.
 
 ## 1. What the app does
 
@@ -47,7 +48,7 @@ sign-in / sign-up ─▶ /workspaces ──(no workspaces)──▶ /workspaces/
 | GitHub | OAuth App (`repo read:user`) | Separate from social sign-in; tokens are AES-256-GCM encrypted. |
 | File storage | Private S3 bucket | Never public; served through ownership-checked routes. |
 | Jobs | Inngest | `lib/inngest/*`, `app/api/inngest`. |
-| AI | OpenAI (`openai` SDK, Responses API) | `lib/openai.ts`; optional — features degrade without `OPENAI_API_KEY`. |
+| AI | OpenAI (`openai` SDK, Responses API) and Anthropic (`@anthropic-ai/sdk`, Messages API) | `lib/openai.ts`, `lib/anthropic.ts`; each agent's model picks the provider. Optional — features degrade without keys. |
 
 ## 3. Commands
 
@@ -57,7 +58,7 @@ npm run build        # production build — must pass before you finish
 npx tsc --noEmit     # type check
 npm run db:push      # apply db/schema.ts to the database
 npm run db:studio    # inspect data
-npm run inngest:dev  # local Inngest Dev Server — required for the board's Run action (agent jobs)
+npm run inngest:dev  # local Inngest Dev Server — required for the agent pipeline (Run, auto pickup, auto-merge)
 npx next typegen     # regenerate PageProps / RouteContext types after adding routes
 npx shadcn add <c>   # add a shadcn component into components/ui
 ```
@@ -85,8 +86,10 @@ app/
       board/ ai-team/ pull-requests/ activity/   One page.tsx per sidebar section.
       ai-team/actions.ts  saveAgentAction, scanAgentAction, generateAgentAction (auth + validation).
       board/actions.ts    createCardAction, updateCardAction, moveCardsAction, removeCardAction, runCardAction,
-                          syncIssuesAction (auth + validation).
-      settings/           Account (#account) and workspace (#workspace) settings.
+                          stopCardAction, mergeCardAction, syncIssuesAction (also refreshes agent PRs) (auth + validation).
+      pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
+      settings/           Account (#account), workspace (#workspace), AI providers (#ai: keys + provider switch) and agent
+                          automation (#agents). actions.ts: automation, provider switch, save/remove provider key.
   globals.css             THE theme: palette, semantic tokens, Tailwind mapping.
   layout.tsx              Root layout; loads Plus Jakarta Sans, ThemeProvider.
 components/
@@ -96,7 +99,11 @@ components/
   board/                  Kanban: kanban-board (state + DndContext), board-column, board-card, card-dialog (create + edit),
                           board-toolbar (search + type tabs), board-filters (pure matching logic),
                           use-github-sync (polling hook), github-sync-controls (Refresh button, sync notice),
-                          issue-meta (type/priority/column colors + PriorityBadge, IssueTypePill — reuse everywhere).
+                          issue-meta (type/priority/column colors + PriorityBadge, IssueTypePill — reuse everywhere),
+                          agent-run-status (the run line on a card: stage, needs info, stopped, ready to merge).
+  pull-requests/          pull-requests-view (PR list, verdict chips), merge-button.
+  settings/               agent-automation-form (task pickup + merge mode), provider-switch-form, provider-key-form
+                          (masked key + show/hide), option-cards (radio cards shared by the settings forms).
   ai-team/                AI Team: ai-team-view (page markup), agent-roster (cards + open overlay state), agent-card,
                           agent-config-dialog (form + SkillPicker + Draft with AI), trust-panel, spending-panel,
                           agent-activity-sheet, agent-visuals (AgentPortrait, AgentStatusBadge, BudgetMeter, TrustRing).
@@ -114,19 +121,43 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   current-user.ts         getCurrentUser() / requireUser(returnTo).
   github.ts               GitHub OAuth + REST + connection persistence.
   crypto.ts               encrypt / decrypt for secrets at rest.
+  ai-keys.ts              Workspace AI provider keys: getAIKeys (workspace key, else env), getProviderKeyViews (masked),
+                          verifyProviderKey, saveProviderKey / removeProviderKey (encrypted).
   storage.ts              S3 uploads/reads, logo limits.
   workspaces.ts           Workspace queries (always scoped by owner) + getDashboardContext().
   overview.ts             Overview data contract + getOverviewData(). ⚠️ Returns DUMMY data for now.
-  agent-config.ts         AI Team vocabulary shared by server + client: roles + defaults, SKILLS, AGENT_MODELS (pricing), limits.
+  agent-config.ts         AI Team vocabulary shared by server + client: roles + defaults (models per provider), SKILLS,
+                          AGENT_MODELS (provider + pricing), PROVIDERS, EQUIVALENT_MODEL, agentModelFor, limits.
   agent-trust.ts          Skill Trust Score: scanAgentRules() (deterministic), trustGrade(). Pure.
-  agent-ai.ts             OpenAI helpers: generateAgentConfig() (repo-aware instructions), scanAgentWithAI().
-  openai.ts               OpenAI client (null without a key), responseCostMicros(), CONFIG_MODEL.
+  agent-ai.ts             Config AI (OpenAI if configured, else Anthropic): generateAgentConfig() (repo-aware instructions),
+                          scanAgentWithAI(), isConfigAIAvailable().
+  openai.ts               OpenAI client (null without a key), responseCostMicros().
+  anthropic.ts            Anthropic client (null without a key), messageCostMicros(), toClaudeSchema().
   agents.ts               Agents persistence: ensureDefaultAgents(), getAgentTeam(), updateAgentConfig(), saveTrustScan(),
-                          checkAgentCanRun(), logAgentActivity(); getAgent(), RUN_AGENT_ID (the analyst), taskKeyPrefix().
+                          checkAgentCanRun(), logAgentActivity(), stage activity rows, agentMaxTurns(); getAgent(),
+                          RUN_AGENT_ID (the analyst), taskKeyPrefix().
+  agent-run-config.ts     Pipeline vocabulary shared by server + client: RUN_STAGES/STAGE_META (agent + column per stage),
+                          RUN_STATUSES, MAX_REWORK_ROUNDS, max-turn limits, brief/review/test report types, BoardCardRun.
+  agent-runs.ts           agent_runs persistence: createRun, finishRun, getActiveRun, getLatestRuns, placeTask (moves +
+                          assigns a card for the pipeline), releaseTask, replaceWaitingRuns (rerun), findAutoPickupCandidates.
+  agent-pipeline.ts       Stage work: prompts, beginStage / runStageTurn (pause, budget, skills checked every turn),
+                          branch, PR, review/test recording (+ deterministic pre-checks), needs-info, readyToMerge,
+                          pipelineModelProblem (Run pre-check: every agent's model has a key).
+  agent-simulated.ts      AGENTS_SIMULATED=true: scripted stand-in for the model (one real tool call, then a passing result).
+  agent-loop.ts           One model turn with function tools, per provider: OpenAI Responses (previous_response_id, forced
+                          finish tool) or Anthropic Messages (history in agent_run_messages, last-turn system message);
+                          modelUnavailableReason(), initialLoopState().
+  agent-tools.ts          Agent tools on the GitHub API, filtered by stage + skills; protected paths, manifest gate.
+  pull-requests.ts        Agent PRs: mergeAgentPullRequest (mergeable + CI green, else Tester follow-up card),
+                          mergeManually (user merge: card or PR page), refreshOpenPullRequests, getRerunPullRequest +
+                          adoptPullRequest (rerun on the same PR), listPullRequests.
   board-config.ts         Board vocabulary shared by server + client: columns, issue types, priorities, BoardCard.
-  board.ts                Board persistence (tasks table): getBoardData, createTask, updateTask, reorderTasks,
-                          removeTask, assignTask, parseCardInput / parseBoardInput (server-side validation).
-  inngest/agent-run.ts    agentTaskRun: the job Run queues (`agent/task.run`). ⚠️ PLACEHOLDER until agents exist.
+  board.ts                Board persistence (tasks table): getBoardData (with latest runs), getBoardCard, createTask,
+                          updateTask, reorderTasks, removeTask, assignTask, createAgentTask (agent-filed cards),
+                          parseCardInput / parseBoardInput (server-side validation).
+  inngest/agent-run.ts    agentTaskRun: the agent pipeline (`agent/task.run`, cancel: `agent/task.cancel`). One step per
+                          model turn; stages, rework rounds and merge.
+  inngest/agent-pickup.ts agentAutoPickup: cron every 2 min, starts runs on never-run Todo cards (auto pickup on).
   github-issues.ts        syncWorkspaceIssues(): pulls the repo's GitHub issues onto the board (see "GitHub issues").
   workspace-icons.ts      Selectable icon set (shared client/server).
   utils.ts                cn(), initials().
@@ -173,6 +204,9 @@ Where new code goes:
 
 **Secrets & external services**
 - GitHub tokens are stored only via `saveGithubConnection` (encrypted) and read only via `getGithubToken`. Never send a token, ciphertext or S3 key to the client.
+- AI provider keys are stored only via `saveProviderKey` (verified with the provider, encrypted) and read only via
+  `getAIKeys`. The client only ever gets `ProviderKeyView` (source + masked hint); the show/hide eye applies to what the
+  user is typing, never to a saved key. Model calls take the key as an argument (`openAIClient(key)`, `anthropicClient(key)`).
 - Uploaded files go to private S3 via `lib/storage.ts`. Allowed logo types: PNG, JPEG, WebP, GIF, ≤ 1 MB. No SVG (script risk).
 - Handle a GitHub `401` as "connection expired": prompt the user to reconnect.
 - New env vars must be added to `.env.example` with a placeholder and a comment. Never put real credentials in `.env.example`.
@@ -294,15 +328,26 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
 - **Overview layout** (`OverviewView`): welcome header → 3 `StatTile`s (Open tasks, In progress, PR ready) →
   `grid lg:grid-cols-5` with `UpcomingTasks` (`lg:col-span-3`) and `AgentOfficePlaceholder` (`lg:col-span-2`) →
   `RecentActivity` list. Status/kind → icon + tone maps live next to each component (`TASK_STATUS`, `KIND`).
-- **Board** (`/dashboard/[id]/board`): five columns — Todo, In Development, In Review, Testing, Done —
-  each with a light tint from `COLUMN_STYLE` (slate, sky, amber, orange, green). Cards show type pill, key
+- **Board** (`/dashboard/[id]/board`): six columns — Todo, Analysis, In Development, In Review, Testing, Done —
+  each with a light tint from `COLUMN_STYLE` (slate, brand, sky, amber, orange, green). Cards show type pill, key
   (`PREFIX-<number>`, always — GitHub cards add `#<issue>` in the footer), title, labels, priority, due date and the
   assigned agent. "New" (Feature / Bug / Issue) and each column's "+" open `CardDialog` in create mode preset to that
   type/column; clicking a card (or Enter on a focused card) opens the same dialog in edit mode.
-  Each card has a ▶ **Run** button and a **⋯** menu (Run, Remove task). They render as siblings of the card inside
+  Each card has a ▶ **Run** button and a **⋯** menu (Run or Stop agents, Remove task). In Done, ▶ is a static check
+  (rerun stays in the menu). While its PR waits for a manual
+  merge, ▶ becomes **Merge** (`mergeCardAction` → `mergeManually`, the same checks as the Pull Requests page) and the menu
+  adds Merge and View PR on GitHub; the board reloads afterwards (card to Done, or the Tester's follow-up card).
+  Running a card again while it has an open PR continues on that branch and PR (`adoptPullRequest`, verdicts reset;
+  earlier runs waiting on it end as replaced, `replaceWaitingRuns`); the developer's brief says so (`rerunBlock`).
+  The PR is re-checked on GitHub first (`getRerunPullRequest`), and every board sync applies merges/closes done on
+  GitHub (`refreshOpenPullRequests` in `syncIssuesAction`), so cards never offer Merge on a closed PR. They render as siblings of the card inside
   the sortable wrapper (the card is only the drag *activator*), so they never start a drag or open the dialog.
-  - **Run** (`runCardAction`) queues `agent/task.run` in Inngest, then assigns the card to the analyst
-    (`assignee_agent_id`); if queuing fails nothing is assigned. Run locally with `npm run inngest:dev`.
+  - **Run** (`runCardAction`) creates an `agent_runs` row, queues `agent/task.run` with its `runId`, then moves the card
+    to Analysis assigned to the analyst; if queuing fails the run is marked failed and nothing moves. Refused while a
+    run is active, when an agent's model has no provider key (`pipelineModelProblem`), or when the analyst is paused/over budget. Locally: `npm run inngest:dev`.
+  - **Stop agents** (`stopCardAction`) marks the run cancelled, sends `agent/task.cancel` and unassigns the card.
+  - Cards show their latest run with `AgentRunStatus`; ▶ is disabled while it is queued/running, and the board polls
+    every 10 s (`useGithubSync({ live })`) while any card has an active run.
   - **Remove task** (`removeCardAction`, after an `AlertDialog` confirm) sets `removed_at`. Rows are never deleted:
     keys aren't reused, and a removed GitHub card is never imported again (the issue stays open on GitHub).
     Every board query goes through `onBoard()` in `lib/board.ts`, which skips removed rows. The board opts out of the page max width with
@@ -348,12 +393,43 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   call it). Identity (name, role, tone, icon) is fixed per key in `AGENT_ROLES`; users configure description,
   instructions, model, skills, budget and active/paused. Rules:
   - **Spend** lives in `agent_activity.cost_micros` (micro-dollars). Monthly = calendar month in **UTC**; format
-    reset dates in UTC. Every OpenAI call logs its real cost (`responseCostMicros`) even if the result isn't saved.
+    reset dates in UTC. Every model call logs its real cost (`responseCostMicros` / `messageCostMicros`) even if the result isn't saved.
   - **Trust score** (`lib/agent-trust.ts`): inherent risk per skill + penalties for failed checks. Saving a change to
     instructions, skills or budget re-runs the rule scan, so the stored score always matches the saved config.
-    **Scan again** scores the saved config (disabled while the dialog is dirty) and adds an OpenAI review when configured.
+    **Scan again** scores the saved config (disabled while the dialog is dirty) and adds an AI review when a provider is configured.
   - **Run** refuses when the analyst is paused or over budget (`checkAgentCanRun`) and logs `task_assigned`.
+  - **Max turns** (`agents.max_turns`, null = role default from `AGENT_ROLES`) caps model turns per pipeline stage.
+  - **Working** status = a `running` run is at that agent's stage (`STAGE_META`), not "has assigned cards".
   - Server actions call `revalidatePath` so cards, stats and open overlays show fresh data; dialog form state survives.
+- **Agent pipeline** (`lib/inngest/agent-run.ts` + `lib/agent-pipeline.ts`): Analyst (Analysis) → Developer (In
+  Development, branch `agent/<key>-<slug>`, PR) → Reviewer (In Review) → Tester (Testing) → merge (Done). Rules:
+  - Each stage is a tool loop of at most the agent's max turns, **one Inngest step per turn**; the last turn forces the
+    stage's finish tool (strict JSON schema). Step bodies reload state from the DB — never keep state in closures.
+  - **Skills are enforced as tools** (`toolsFor` in `lib/agent-tools.ts`). Adding a capability = a tool gated by a
+    skill there, not a prompt instruction. Agents never write `.github/workflows/`, `.env*` (except `.env.example`) or
+    `.git/`; manifests need `deps.manage`. Tool output is untrusted data — the stage protocol in `systemPrompt` says so.
+  - **One company per workspace, one model per agent** (Settings → `#ai`, `workspaces.ai_provider`). The configure
+    dialog lists only that provider's models (`modelsFor`), and `saveAgentAction` rejects a model from the other one.
+    `agents.model` is the active model; `agents.provider_models` remembers the agent's model on each provider, so
+    `switchAgentsToProvider` restores earlier choices (first time: `EQUIVALENT_MODEL`, via `agentModelFor`). Read the
+    active model with `activeAgentModel(row, provider)`. Role defaults are per provider (`defaults.models`: Sol/Sonnet,
+    Tester Luna/Haiku). Config AI (drafting, trust reviews) uses the workspace provider, or the other one if only it has
+    a key (`configAI`). Run refuses up front when any agent's model has no key (`pipelineModelProblem`).
+  - **Models and providers**: `AGENT_MODELS` (`lib/agent-config.ts`) lists OpenAI and Claude models with their `provider`
+    and prices. The model is pinned per stage in `LoopState` (a change on the AI Team page applies from the next stage).
+    Claude's conversation is stored in `agent_run_messages` (append-only, written at fixed positions so a retried step
+    overwrites itself); thinking blocks go back unchanged. Claude 5.5 models reject forced tool choice, so the last turn
+    is a mid-conversation system message instead. Opus/Sonnet 5.5 use refusal `fallbacks: "default"`.
+  - Pause and budget are re-checked every turn; each turn adds its cost to the stage's `task_run` activity row and to
+    `agent_runs.cost_micros`.
+  - Review `request_changes` or test `fail` → back to the Developer on the same branch/PR, at most `MAX_REWORK_ROUNDS`.
+  - Merge mode and pickup mode come from `workspaces.agent_auto_merge` / `agent_auto_pickup` (Settings → `#agents`).
+    `mergeAgentPullRequest` is the only merge path (auto and manual): mergeable + CI green, otherwise the Tester files
+    one follow-up card per PR (`createAgentTask`, plus a GitHub issue with `issues.create`).
+  - The pipeline moves cards with `placeTask` (top of the column, bottom for Done). It owns column + assignee while a
+    run is active; users can still drag, and the next stage moves the card again.
+- **Pull Requests** (`/dashboard/[id]/pull-requests`): the page calls `refreshOpenPullRequests` (picks up merges/closes
+  made on GitHub), then renders `PullRequestsView`. **Merge** only for PRs with review approved and tests passed.
 - **Dummy data:** until tasks/agents/activity tables exist, `lib/overview.ts` returns fixture data shaped by its
   exported types (timestamps relative to "now"). To go live, replace only the body of `getOverviewData` — keep
   the types and the UI untouched. Mark any new fixture source the same way (a `⚠️ DUMMY DATA` doc comment).
@@ -398,6 +474,7 @@ See `.env.example` for the full list with comments. Feature-specific:
 | Variable | Needed for |
 | --- | --- |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Connecting GitHub on `/workspaces/new`. OAuth App callback: `<NEXT_PUBLIC_APP_URL>/api/github/callback`. |
-| `TOKEN_ENCRYPTION_KEY` | Encrypting GitHub tokens (`openssl rand -base64 32`). Rotating it forces every user to reconnect. |
+| `TOKEN_ENCRYPTION_KEY` | Encrypting GitHub tokens and AI provider keys (`openssl rand -base64 32`). Rotating it forces every user to reconnect GitHub and re-enter their AI keys. |
 | `S3_*` | Workspace logo uploads. Without them the upload button is disabled; icons still work. |
-| `OPENAI_API_KEY` | AI Team: **Draft with AI** and AI-assisted trust scans. Without it, defaults and rule-based scans still work. |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Optional server-wide fallback for workspaces that haven't saved their own key in Settings → AI providers. |
+| `AGENTS_SIMULATED` | Local testing: `true` runs the pipeline with scripted agents (`lib/agent-simulated.ts`) — no model calls or spend, but real GitHub work (branch, `agent-simulations/<branch>.md`, PR). |

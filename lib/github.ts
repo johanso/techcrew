@@ -87,13 +87,16 @@ export async function exchangeCodeForToken(input: { code: string; verifier: stri
   return { accessToken: data.access_token, scope: data.scope ?? null };
 }
 
-async function githubRequest<T>(token: string, path: string): Promise<T> {
+async function githubRequest<T>(token: string, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   const res = await fetch(`${API}${path}`, {
+    method: init.method ?? "GET",
     headers: {
       accept: "application/vnd.github+json",
       authorization: `Bearer ${token}`,
       "x-github-api-version": "2022-11-28",
+      ...(init.body !== undefined ? { "content-type": "application/json" } : {}),
     },
+    body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     cache: "no-store",
   });
   const data = await res.json().catch(() => null);
@@ -254,6 +257,217 @@ export async function listRepoIssues(token: string, fullName: string, since: Dat
     if (batch.length < 100) break;
   }
   return issues;
+}
+
+// ── Branches and files (used by the agent pipeline) ─────────────────────────────
+
+/** Encodes each path segment but keeps the slashes, for /contents/{path} and ref URLs. */
+const encodePath = (path: string) => path.split("/").map(encodeURIComponent).join("/");
+
+/** Head commit sha of a branch, or null if the branch doesn't exist. */
+export async function getBranchSha(token: string, fullName: string, branch: string) {
+  try {
+    const ref = await githubRequest<{ object: { sha: string } }>(token, `/repos/${fullName}/git/ref/heads/${encodePath(branch)}`);
+    return ref.object.sha;
+  } catch (error) {
+    if (error instanceof GithubError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+export async function createBranch(token: string, fullName: string, branch: string, fromSha: string) {
+  await githubRequest(token, `/repos/${fullName}/git/refs`, { method: "POST", body: { ref: `refs/heads/${branch}`, sha: fromSha } });
+}
+
+/** Every file path at `ref` (recursive tree). `truncated` is true for very large repositories. */
+export async function listRepoFiles(token: string, fullName: string, ref: string) {
+  const tree = await githubRequest<{ tree: { path: string; type: string; size?: number }[]; truncated: boolean }>(
+    token,
+    `/repos/${fullName}/git/trees/${encodeURIComponent(ref)}?recursive=1`
+  );
+  return {
+    files: tree.tree.filter((entry) => entry.type === "blob").map((entry) => ({ path: entry.path, size: entry.size ?? 0 })),
+    truncated: tree.truncated,
+  };
+}
+
+/** A text file at `ref`, or null if it doesn't exist. `sha` is the blob sha, needed to update or delete it. */
+export async function getRepoFile(token: string, fullName: string, path: string, ref: string) {
+  try {
+    const file = await githubRequest<{ type: string; content?: string; encoding?: string; sha: string; size: number }>(
+      token,
+      `/repos/${fullName}/contents/${encodePath(path)}?ref=${encodeURIComponent(ref)}`
+    );
+    if (file.type !== "file") return null;
+    const content = file.content && file.encoding === "base64" ? Buffer.from(file.content, "base64").toString("utf8") : "";
+    return { content, sha: file.sha, size: file.size };
+  } catch (error) {
+    if (error instanceof GithubError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+/** Creates or replaces a file on `branch` with one commit. */
+export async function putRepoFile(
+  token: string,
+  fullName: string,
+  input: { path: string; content: string; message: string; branch: string; sha?: string }
+) {
+  const result = await githubRequest<{ commit: { sha: string } }>(token, `/repos/${fullName}/contents/${encodePath(input.path)}`, {
+    method: "PUT",
+    body: {
+      message: input.message,
+      content: Buffer.from(input.content, "utf8").toString("base64"),
+      branch: input.branch,
+      ...(input.sha ? { sha: input.sha } : {}),
+    },
+  });
+  return result.commit.sha;
+}
+
+export async function deleteRepoFile(token: string, fullName: string, input: { path: string; message: string; branch: string; sha: string }) {
+  await githubRequest(token, `/repos/${fullName}/contents/${encodePath(input.path)}`, {
+    method: "DELETE",
+    body: { message: input.message, branch: input.branch, sha: input.sha },
+  });
+}
+
+/** Code search (GitHub indexes the default branch only). */
+export async function searchRepoCode(token: string, fullName: string, query: string) {
+  const params = new URLSearchParams({ q: `${query} repo:${fullName}`, per_page: "20" });
+  const result = await githubRequest<{ total_count: number; items: { path: string }[] }>(token, `/search/code?${params}`);
+  return { total: result.total_count, paths: result.items.map((item) => item.path) };
+}
+
+export type CompareFile = { path: string; status: string; additions: number; deletions: number; patch: string | null };
+
+/** What `head` adds on top of `base`: commit counts and changed files with their patches. */
+export async function compareBranches(token: string, fullName: string, base: string, head: string) {
+  const result = await githubRequest<{
+    status: string;
+    ahead_by: number;
+    behind_by: number;
+    files?: { filename: string; status: string; additions: number; deletions: number; patch?: string }[];
+  }>(token, `/repos/${fullName}/compare/${encodePath(base)}...${encodePath(head)}`);
+  return {
+    aheadBy: result.ahead_by,
+    behindBy: result.behind_by,
+    files: (result.files ?? []).map(
+      (f): CompareFile => ({ path: f.filename, status: f.status, additions: f.additions, deletions: f.deletions, patch: f.patch ?? null })
+    ),
+  };
+}
+
+// ── Pull requests, checks, issues ─────────────────────────────────────────────
+
+export type GithubPullRequest = {
+  id: number;
+  number: number;
+  url: string;
+  state: "open" | "closed";
+  merged: boolean;
+  /** null while GitHub is still computing it. */
+  mergeable: boolean | null;
+  mergeableState: string;
+  headSha: string;
+};
+
+type ApiPull = {
+  id: number;
+  number: number;
+  html_url: string;
+  state: "open" | "closed";
+  merged?: boolean;
+  merged_at: string | null;
+  mergeable?: boolean | null;
+  mergeable_state?: string;
+  head: { sha: string; ref: string };
+};
+
+const toPull = (pr: ApiPull): GithubPullRequest => ({
+  id: pr.id,
+  number: pr.number,
+  url: pr.html_url,
+  state: pr.state,
+  merged: pr.merged ?? pr.merged_at !== null,
+  mergeable: pr.mergeable ?? null,
+  mergeableState: pr.mergeable_state ?? "unknown",
+  headSha: pr.head.sha,
+});
+
+export async function createPullRequest(
+  token: string,
+  fullName: string,
+  input: { title: string; body: string; head: string; base: string }
+) {
+  return toPull(await githubRequest<ApiPull>(token, `/repos/${fullName}/pulls`, { method: "POST", body: input }));
+}
+
+/** The open pull request from `head` into `base`, if one exists. */
+export async function findOpenPullRequest(token: string, fullName: string, head: string, base: string) {
+  const owner = fullName.split("/")[0];
+  const params = new URLSearchParams({ state: "open", head: `${owner}:${head}`, base });
+  const pulls = await githubRequest<ApiPull[]>(token, `/repos/${fullName}/pulls?${params}`);
+  return pulls[0] ? toPull(pulls[0]) : null;
+}
+
+export async function getPullRequest(token: string, fullName: string, number: number) {
+  return toPull(await githubRequest<ApiPull>(token, `/repos/${fullName}/pulls/${number}`));
+}
+
+/** Squash-merges a pull request. Throws GithubError 405 (not mergeable) or 409 (head changed). */
+export async function mergePullRequest(token: string, fullName: string, number: number, input: { title: string; sha: string }) {
+  await githubRequest(token, `/repos/${fullName}/pulls/${number}/merge`, {
+    method: "PUT",
+    body: { merge_method: "squash", commit_title: input.title, sha: input.sha },
+  });
+}
+
+/** Posts a review comment (event COMMENT: GitHub doesn't let the token's own account approve its own pull request). */
+export async function createPullReview(token: string, fullName: string, number: number, body: string) {
+  await githubRequest(token, `/repos/${fullName}/pulls/${number}/reviews`, { method: "POST", body: { body, event: "COMMENT" } });
+}
+
+/** Comments on an issue or a pull request (same API). */
+export async function createIssueComment(token: string, fullName: string, number: number, body: string) {
+  await githubRequest(token, `/repos/${fullName}/issues/${number}/comments`, { method: "POST", body: { body } });
+}
+
+export async function createIssue(token: string, fullName: string, input: { title: string; body: string; labels: string[] }) {
+  const issue = await githubRequest<{ id: number; number: number; html_url: string; updated_at: string }>(token, `/repos/${fullName}/issues`, {
+    method: "POST",
+    body: input,
+  });
+  return { id: issue.id, number: issue.number, url: issue.html_url, updatedAt: issue.updated_at };
+}
+
+export type CheckSummary = {
+  /** "success" when every check passed (or there are none), "pending" while any runs, "failure" otherwise. */
+  state: "success" | "pending" | "failure";
+  checks: { name: string; status: string; conclusion: string | null; url: string | null }[];
+};
+
+/** CI state of a commit: GitHub Actions/App check runs plus legacy commit statuses (e.g. deploy previews). */
+export async function getCommitChecks(token: string, fullName: string, sha: string): Promise<CheckSummary> {
+  const [runs, combined] = await Promise.all([
+    githubRequest<{ check_runs: { name: string; status: string; conclusion: string | null; html_url: string | null }[] }>(
+      token,
+      `/repos/${fullName}/commits/${sha}/check-runs?per_page=100`
+    ),
+    githubRequest<{ statuses: { context: string; state: string; target_url: string | null }[] }>(token, `/repos/${fullName}/commits/${sha}/status`),
+  ]);
+  const checks = [
+    ...runs.check_runs.map((run) => ({ name: run.name, status: run.status, conclusion: run.conclusion, url: run.html_url })),
+    ...combined.statuses.map((status) => ({
+      name: status.context,
+      status: status.state === "pending" ? "in_progress" : "completed",
+      conclusion: status.state === "pending" ? null : status.state,
+      url: status.target_url,
+    })),
+  ];
+  const failed = checks.some((c) => c.status === "completed" && ["failure", "error", "timed_out", "cancelled", "action_required"].includes(c.conclusion ?? ""));
+  const pending = checks.some((c) => c.status !== "completed");
+  return { state: failed ? "failure" : pending ? "pending" : "success", checks };
 }
 
 // ── Persistence ────────────────────────────────────────────────────────────────

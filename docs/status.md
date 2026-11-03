@@ -1,7 +1,7 @@
 # Project status
 
-Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-02**
-(commit `15e1257`).
+Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-03**
+(branch `feat/ai-agents`). For what has been tested and how to test the agents, see [testing.md](testing.md).
 
 - [Feature status](#feature-status)
 - [Dummy data and placeholders](#dummy-data-and-placeholders)
@@ -26,13 +26,16 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | Kanban board: columns, create/edit, drag and drop, search, filters | ✅ Real, persisted | `components/board`, `lib/board.ts` |
 | GitHub issue sync (auto + Refresh, close → Done) | ✅ Real | `lib/github-issues.ts` |
 | Remove task (soft delete) | ✅ Real | `removeCardAction` |
-| Run (assign to Analyst + queue job) | ✅ Real assignment, 🟡 placeholder job | `runCardAction`, `lib/inngest/agent-run.ts` |
+| Agent pipeline: Run / Stop, Analyst → Developer → Reviewer → Tester → merge | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (untested against the live APIs; the Claude path is tested against a local fake of the API). `AGENTS_SIMULATED=true` runs it with scripted agents | `lib/agent-pipeline.ts`, `lib/inngest/agent-run.ts` |
+| Auto pickup of Todo cards, auto or manual merge | ✅ Real | `lib/inngest/agent-pickup.ts`, `lib/pull-requests.ts` |
+| Follow-up card from the Tester on merge conflict / failing build | ✅ Real | `lib/pull-requests.ts` |
 | Overview page | 🟡 Dummy data | `lib/overview.ts` |
 | AI Team: default agents, configure dialog, Skill Trust Score, spending, activity drawer | ✅ Real, persisted | `components/ai-team`, `lib/agents.ts` |
-| AI drafting of instructions + AI-assisted trust scans (OpenAI) | ✅ Real, needs `OPENAI_API_KEY` | `lib/agent-ai.ts` |
-| Pull Requests, Activity pages | 🟡 Empty states | `app/dashboard/[workspaceId]/*` |
+| AI drafting of instructions + AI-assisted trust scans | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | `lib/agent-ai.ts` |
+| Pull Requests page (agent PRs, verdicts, Merge) | ✅ Real | `components/pull-requests`, `lib/pull-requests.ts` |
+| Activity page | 🟡 Empty state | `app/dashboard/[workspaceId]/activity` |
 | Notifications (header bell) | 🟡 Empty state | `dashboard-header.tsx` |
-| Settings page | 🟡 Read-only | `app/dashboard/[workspaceId]/settings` |
+| Settings page | ✅ AI providers (encrypted keys, provider switch) and agent automation editable; account and workspace read-only | `app/dashboard/[workspaceId]/settings` |
 | Landing page `/` | 🟡 Starter-template marketing page | `app/page.tsx` |
 
 ## Dummy data and placeholders
@@ -41,11 +44,9 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 - **`lib/overview.ts`** — the Overview's stats, upcoming tasks and recent activity are fixtures (timestamps relative
   to "now"). Replace the body of `getOverviewData` with queries over `tasks`; the UI reads only its return type.
-- **AI Team skills are declarations.** The catalog (`SKILLS` in `lib/agent-config.ts`) and each agent's selection
-  are stored and scored, but nothing executes them until the agent runtime exists. Spend therefore only comes from
-  OpenAI configuration calls (drafting, AI scans) for now.
+- **Some skills have no tool behind them**: Web research, Read environment secrets and Run tests in a sandbox are
+  stored and scored but no agent tool exists for them (see [features.md](features.md#ai-team)).
 - **AI Team office** — "Live Agent Office Workspace" is a placeholder (`AgentOfficePlaceholder`).
-- **`lib/inngest/agent-run.ts`** — the `analyze` step only logs. This is where the agent runtime goes.
 - **`lib/inngest/functions.ts` and `/api/inngest/trigger`** — examples from the starter template, unrelated to the
   product.
 - **`app/page.tsx`** — landing page from the starter template (FastNextJS marketing copy, inline styles, its own
@@ -62,9 +63,20 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 - **Sync imports at most 500 issues per run** and never writes back to GitHub.
 - **Cards created in the app are not created on GitHub.**
 - **No undo** for Remove task (the row is kept, but there's no UI to restore it).
-- **No agent runtime**: Run assigns and queues, nothing analyzes the task yet.
+- **Agents can't run code.** The Developer edits files through the GitHub API and the Tester verifies statically
+  (diff, pre-checks, CI results). Builds and tests only run if the repository has CI on pull requests.
+- **One commit per file edit** on agent branches (contents API); merges are squashed, so `main` gets one commit.
+- **Reviews are posted as comments**, not approvals: GitHub doesn't let the token's own account approve its own PR.
+- **Auto pickup only takes never-run cards**, one at a time per workspace, every 2 minutes.
+- **Live board progress is polled** (every 10 s while a run is active), not pushed.
 - **Workspace and account editing** isn't available (settings are read-only), nor deleting workspaces or accounts.
-- **Run locally requires the Inngest Dev Server** (`npm run inngest:dev`).
+- **The agent pipeline locally requires the Inngest Dev Server** (`npm run inngest:dev`).
+- **The agents have only run in simulated mode** (`AGENTS_SIMULATED=true`) and against a local fake of the Anthropic
+  API; no run against the real OpenAI or Anthropic APIs yet. Simulated agents always take the happy path.
+- **One AI company per workspace**: agents can't mix OpenAI and Anthropic models (by design; see features.md).
+- **No automatic failover** between providers when one runs out of credit: the run fails with the provider's
+  message; switch company in Settings and run again.
+- **Agent branches are never deleted**, and closing an agent PR on GitHub ends its run as failed.
 
 ## Technical debt
 
@@ -82,10 +94,9 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 ## Suggested next steps
 
 1. **Overview on real data** — counts per column, upcoming cards by due date, recent card/sync events.
-2. **Agent runtime** for `agent-task-run`: read the card and the repo, write an analysis, report status on the card
-   (queued → running → done/failed) instead of only the assignee.
-3. **Skill runtime**: implement each skill as a tool the runtime enforces (see the gap list in
-   [features.md](features.md#ai-team)), and log `task_run` spend to `agent_activity` so budgets bite.
+2. **Try the pipeline with a real OpenAI or Anthropic key** on a test repository and tune the stage prompts and default
+   max turns. Work through the open rows of the [test plan](testing.md#test-plan-and-status).
+3. **Sandboxed execution** (container/VM) so the Developer and Tester can install, build and run tests before the PR.
 4. **Activity log** table fed by board actions and syncs (powers Activity, Overview and notifications).
 5. **GitHub webhooks** for real-time issues, and optional write-back (close the issue when a card reaches Done).
 6. **Tests + ESLint + migrations**, then remove the starter-template leftovers (landing page, example jobs and
@@ -102,3 +113,5 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 | `bff1cc4` | Persistent Kanban board with drag and drop, filters and card dialog. |
 | `463701d` | GitHub issue sync; demo data removed. |
 | `15e1257` | Card Run (Analyst + Inngest job) and Remove actions. |
+| `d6f030e` | AI Team page: configurable agents, Skill Trust Score, spending, activity. |
+| `feat/ai-agents` | Agent pipeline on the board (Analysis column, stages, PRs, merge, follow-ups, auto pickup), simulated agents, Anthropic as a second provider, provider keys and company switch in Settings, a model per agent per company, Merge / rerun on cards, testing guide. |

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useTheme } from "next-themes";
 import {
   ChevronsUpDownIcon,
+  KeyRoundIcon,
   LogOutIcon,
   MonitorIcon,
   MoonIcon,
@@ -84,6 +85,10 @@ function UserMenuItems({ user, workspaceId }: { user: MenuUser; workspaceId: num
         <DropdownMenuItem render={<Link href={`${settings}#workspace`} />}>
           <SettingsIcon />
           Workspace settings
+        </DropdownMenuItem>
+        <DropdownMenuItem render={<Link href={`${settings}#ai`} />}>
+          <KeyRoundIcon />
+          AI providers
         </DropdownMenuItem>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>

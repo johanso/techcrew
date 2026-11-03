@@ -47,7 +47,7 @@ export default async function WorkspaceDashboardLayout({ children, params }: Lay
             }}
           />
           {/* Pages render inside a max-w-6xl column; a page marked data-page-width="full" (the board) opts out. */}
-          <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-6 py-8 has-data-[page-width=full]:max-w-none lg:px-10">
+          <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-6 py-8 has-data-[page-width=full]:max-w-none lg:px-10">
             {children}
           </div>
         </SidebarInset>
