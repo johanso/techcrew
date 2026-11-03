@@ -9,7 +9,8 @@ What each part of the product does, from the user's point of view, with pointers
 - [Board](#board)
 - [GitHub issues on the board](#github-issues-on-the-board)
 - [Card actions: Run and Remove](#card-actions-run-and-remove)
-- [AI Team, Pull Requests, Activity](#ai-team-pull-requests-activity)
+- [AI Team](#ai-team)
+- [Pull Requests, Activity](#pull-requests-activity)
 - [Settings](#settings)
 - [Theme](#theme)
 - [Accessibility](#accessibility)
@@ -179,17 +180,52 @@ so using them never starts a drag or opens the dialog.
 
 - **Run** hands the card to the **Analyst** agent: the server queues an `agent/task.run` job in Inngest and, only if
   that succeeds, assigns the card (its avatar appears on the card). While starting, ▶ shows a spinner and is
-  disabled. Running an assigned card again re-queues it ("Run again with Analyst"). ⚠️ The job is a placeholder: it
+  disabled. Running an assigned card again re-queues it ("Run again with Analyst"). Run is refused while the Analyst
+  is paused or has used its monthly budget, and each run is logged in the Analyst's activity. ⚠️ The job is a placeholder: it
   checks the card still exists and logs — see [background-jobs.md](background-jobs.md#agent-task-run).
 - **Remove task** asks for confirmation, then takes the card off the board. For GitHub cards the issue stays open
   on GitHub and won't be synced back. The row is kept as a tombstone so the key isn't reused.
 
 Locally, Run needs the Inngest Dev Server (`npm run inngest:dev`); otherwise it shows an error saying so.
 
-## AI Team, Pull Requests, Activity
+## AI Team
+
+`/dashboard/[workspaceId]/ai-team`. Every workspace gets four agents on first use: **Analyst** (requirements &
+planning), **Developer** (implementation), **Reviewer** (code review) and **Tester** (quality assurance), each with
+written instructions, default skills, a model and a monthly budget.
+
+- **Stats** — Active agents (active/total, how many are working on cards or paused), Skill Trust Score (team average,
+  grade, lowest agent), Monthly spending (all agents, against the sum of their budgets).
+- **Agent cards** — role avatar with a status dot, status (Ready, Working = has assigned cards not in Done, Paused,
+  Over budget), description, model, skill count, trust score, open cards and a budget bar (turns warning at 75 %,
+  error at 100 %). Buttons: **Configure** and **View activity**.
+- **Configure** (dialog) — Active/Paused switch, description, instructions (**Reset to default**; **Draft with AI**
+  asks OpenAI for a description and instructions tailored to the repository's description, languages, topics and
+  README, the selected skills and budget, plus an optional focus; **Undo** restores the previous text; nothing is
+  saved until **Save changes**), skills by category with risk level and *Default* tags (**Reset to defaults**), model
+  (with prices) and monthly budget (presets $25/$50/$100/$250). The side panel shows the **Skill Trust Score** (ring,
+  grade — Trusted ≥ 85, Needs review ≥ 70, At risk — summary, checks passed, findings, **Scan again**) and
+  **Spending** for the month (spent, budget bar, remaining, projection, reset date, breakdown: task runs, AI drafting,
+  trust scans). Saving logs exactly what changed and re-scores the agent.
+- **View activity** (drawer) — this month's event count and spend, open cards, then events grouped by day: joined,
+  configuration changes, pauses, AI drafts and scans (with their cost), cards assigned by Run.
+- **Live Agent Office Workspace** — placeholder with one empty desk per agent.
+
+Without `OPENAI_API_KEY` the page shows "OpenAI not connected", **Draft with AI** is disabled and scans are rule-based.
+
+**Skills vs. what exists today.** Skills are stored and scored, but no agent runtime executes them yet:
+
+| Skill | Platform support today |
+| --- | --- |
+| Read repository, Read board & issues | ✅ Possible with the owner's GitHub token (`repo` scope) and the `tasks` table. |
+| Comment on / file issues, open pull requests, write code on branches, write tests, manage dependencies, review pull requests, merge pull requests, read CI results | 🟡 Allowed by the `repo` scope, but no tool code yet. |
+| Run tests in a sandbox | ❌ Needs a sandbox (container/VM) service. |
+| Web research | ❌ Needs a search tool (e.g. OpenAI's web search tool in the Responses API). |
+| Read environment secrets | ❌ No per-workspace secrets store. |
+
+## Pull Requests, Activity
 
 Pages exist with headers and empty states only:
-- **AI Team** — "No agents yet".
 - **Pull Requests** — "No agent pull requests yet" + **View pull requests on GitHub** (opens the repo's `/pulls`).
 - **Activity** — "No activity yet".
 

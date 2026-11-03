@@ -18,9 +18,10 @@ A workspace for running a software team made of AI agents. Each **workspace** is
 | Kanban board | ✅ Real | Five columns, drag and drop (mouse, touch, keyboard), search, type filters, create/edit dialog. Persisted in Postgres. |
 | GitHub issue sync | ✅ Real | Open issues of the linked repo appear on the board automatically; Refresh button; closing an issue moves its card to Done. |
 | Card actions | ✅ Real | **Run** (assigns the card to the Analyst agent and queues a job), **Remove task** (soft delete). |
-| Agent work | 🟡 Placeholder | The queued job only logs. No agent runtime exists yet. |
+| Agent work | 🟡 Placeholder | The queued job only logs. No agent runtime exists yet; skills are declared, not executed. |
 | Overview page | 🟡 Dummy data | Stats, upcoming tasks and activity are fixtures (`lib/overview.ts`). |
-| AI Team, Pull Requests, Activity pages | 🟡 Empty states | Layout only. |
+| AI Team | ✅ Real | Four default agents (Analyst, Developer, Reviewer, Tester) per workspace: configure instructions, skills, model and budget; Skill Trust Score with **Scan again**; spending; activity drawer. OpenAI drafts instructions and reviews configs (optional). |
+| Pull Requests, Activity pages | 🟡 Empty states | Layout only. |
 | Landing page (`/`) | 🟡 Boilerplate | Marketing page from the starter template. |
 
 Details: [docs/status.md](docs/status.md).
@@ -38,7 +39,7 @@ npm run inngest:dev           # in a second terminal — needed for the board's 
 ```
 
 You need: Node.js 22+, a PostgreSQL database, a CloudHike auth project, a GitHub OAuth App, and (optionally) an
-S3 bucket for workspace logos. Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
+S3 bucket for workspace logos and an OpenAI API key for AI drafting and AI-assisted trust scans. Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 
 ---
 

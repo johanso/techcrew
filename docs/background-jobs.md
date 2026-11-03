@@ -69,8 +69,9 @@ succeeded. A card is never shown as assigned to an agent that wasn't actually as
 `workspaces.github_repo_full_name`; get a GitHub token with `getGithubToken(workspace.ownerId)` (server-only). Keep
 each external call inside its own `step.run` so retries resume where they failed.
 
-Agents are fixtures for now ([`lib/agents.ts`](../lib/agents.ts)): `atlas`, `nova`, `sage`, `orion` (used by the dummy
-Overview) and `analyst` (`RUN_AGENT_ID`, the one Run assigns).
+Agents are rows in `agents` ([`lib/agents.ts`](../lib/agents.ts)); Run uses `analyst` (`RUN_AGENT_ID`) and refuses when
+it's paused or over budget. The runtime should read the agent's `instructions`, `model` and `skills`, enforce the
+skills as its tool list, and log spend as `task_run` rows in `agent_activity` (`logAgentActivity`, `responseCostMicros`).
 
 ## Local development
 

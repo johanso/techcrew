@@ -1,6 +1,6 @@
 "use server";
 
-import { getAgent, RUN_AGENT_ID } from "@/lib/agents";
+import { checkAgentCanRun, getAgent, logAgentActivity, RUN_AGENT_ID } from "@/lib/agents";
 import {
   assignTask,
   createTask,
@@ -91,6 +91,9 @@ export async function runCardAction(workspaceId: number, cardId: string): Promis
     return { ok: false, error: "This card no longer exists." };
   }
   const agent = getAgent(RUN_AGENT_ID)!;
+  // Paused or out-of-budget agents don't take new work (configured on the AI Team page).
+  const allowed = await checkAgentCanRun(auth.workspace.id, RUN_AGENT_ID);
+  if (!allowed.ok) return allowed;
   try {
     const data: AgentTaskRunData = { workspaceId: auth.workspace.id, taskId, agentId: agent.id };
     await inngest.send({ name: AGENT_TASK_RUN, data });
@@ -103,6 +106,14 @@ export async function runCardAction(workspaceId: number, cardId: string): Promis
   try {
     const card = await assignTask(auth.workspace, taskId, RUN_AGENT_ID);
     if (!card) return { ok: false, error: "This card no longer exists." };
+    await logAgentActivity({
+      workspaceId: auth.workspace.id,
+      agentId: allowed.row.id,
+      kind: "task_assigned",
+      title: `Assigned ${card.key}`,
+      detail: card.title,
+      taskId,
+    }).catch((error) => console.error("[board] run activity not logged", error));
     return { ok: true, card };
   } catch (error) {
     console.error("[board] run failed to assign", error);

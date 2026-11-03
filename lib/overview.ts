@@ -1,7 +1,15 @@
 import "server-only";
 
 import type { Workspace } from "@/db";
-import { DUMMY_AGENTS as AGENTS, taskKeyPrefix, type Agent } from "@/lib/agents";
+import { getAgent, taskKeyPrefix, type Agent } from "@/lib/agents";
+
+// Fixture actors: the workspace's real agent roles, doing made-up work.
+const AGENTS = {
+  analyst: getAgent("analyst")!,
+  developer: getAgent("developer")!,
+  reviewer: getAgent("reviewer")!,
+  tester: getAgent("tester")!,
+};
 import type { IssuePriority } from "@/lib/board-config";
 
 /**
@@ -70,7 +78,7 @@ export async function getOverviewData(workspace: Pick<Workspace, "id" | "name">,
         status: "in_progress",
         priority: "high",
         dueAt: new Date(now + 5 * HOUR),
-        assignee: AGENTS.atlas,
+        assignee: AGENTS.developer,
         labels: ["auth", "ui"],
       },
       {
@@ -80,7 +88,7 @@ export async function getOverviewData(workspace: Pick<Workspace, "id" | "name">,
         status: "pr_ready",
         priority: "high",
         dueAt: new Date(now + 1 * DAY),
-        assignee: AGENTS.nova,
+        assignee: AGENTS.developer,
         labels: ["api"],
       },
       {
@@ -90,7 +98,7 @@ export async function getOverviewData(workspace: Pick<Workspace, "id" | "name">,
         status: "open",
         priority: "medium",
         dueAt: new Date(now + 2 * DAY),
-        assignee: AGENTS.sage,
+        assignee: AGENTS.tester,
         labels: ["testing"],
       },
       {
@@ -100,7 +108,7 @@ export async function getOverviewData(workspace: Pick<Workspace, "id" | "name">,
         status: "open",
         priority: "medium",
         dueAt: new Date(now + 4 * DAY),
-        assignee: AGENTS.orion,
+        assignee: AGENTS.analyst,
         labels: ["ci"],
       },
       {
@@ -118,7 +126,7 @@ export async function getOverviewData(workspace: Pick<Workspace, "id" | "name">,
       {
         id: "a1",
         kind: "pr_opened",
-        actor: { type: "agent", agent: AGENTS.nova },
+        actor: { type: "agent", agent: AGENTS.developer },
         action: "opened a pull request for",
         target: `${prefix}-139 Rate-limit the repository listing`,
         at: new Date(now - 18 * 60 * 1000),
@@ -126,7 +134,7 @@ export async function getOverviewData(workspace: Pick<Workspace, "id" | "name">,
       {
         id: "a2",
         kind: "commits_pushed",
-        actor: { type: "agent", agent: AGENTS.atlas },
+        actor: { type: "agent", agent: AGENTS.developer },
         action: "pushed 3 commits to",
         target: "feature/oauth-error-states",
         at: new Date(now - 52 * 60 * 1000),
@@ -134,7 +142,7 @@ export async function getOverviewData(workspace: Pick<Workspace, "id" | "name">,
       {
         id: "a3",
         kind: "review_requested",
-        actor: { type: "agent", agent: AGENTS.sage },
+        actor: { type: "agent", agent: AGENTS.reviewer },
         action: "requested your review on",
         target: `${prefix}-136 Workspace switcher keeps section`,
         at: new Date(now - 3 * HOUR),
@@ -142,7 +150,7 @@ export async function getOverviewData(workspace: Pick<Workspace, "id" | "name">,
       {
         id: "a4",
         kind: "task_completed",
-        actor: { type: "agent", agent: AGENTS.orion },
+        actor: { type: "agent", agent: AGENTS.tester },
         action: "completed",
         target: `${prefix}-131 Cache dependencies in CI`,
         at: new Date(now - 6 * HOUR),
@@ -151,7 +159,7 @@ export async function getOverviewData(workspace: Pick<Workspace, "id" | "name">,
         id: "a5",
         kind: "task_assigned",
         actor: { type: "user", name: you },
-        action: "assigned Sage to",
+        action: "assigned Tester to",
         target: `${prefix}-147 End-to-end tests for workspace creation`,
         at: new Date(now - 1 * DAY - 2 * HOUR),
       },

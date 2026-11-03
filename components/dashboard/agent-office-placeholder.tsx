@@ -3,13 +3,26 @@ import { Building2Icon } from "lucide-react";
 import { SurfaceHeader } from "@/components/dashboard/page-header";
 import { cn } from "@/lib/utils";
 
-/** Placeholder for the AI Agent Office Space. The real office view replaces the body. */
-export function AgentOfficePlaceholder({ className }: { className?: string }) {
+/**
+ * Placeholder for the AI Agent Office Space. The real office view replaces the body.
+ * `children` render inside the dotted floor, above the message (e.g. empty desks on the AI Team page).
+ */
+export function AgentOfficePlaceholder({
+  className,
+  title = "AI Agent Office Space",
+  description = "See your agents at work",
+  children,
+}: {
+  className?: string;
+  title?: string;
+  description?: string;
+  children?: React.ReactNode;
+}) {
   return (
     <section className={cn("surface flex min-w-0 flex-col", className)}>
       <SurfaceHeader
-        title="AI Agent Office Space"
-        description="See your agents at work"
+        title={title}
+        description={description}
         actions={
           <span className="eyebrow rounded-full bg-muted px-2.5 py-1 text-muted-foreground ring-1 ring-border">Soon</span>
         }
@@ -20,6 +33,7 @@ export function AgentOfficePlaceholder({ className }: { className?: string }) {
             aria-hidden
             className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] bg-size-[16px_16px]"
           />
+          {children}
           <span className="icon-tile relative text-brand-emphasis">
             <Building2Icon />
           </span>

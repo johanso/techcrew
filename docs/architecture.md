@@ -72,7 +72,11 @@ lib/                         Server logic (most files start with `import "server
   board-config.ts            Board vocabulary shared by server and client (no server-only)
   crypto.ts                  AES-256-GCM encrypt/decrypt
   storage.ts                 S3 uploads and reads
-  agents.ts                  Agent list (dummy), task key prefix
+  agents.ts                  Agents persistence, team view, activity/spend ledger, task key prefix
+  agent-config.ts            Agent roles, skills, models (shared client/server)
+  agent-trust.ts             Skill Trust Score rule scan (pure)
+  agent-ai.ts                OpenAI: instruction drafting, AI trust review
+  openai.ts                  OpenAI client and cost accounting
   overview.ts                Overview data (dummy)
   workspace-icons.ts         Selectable workspace icons (shared client/server)
   inngest/                   Inngest client, boilerplate functions, agent-run job
@@ -97,7 +101,7 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `/dashboard` | signed in | Redirects to the newest workspace's dashboard, or to `/workspaces/new`. |
 | `/dashboard/[workspaceId]` | owner | Overview. |
 | `/dashboard/[workspaceId]/board` | owner | Kanban board. |
-| `/dashboard/[workspaceId]/ai-team` | owner | Empty state. |
+| `/dashboard/[workspaceId]/ai-team` | owner | AI Team: agents, configure dialog, trust score, spending, activity. |
 | `/dashboard/[workspaceId]/pull-requests` | owner | Empty state + link to the repo's PRs on GitHub. |
 | `/dashboard/[workspaceId]/activity` | owner | Empty state. |
 | `/dashboard/[workspaceId]/settings` | owner | Account (`#account`) and workspace (`#workspace`) details. |

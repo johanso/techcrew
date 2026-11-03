@@ -1,0 +1,81 @@
+import { ActivityIcon, BlocksIcon, CpuIcon, ListTodoIcon, SlidersHorizontalIcon } from "lucide-react";
+
+import { AgentPortrait, AgentStatusBadge, BudgetMeter, TrustChip } from "@/components/ai-team/agent-visuals";
+import { Button } from "@/components/ui/button";
+import { AGENT_MODELS } from "@/lib/agent-config";
+import type { AgentView } from "@/lib/agents";
+
+/** One agent on the AI Team page: identity, status, what it's set up with, budget use and its two actions. */
+export function AgentCard({
+  agent,
+  onConfigure,
+  onViewActivity,
+}: {
+  agent: AgentView;
+  onConfigure: () => void;
+  onViewActivity: () => void;
+}) {
+  const model = AGENT_MODELS.find((m) => m.id === agent.model);
+
+  return (
+    <article className="surface flex min-w-0 flex-col" aria-labelledby={`agent-${agent.id}-name`}>
+      <div className="flex flex-1 flex-col gap-5 p-5">
+        <div className="flex items-start justify-between gap-3">
+          <AgentPortrait agent={agent} status={agent.status} size="lg" />
+          <AgentStatusBadge status={agent.status} />
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <div className="flex min-w-0 flex-col">
+            <h3 id={`agent-${agent.id}-name`} className="truncate text-base font-bold">
+              {agent.name}
+            </h3>
+            <p className="truncate text-xs font-medium text-muted-foreground">{agent.role}</p>
+          </div>
+          <p className="line-clamp-2 min-h-10 text-sm text-muted-foreground">{agent.description}</p>
+        </div>
+
+        <ul className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground" aria-label="Setup">
+          <li className="flex items-center gap-1.5" title="Model">
+            <CpuIcon className="size-3.5" />
+            <span className="font-medium text-foreground">{model?.label ?? agent.model}</span>
+          </li>
+          <li className="flex items-center gap-1.5" title="Attached skills">
+            <BlocksIcon className="size-3.5" />
+            <span>
+              <span className="font-medium text-foreground tabular-nums">{agent.skills.length}</span> skills
+            </span>
+          </li>
+          <li>
+            <TrustChip score={agent.trust?.score ?? null} />
+          </li>
+          {agent.openTasks > 0 && (
+            <li className="flex items-center gap-1.5" title="Assigned cards not done yet">
+              <ListTodoIcon className="size-3.5" />
+              <span>
+                <span className="font-medium text-foreground tabular-nums">{agent.openTasks}</span> open card
+                {agent.openTasks === 1 ? "" : "s"}
+              </span>
+            </li>
+          )}
+        </ul>
+
+        <div className="mt-auto flex flex-col gap-2 rounded-lg bg-muted/50 p-3 ring-1 ring-border/60">
+          <p className="eyebrow text-muted-foreground">Monthly budget</p>
+          <BudgetMeter spentMicros={agent.spend.monthMicros} budgetCents={agent.monthlyBudgetCents} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 border-t border-border/70 p-3">
+        <Button variant="outline" className="h-9" onClick={onConfigure}>
+          <SlidersHorizontalIcon data-icon="inline-start" />
+          Configure
+        </Button>
+        <Button variant="ghost" className="h-9" onClick={onViewActivity}>
+          <ActivityIcon data-icon="inline-start" />
+          View activity
+        </Button>
+      </div>
+    </article>
+  );
+}

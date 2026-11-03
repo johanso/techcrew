@@ -158,6 +158,37 @@ export async function getLinkableRepo(token: string, fullName: string) {
   return isLinkable(repo) ? toRepo(repo) : null;
 }
 
+export type RepoContext = {
+  description: string | null;
+  topics: string[];
+  /** Languages by share of bytes, largest first, e.g. ["TypeScript 82%", "CSS 11%"]. */
+  languages: string[];
+  /** Start of the README (plain text), or null when there is none. */
+  readme: string | null;
+};
+
+/** What an AI needs to tailor an agent to a repository: description, topics, languages and the README's opening. */
+export async function getRepoContext(token: string, fullName: string, readmeChars = 4000): Promise<RepoContext> {
+  const [repo, languages, readme] = await Promise.all([
+    githubRequest<{ description: string | null; topics?: string[] }>(token, `/repos/${fullName}`),
+    githubRequest<Record<string, number>>(token, `/repos/${fullName}/languages`).catch(() => ({})),
+    githubRequest<{ content?: string; encoding?: string }>(token, `/repos/${fullName}/readme`).catch(() => null),
+  ]);
+  const total = Object.values(languages).reduce((a, b) => a + b, 0);
+  return {
+    description: repo.description,
+    topics: repo.topics ?? [],
+    languages: Object.entries(languages)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 6)
+      .map(([name, bytes]) => `${name} ${Math.round((bytes / total) * 100)}%`),
+    readme:
+      readme?.content && readme.encoding === "base64"
+        ? Buffer.from(readme.content, "base64").toString("utf8").slice(0, readmeChars)
+        : null,
+  };
+}
+
 // ── Issues ─────────────────────────────────────────────────────────────────────
 
 export type GithubIssue = {

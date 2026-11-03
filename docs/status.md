@@ -28,7 +28,9 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | Remove task (soft delete) | ✅ Real | `removeCardAction` |
 | Run (assign to Analyst + queue job) | ✅ Real assignment, 🟡 placeholder job | `runCardAction`, `lib/inngest/agent-run.ts` |
 | Overview page | 🟡 Dummy data | `lib/overview.ts` |
-| AI Team, Pull Requests, Activity pages | 🟡 Empty states | `app/dashboard/[workspaceId]/*` |
+| AI Team: default agents, configure dialog, Skill Trust Score, spending, activity drawer | ✅ Real, persisted | `components/ai-team`, `lib/agents.ts` |
+| AI drafting of instructions + AI-assisted trust scans (OpenAI) | ✅ Real, needs `OPENAI_API_KEY` | `lib/agent-ai.ts` |
+| Pull Requests, Activity pages | 🟡 Empty states | `app/dashboard/[workspaceId]/*` |
 | Notifications (header bell) | 🟡 Empty state | `dashboard-header.tsx` |
 | Settings page | 🟡 Read-only | `app/dashboard/[workspaceId]/settings` |
 | Landing page `/` | 🟡 Starter-template marketing page | `app/page.tsx` |
@@ -39,8 +41,10 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 - **`lib/overview.ts`** — the Overview's stats, upcoming tasks and recent activity are fixtures (timestamps relative
   to "now"). Replace the body of `getOverviewData` with queries over `tasks`; the UI reads only its return type.
-- **`lib/agents.ts`** — the agent list (`atlas`, `nova`, `sage`, `orion`, `analyst`) is hard-coded. There's no agents
-  table. `assignee_agent_id` stores these ids.
+- **AI Team skills are declarations.** The catalog (`SKILLS` in `lib/agent-config.ts`) and each agent's selection
+  are stored and scored, but nothing executes them until the agent runtime exists. Spend therefore only comes from
+  OpenAI configuration calls (drafting, AI scans) for now.
+- **AI Team office** — "Live Agent Office Workspace" is a placeholder (`AgentOfficePlaceholder`).
 - **`lib/inngest/agent-run.ts`** — the `analyze` step only logs. This is where the agent runtime goes.
 - **`lib/inngest/functions.ts` and `/api/inngest/trigger`** — examples from the starter template, unrelated to the
   product.
@@ -80,7 +84,8 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 1. **Overview on real data** — counts per column, upcoming cards by due date, recent card/sync events.
 2. **Agent runtime** for `agent-task-run`: read the card and the repo, write an analysis, report status on the card
    (queued → running → done/failed) instead of only the assignee.
-3. **AI Team page** backed by an `agents` table (replacing `DUMMY_AGENTS`).
+3. **Skill runtime**: implement each skill as a tool the runtime enforces (see the gap list in
+   [features.md](features.md#ai-team)), and log `task_run` spend to `agent_activity` so budgets bite.
 4. **Activity log** table fed by board actions and syncs (powers Activity, Overview and notifications).
 5. **GitHub webhooks** for real-time issues, and optional write-back (close the issue when a card reaches Done).
 6. **Tests + ESLint + migrations**, then remove the starter-template leftovers (landing page, example jobs and

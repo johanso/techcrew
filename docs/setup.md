@@ -53,6 +53,7 @@ All variables live in `.env`. Restart `npm run dev` after changing them.
 | `S3_BUCKET` | for logos | `lib/storage.ts` | Bucket name. Keep it **private**; logos are served through the app. |
 | `S3_ACCESS_KEY_ID` | for logos | `lib/storage.ts` | Access key with `s3:PutObject` and `s3:GetObject` on the bucket. |
 | `S3_SECRET_ACCESS_KEY` | for logos | `lib/storage.ts` | Matching secret. |
+| `OPENAI_API_KEY` | optional | `lib/openai.ts` | AI Team: **Draft with AI** and AI-assisted trust scans. Without it the page works with default instructions and rule-based scans. Calls use `gpt-6.1-sol` (`CONFIG_MODEL`) and their cost is charged to the agent's monthly budget. |
 | `INNGEST_EVENT_KEY` | production | `lib/inngest/client.ts` | Inngest Cloud event key. Not needed locally (the Dev Server is used). |
 | `INNGEST_SIGNING_KEY` | production | Inngest `serve()` | Verifies requests from Inngest Cloud to `/api/inngest`. Not needed locally. |
 | `INNGEST_DEV` | no | Inngest SDK | Set to `1` to force Dev Mode, `0` to force Cloud Mode. If unset, the SDK (v3) infers Dev Mode unless the environment looks like production (`NODE_ENV=production`, Vercel/Netlify production, …). |

@@ -8,6 +8,8 @@ The hosted auth service keeps identities elsewhere (its own `auth` schema); the 
 - [github_connections](#github_connections)
 - [workspaces](#workspaces)
 - [tasks](#tasks)
+- [agents](#agents)
+- [agent_activity](#agent_activity)
 - [Value vocabularies](#value-vocabularies)
 - [Behaviors worth knowing](#behaviors-worth-knowing)
 - [Schema changes](#schema-changes)
@@ -22,6 +24,9 @@ erDiagram
     users ||--o{ workspaces : owns
     users ||--o{ tasks : "created (nullable)"
     workspaces ||--o{ tasks : contains
+    workspaces ||--o{ agents : "has (4)"
+    agents ||--o{ agent_activity : logs
+    tasks |o--o{ agent_activity : "about (nullable)"
 
     users {
         serial id PK
@@ -63,7 +68,8 @@ erDiagram
     }
 ```
 
-Every foreign key to `users` / `workspaces` is `ON DELETE CASCADE`, except `tasks.created_by_id` (`SET NULL`).
+Every foreign key to `users` / `workspaces` is `ON DELETE CASCADE`, except `tasks.created_by_id` and
+`agent_activity.task_id` (`SET NULL`).
 
 ## users
 
@@ -144,7 +150,7 @@ A card on a workspace's Kanban board. Created in the app, or imported from a Git
 | `github_issue_url` | text | yes | | Link to the issue. |
 | `github_issue_state` | text | yes | | `open` \| `closed`, as last seen on GitHub. |
 | `github_updated_at` | timestamp | yes | | The issue's `updated_at` at the last sync; a sync only rewrites the card when GitHub's value is newer. |
-| `assignee_agent_id` | text | yes | | Agent id from `lib/agents.ts` (set by **Run** — currently always `analyst`). |
+| `assignee_agent_id` | text | yes | | Agent role key (`agents.key`, set by **Run** — currently always `analyst`). |
 | `removed_at` | timestamp | yes | | Set by **Remove task**. Removed rows are hidden everywhere but kept (see below). |
 | `created_at`, `updated_at` | timestamp | no | `now()` | |
 
@@ -156,6 +162,43 @@ Indexes and constraints:
 | `tasks_workspace_github_issue_unique` | `(workspace_id, github_issue_id)` | One card per GitHub issue, even with concurrent syncs. |
 | `tasks_workspace_status_position_idx` | `(workspace_id, status, position)` | Loading and ordering columns. |
 
+## agents
+
+One row per agent role per workspace. The four roles (`analyst`, `developer`, `reviewer`, `tester`) are created on
+first use by `ensureDefaultAgents()` with the defaults in [`lib/agent-config.ts`](../lib/agent-config.ts).
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | serial | no | | Primary key. |
+| `workspace_id` | integer | no | | → `workspaces.id`, cascade. |
+| `key` | text | no | | Role key. **Unique with `workspace_id`.** Also what `tasks.assignee_agent_id` stores. |
+| `description` | text | no | | One sentence, ≤ 280 chars. |
+| `instructions` | text | no | | The agent's operating instructions (system prompt), 50–8,000 chars. |
+| `model` | text | no | | OpenAI model id from `AGENT_MODELS`. |
+| `skills` | text[] | no | `{}` | Skill ids from `SKILLS`. |
+| `monthly_budget_cents` | integer | no | | $1–$10,000. |
+| `enabled` | boolean | no | `true` | Paused agents can't be Run. |
+| `trust_score` | integer | yes | | Latest Skill Trust Score (0–100), duplicated from the report for queries. |
+| `trust_report` | jsonb | yes | | `TrustReport` (`lib/agent-trust.ts`): findings, checks, mode (`rules` \| `ai`), model, time. |
+| `trust_scanned_at` | timestamp | yes | | |
+| `created_at`, `updated_at` | timestamp | no | `now()` | |
+
+## agent_activity
+
+Event log shown in the activity drawer, and the spend ledger: monthly spending is `sum(cost_micros)` for the calendar
+month in UTC.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | serial | no | | Primary key. |
+| `workspace_id` | integer | no | | → `workspaces.id`, cascade. |
+| `agent_id` | integer | no | | → `agents.id`, cascade. |
+| `kind` | text | no | | `AGENT_ACTIVITY_KINDS`: `joined`, `configured`, `paused`, `resumed`, `generated`, `scan`, `task_assigned`, `task_run` (reserved for the runtime). |
+| `title`, `detail` | text | no / yes | | Display text, written at event time. |
+| `cost_micros` | integer | no | `0` | Model spend in micro-dollars (1e-6 USD), from OpenAI's reported token usage. |
+| `task_id` | integer | yes | | → `tasks.id`, `SET NULL`. |
+| `created_at` | timestamp | no | `now()` | Indexed with `agent_id` and with `workspace_id`. |
+
 ## Value vocabularies
 
 `type`, `priority` and `status` are plain `text` columns, not Postgres enums; the allowed values live in
@@ -163,8 +206,9 @@ Indexes and constraints:
 enforced by the server-side validators in `lib/board.ts` (`parseCardInput`, `parseBoardInput`). If a row ever holds
 an unknown `status` (e.g. after renaming a column), `getBoardData` shows it in **Todo** rather than hiding it.
 
-Agent ids (`assignee_agent_id`) come from `DUMMY_AGENTS` in [`lib/agents.ts`](../lib/agents.ts): `atlas`, `nova`,
-`sage`, `orion`, `analyst`. An unknown id renders as unassigned.
+Agent ids (`assignee_agent_id`, `agents.key`) are the role keys in `AGENT_KEYS`
+([`lib/agent-config.ts`](../lib/agent-config.ts)): `analyst`, `developer`, `reviewer`, `tester`. An unknown id renders
+as unassigned. `model` and `skills` are validated against `AGENT_MODELS` / `SKILLS` by `parseAgentConfigInput`.
 
 ## Behaviors worth knowing
 
@@ -187,7 +231,7 @@ cards can't be read, edited, moved, assigned or run.
 `SELECT … FROM workspaces WHERE id = ? FOR UPDATE` inside a transaction, which serializes numbering and syncs per
 workspace.
 
-**Deleting a user or workspace** cascades to everything below it (connections, workspaces, tasks). There's no UI
+**Deleting a user or workspace** cascades to everything below it (connections, workspaces, tasks, agents, agent activity). There's no UI
 for either yet.
 
 ## Schema changes

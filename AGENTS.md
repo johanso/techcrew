@@ -47,6 +47,7 @@ sign-in / sign-up ─▶ /workspaces ──(no workspaces)──▶ /workspaces/
 | GitHub | OAuth App (`repo read:user`) | Separate from social sign-in; tokens are AES-256-GCM encrypted. |
 | File storage | Private S3 bucket | Never public; served through ownership-checked routes. |
 | Jobs | Inngest | `lib/inngest/*`, `app/api/inngest`. |
+| AI | OpenAI (`openai` SDK, Responses API) | `lib/openai.ts`; optional — features degrade without `OPENAI_API_KEY`. |
 
 ## 3. Commands
 
@@ -82,6 +83,7 @@ app/
       layout.tsx          Dashboard shell: sidebar + header. Owner check via getDashboardContext().
       page.tsx            Overview.
       board/ ai-team/ pull-requests/ activity/   One page.tsx per sidebar section.
+      ai-team/actions.ts  saveAgentAction, scanAgentAction, generateAgentAction (auth + validation).
       board/actions.ts    createCardAction, updateCardAction, moveCardsAction, removeCardAction, runCardAction,
                           syncIssuesAction (auth + validation).
       settings/           Account (#account) and workspace (#workspace) settings.
@@ -95,6 +97,9 @@ components/
                           board-toolbar (search + type tabs), board-filters (pure matching logic),
                           use-github-sync (polling hook), github-sync-controls (Refresh button, sync notice),
                           issue-meta (type/priority/column colors + PriorityBadge, IssueTypePill — reuse everywhere).
+  ai-team/                AI Team: ai-team-view (page markup), agent-roster (cards + open overlay state), agent-card,
+                          agent-config-dialog (form + SkillPicker + Draft with AI), trust-panel, spending-panel,
+                          agent-activity-sheet, agent-visuals (AgentPortrait, AgentStatusBadge, BudgetMeter, TrustRing).
   dashboard/              Overview sections: stat-tile, upcoming-tasks, agent-office-placeholder, recent-activity,
                           agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS).
                           Dashboard shell: app-sidebar, workspace-switcher, user-menu, dashboard-header,
@@ -112,7 +117,12 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   storage.ts              S3 uploads/reads, logo limits.
   workspaces.ts           Workspace queries (always scoped by owner) + getDashboardContext().
   overview.ts             Overview data contract + getOverviewData(). ⚠️ Returns DUMMY data for now.
-  agents.ts               Agent type, listAgents(), getAgent(), RUN_AGENT_ID (the analyst), taskKeyPrefix(). ⚠️ DUMMY agents for now.
+  agent-config.ts         AI Team vocabulary shared by server + client: roles + defaults, SKILLS, AGENT_MODELS (pricing), limits.
+  agent-trust.ts          Skill Trust Score: scanAgentRules() (deterministic), trustGrade(). Pure.
+  agent-ai.ts             OpenAI helpers: generateAgentConfig() (repo-aware instructions), scanAgentWithAI().
+  openai.ts               OpenAI client (null without a key), responseCostMicros(), CONFIG_MODEL.
+  agents.ts               Agents persistence: ensureDefaultAgents(), getAgentTeam(), updateAgentConfig(), saveTrustScan(),
+                          checkAgentCanRun(), logAgentActivity(); getAgent(), RUN_AGENT_ID (the analyst), taskKeyPrefix().
   board-config.ts         Board vocabulary shared by server + client: columns, issue types, priorities, BoardCard.
   board.ts                Board persistence (tasks table): getBoardData, createTask, updateTask, reorderTasks,
                           removeTask, assignTask, parseCardInput / parseBoardInput (server-side validation).
@@ -332,6 +342,18 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   tints). The Overview's upcoming tasks use the same `PriorityBadge`. Never redefine these maps locally.
 - **Base UI Select:** pass `items` to `<Select>` so `<SelectValue />` shows labels, and size triggers with
   `data-[size=default]:h-10` (a plain `h-10` loses to the primitive's attribute selector).
+- **AI Team** (`/dashboard/[id]/ai-team`): header → 3 `StatTile`s (Active agents, Skill Trust Score, Monthly spending) →
+  4 `AgentCard`s (`sm:grid-cols-2 xl:grid-cols-4`) → `AgentOfficePlaceholder` ("Live Agent Office Workspace", empty desks).
+  Agents are rows in `agents`, one per role key, created on first use by `ensureDefaultAgents` (Run and the page both
+  call it). Identity (name, role, tone, icon) is fixed per key in `AGENT_ROLES`; users configure description,
+  instructions, model, skills, budget and active/paused. Rules:
+  - **Spend** lives in `agent_activity.cost_micros` (micro-dollars). Monthly = calendar month in **UTC**; format
+    reset dates in UTC. Every OpenAI call logs its real cost (`responseCostMicros`) even if the result isn't saved.
+  - **Trust score** (`lib/agent-trust.ts`): inherent risk per skill + penalties for failed checks. Saving a change to
+    instructions, skills or budget re-runs the rule scan, so the stored score always matches the saved config.
+    **Scan again** scores the saved config (disabled while the dialog is dirty) and adds an OpenAI review when configured.
+  - **Run** refuses when the analyst is paused or over budget (`checkAgentCanRun`) and logs `task_assigned`.
+  - Server actions call `revalidatePath` so cards, stats and open overlays show fresh data; dialog form state survives.
 - **Dummy data:** until tasks/agents/activity tables exist, `lib/overview.ts` returns fixture data shaped by its
   exported types (timestamps relative to "now"). To go live, replace only the body of `getOverviewData` — keep
   the types and the UI untouched. Mark any new fixture source the same way (a `⚠️ DUMMY DATA` doc comment).
@@ -378,3 +400,4 @@ See `.env.example` for the full list with comments. Feature-specific:
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Connecting GitHub on `/workspaces/new`. OAuth App callback: `<NEXT_PUBLIC_APP_URL>/api/github/callback`. |
 | `TOKEN_ENCRYPTION_KEY` | Encrypting GitHub tokens (`openssl rand -base64 32`). Rotating it forces every user to reconnect. |
 | `S3_*` | Workspace logo uploads. Without them the upload button is disabled; icons still work. |
+| `OPENAI_API_KEY` | AI Team: **Draft with AI** and AI-assisted trust scans. Without it, defaults and rule-based scans still work. |
