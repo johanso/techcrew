@@ -2,7 +2,7 @@
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CircleCheckIcon, CircleStopIcon, EllipsisIcon, ExternalLinkIcon, GitMergeIcon, PlayIcon, Trash2Icon } from "lucide-react";
+import { CircleCheckIcon, CircleStopIcon, EllipsisIcon, ExternalLinkIcon, GitMergeIcon, PlayIcon, ScrollTextIcon, Trash2Icon } from "lucide-react";
 
 import { GitHubIcon } from "@/components/auth/brand-icons";
 import { AgentRunStatus } from "@/components/board/agent-run-status";
@@ -87,6 +87,7 @@ function CardActions({
   onRun,
   onStop,
   onMerge,
+  onViewLog,
   onRemove,
 }: {
   card: BoardCard;
@@ -96,6 +97,7 @@ function CardActions({
   onRun: () => void;
   onStop: () => void;
   onMerge: () => void;
+  onViewLog: () => void;
   onRemove: () => void;
 }) {
   // The agents are on it: Run would start a second pass, so it waits until the run ends (or is stopped).
@@ -189,6 +191,12 @@ function CardActions({
               {card.run?.pullRequest ? `Run again on PR #${card.run.pullRequest.number}` : card.run ? "Run again" : "Run"}
             </DropdownMenuItem>
           )}
+          {card.run && (
+            <DropdownMenuItem onClick={onViewLog} className="gap-2 py-1.5">
+              <ScrollTextIcon />
+              View agent log
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={onRemove} className="gap-2 py-1.5">
             <Trash2Icon />
@@ -215,6 +223,7 @@ export function SortableBoardCard({
   onRun,
   onStop,
   onMerge,
+  onViewLog,
   onRemove,
 }: {
   card: BoardCard;
@@ -226,6 +235,7 @@ export function SortableBoardCard({
   onRun: () => void;
   onStop: () => void;
   onMerge: () => void;
+  onViewLog: () => void;
   onRemove: () => void;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
@@ -268,6 +278,7 @@ export function SortableBoardCard({
           onRun={onRun}
           onStop={onStop}
           onMerge={onMerge}
+          onViewLog={onViewLog}
           onRemove={onRemove}
         />
       )}

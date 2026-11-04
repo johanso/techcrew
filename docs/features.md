@@ -31,7 +31,7 @@ Pages: `/sign-up`, `/sign-in` (`app/(auth)/`). Layout: form on the left, product
   email already registered (422).
 - **Redirects.** Both pages accept `?next=/some/path`. After signing in you go there (only same-origin paths are
   accepted), otherwise to `/workspaces`. Visiting these pages while signed in redirects right away.
-- **Sign out** is in the user menu (sidebar footer or header avatar). It revokes the session and clears the cookie.
+- **Sign out** is in the user menu (header avatar). It revokes the session and clears the cookie.
 
 Code: `app/(auth)/actions.ts`, `components/auth/*`, `lib/auth.ts`. Flow details: [architecture.md](architecture.md#authentication-and-sessions).
 
@@ -78,8 +78,6 @@ Every `/dashboard/[workspaceId]/*` page shares one layout (`app/dashboard/[works
   current one), **Create new workspace** and **All workspaces**. Switching keeps you on the same section (Board →
   the other workspace's Board).
 - **Navigation**: Overview, Board, AI Team, Pull Requests, Activity. The current page is highlighted.
-- **User footer** — your avatar, name and email; opens the user menu: Account settings, Workspace settings, Theme
-  (Light / Dark / System), Sign out.
 - **Collapsible to icons only.** Toggle with the header button, the sidebar edge (rail), or **⌘B / Ctrl+B**. The
   state is remembered in the `sidebar_state` cookie, so it renders correctly on the next load. In icon mode every
   item shows a tooltip.
@@ -87,7 +85,28 @@ Every `/dashboard/[workspaceId]/*` page shares one layout (`app/dashboard/[works
 
 **Header** (`components/dashboard/dashboard-header.tsx`)
 - Sidebar toggle, breadcrumb (`Workspace › Section`).
-- GitHub button (opens the linked repository), notifications (empty state for now), avatar with the same user menu.
+- GitHub button with the repository's name (the project being worked on; the tooltip adds the owner, phones show just
+  the icon), opens the repository; the notifications bell (see [Notifications](#notifications)); your avatar, which
+  opens the user menu (Account settings, Workspace settings, AI providers, Theme, Sign out). The sidebar has no user
+  menu.
+
+### Notifications
+
+The header bell shows a count of unread notifications (9+ above nine) and opens a list, newest first (30 kept):
+
+| Kind | When | Opens |
+| --- | --- | --- |
+| PR ready to merge | Review and tests passed with manual merge, or auto merge gave up waiting on checks | Pull Requests |
+| Merged | Auto merge went through | Pull Requests |
+| Merge blocked | A conflict or failing build; says which follow-up card the Tester filed | Pull Requests |
+| Analyst needs info | The analyst asked a question instead of starting | The card's agent log |
+| Agents stopped | A run failed (paused agent, budget, missing skill, GitHub, out of turns, error) | The card's agent log |
+| Out of credit | The provider refused for lack of credit and the run stopped | The board (switch and retry) |
+| Switched provider | Auto failover moved the team to the other company | Settings → AI providers |
+
+Unread items are bold with a dot; opening one marks it read, and **Mark all as read** clears the count. The bell
+refreshes every 30 s while the tab is visible and whenever it opens. Notifications go to the workspace's owner only;
+there's no email yet.
 
 **Content panel** — a rounded panel with its own scroll; the header stays pinned inside it. Pages use
 `max-w-6xl`; the board opts out to use the full width.
@@ -182,9 +201,10 @@ Open issues from the workspace's repository become cards automatically.
 
 Full rules and limits: [github-integration.md](github-integration.md#issue-sync).
 
-## Card actions: Run, Merge and Remove
+## Card actions: Run, Merge, agent log and Remove
 
-Each card has a **▶** button and a **⋯** menu (**Run** or **Stop agents**, and **Remove task**). In **Done**, ▶ is replaced by a green check (a
+Each card has a **▶** button and a **⋯** menu (**Run** or **Stop agents**, **View agent log** once it has run, and
+**Remove task**). In **Done**, ▶ is replaced by a green check (a
 status, not a button); **Run again** stays in the ⋯ menu. When the card's pull
 request is ready for a manual merge ("PR #n ready to merge"), ▶ becomes a green **Merge** button and the menu adds
 **Merge PR #n** and **View PR on GitHub**. Merging runs the same checks as the Pull Requests page; the board then
@@ -205,7 +225,27 @@ card's drag area, so using them never starts a drag or opens the dialog.
 - **Remove task** asks for confirmation, then takes the card off the board. For GitHub cards the issue stays open
   on GitHub and won't be synced back. The row is kept as a tombstone so the key isn't reused.
 
+- **View agent log** opens a side panel with the card's latest run: its status, when it started, how long it took and
+  its model spend, then one block per stage (and per rework round): the agent and model, turns, cost, how the stage
+  ended (its result in green, or why it stopped in red), the **files changed**, and the list of tool calls (read,
+  listed, searched, wrote, edited, deleted, checked the diff, checked CI), with failed calls and their error in red.
+  It follows a running card every 5 s. Notifications link straight to it (`/board?log=<card>`). Runs from before the
+  log existed show "Nothing logged".
+
 Locally, Run needs the Inngest Dev Server (`npm run inngest:dev`); otherwise it shows an error saying so.
+
+### Out of credit
+
+When OpenAI or Anthropic refuses a request because the account has no credit, the run stops with that reason (not a
+generic failure):
+- The card says **Out of OpenAI credit** (wallet icon), the office shows it in its header chip, and the AI team card on
+  the Overview too.
+- A notice above the board lists the stopped cards with **Add credit** (the provider's billing page) and **Switch to
+  Anthropic and retry**: it moves the team to the other company (like Settings → AI providers) and runs each card
+  again; reruns continue on their open pull requests. Without a key for the other company it offers **Add an … key**
+  instead. If the team already switched, the button says **Retry on …**.
+- **Automatic switch** (Settings → AI providers, off by default): the team moves to the other company on its own and
+  the current stage starts over there (once per stage); you get a "Switched the team to …" notification.
 
 ## Agent pipeline
 
@@ -324,6 +364,8 @@ Without `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` the page shows "No AI provider c
   provider: status (Connected with the masked key, Using the server's key, or Not connected), a password field with a
   show/hide eye, **Save key** / **Replace key** (checked with the provider first; errors stay next to the field) and
   **Remove** (confirmation dialog). The AI Team's "No AI provider connected" chip links here.
+- **Switch automatically when out of credit** (`#ai`, toggle, off by default) — see [Out of credit](#out-of-credit).
+  Needs a key for both companies to do anything.
 - **Agent automation** (`#agents`) — **Task pickup** (Manual: Run on each card / Automatic: the Analyst picks the top
   never-run Todo card every 2 minutes) and **Merging pull requests** (Manual: from the Pull Requests page / Automatic:
   once review, tests and CI pass). Both default to Manual. A note explains that a blocked merge makes the Tester file a

@@ -51,11 +51,8 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | `agent-task-run` | event `agent/task.run` | `lib/inngest/agent-run.ts` | The agent pipeline for one card (below). |
 | `agent-auto-pickup` | cron `*/2 * * * *` | `lib/inngest/agent-pickup.ts` | Auto pickup: starts a run on the top never-run Todo card per workspace. |
-| `process-task-job` | event `app/task.process` | `lib/inngest/functions.ts` | Starter-template example: two logged steps with a 2 s sleep. |
-| `daily-sync-job` | cron `0 0 * * *` (daily, 00:00 UTC) | `lib/inngest/functions.ts` | Starter-template example: logs and returns `syncedRecords: 0`. |
 
-`POST /api/inngest/trigger` is also from the starter template: it sends `app/task.process` with the request body.
-It has **no authentication** — remove it or protect it before production ([security.md](security.md#known-gaps)).
+The starter template's example jobs and its unauthenticated `POST /api/inngest/trigger` route were removed.
 
 ## agent-task-run
 
@@ -72,7 +69,8 @@ analysis ──ready──▶ development ──▶ PR ──▶ review ──ap
 - **Concurrency**: one run per card (`key: "event.data.taskId"`). Runs of different cards run in parallel.
 - **Retries**: 2 per step. A revoked GitHub token or missing connection throws `NonRetriableError`.
 - **Cancel**: Stop sends `agent/task.cancel` (`cancelOn` matches `data.runId`); the run is already marked `cancelled`.
-- **onFailure**: marks the run `failed` with the error message.
+- **onFailure**: marks the run `failed` with the error message (`stopRun`: also closes the stage in the agent log and
+  notifies the owner).
 - **Stages** (`runStage` in `agent-run.ts`):
   1. `<stage>-<round>-start` → `beginStage`: agent enabled + under budget (`checkAgentCanRun`), required skills
      present (Developer: `code.write`, `pr.open`), card moved to the stage's column and assigned, a `task_run`
@@ -83,7 +81,13 @@ analysis ──ready──▶ development ──▶ PR ──▶ review ──ap
      (`previous_response_id`); steps only carry pending tool outputs. **Anthropic**: the conversation is stored in
      `agent_run_messages` and steps only carry its length, so step output stays small. The last allowed turn (the
      agent's **max turns**) forces the finish tool (OpenAI) or adds a "finish now" system message (Claude 5.5 models
-     reject forced tools), so a stage ends with a structured result or "ran out of turns".
+     reject forced tools), so a stage ends with a structured result or "ran out of turns". Each turn's tool calls go
+     to `agent_run_steps` (the card's agent log), and the stage's end too.
+  3. **Out of credit** (OpenAI `insufficient_quota` / billing codes, Anthropic "credit balance too low"): with
+     `workspaces.ai_auto_failover` on and a key for the other company, the turn switches the team
+     (`switchAgentsToProvider`) and returns `restart`: the stage starts over on the new provider, **once per stage**.
+     Otherwise the run stops with `failure: { kind: "out_of_credit", provider }`, which the board turns into a
+     "switch and retry" notice.
 - **Between stages**: `branch-<round>` (creates `agent/<key>-<slug>` from the default branch, once per run),
   `pull-request-<round>` (opens the PR, fails if nothing was committed), `record-review-<round>`, `record-test-<round>`
   (deterministic pre-checks always fail the verdict when they fail), `ready-to-merge`, then `merge-<n>` attempts
@@ -91,6 +95,9 @@ analysis ──ready──▶ development ──▶ PR ──▶ review ──ap
 - **Merge** ([`lib/pull-requests.ts`](../lib/pull-requests.ts)): merges (squash) only when GitHub reports the PR mergeable
   and every check run / commit status passed. A conflict or failing build makes the Tester file a follow-up card in Todo
   (and a GitHub issue with the **File issues** skill); the run ends `failed` with the reason.
+- **Notifications** (`notify`, lib/notifications.ts; never throws, so it can't fail a step): PR ready to merge
+  (manual merge, or auto merge timed out), merged (auto merge), merge blocked, analyst needs info, run stopped, out of
+  credit, provider switched.
 
 ## agent-auto-pickup
 
@@ -120,7 +127,6 @@ npm run inngest:dev    # npx inngest-cli@latest dev -u http://localhost:3000/api
    and `INNGEST_SIGNING_KEY`.
 2. Deploy. In Cloud Mode `/api/inngest` verifies request signatures with the signing key.
 3. Sync the app in the Inngest dashboard with `https://<your-domain>/api/inngest` (or use the Vercel integration).
-4. Remove the starter-template examples (`functions.ts`, `/api/inngest/trigger`) if you don't need them.
 
 ## Adding a function
 

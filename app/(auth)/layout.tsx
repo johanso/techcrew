@@ -1,6 +1,6 @@
 import { DatabaseIcon, LockKeyholeIcon, ShieldCheckIcon } from "lucide-react";
 
-import { Brand } from "@/components/brand";
+import { APP_NAME, Brand } from "@/components/brand";
 
 const HIGHLIGHTS = [
   {
@@ -29,7 +29,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           <div className="w-full max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-500">{children}</div>
         </main>
         <p className="text-center text-xs text-muted-foreground lg:text-left">
-          © {new Date().getFullYear()} FastNextJS. All rights reserved.
+          © {new Date().getFullYear()} {APP_NAME}. All rights reserved.
         </p>
       </div>
 

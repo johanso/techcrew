@@ -5,9 +5,11 @@ import {
   GitPullRequestIcon,
   LoaderCircleIcon,
   MessageCircleQuestionIcon,
+  WalletIcon,
   type LucideIcon,
 } from "lucide-react";
 
+import { PROVIDERS } from "@/lib/agent-config";
 import { STAGE_META, type BoardCardRun } from "@/lib/agent-run-config";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +30,9 @@ export function runStatusMeta(run: BoardCardRun): { label: string; icon: LucideI
     case "cancelled":
       return { label: "Stopped", icon: CircleStopIcon, tone: "text-muted-foreground" };
     case "failed":
+      if (run.failure?.kind === "out_of_credit") {
+        return { label: `Out of ${PROVIDERS[run.failure.provider].label} credit`, icon: WalletIcon, tone: "text-warning" };
+      }
       return { label: "Agents stopped", icon: CircleAlertIcon, tone: "text-error" };
   }
 }

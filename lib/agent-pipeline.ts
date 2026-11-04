@@ -1,23 +1,33 @@
 import "server-only";
 
 import { NonRetriableError } from "inngest";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { FunctionTool } from "openai/resources/responses/responses";
 
-import { agentRuns, db, pullRequests, tasks, workspaces } from "@/db";
-import { AGENT_ROLES, isSkillId, modelInfo, workspaceProvider, type AgentModelId, type SkillId } from "@/lib/agent-config";
+import { agentActivity, agentRuns, agentRunSteps, db, pullRequests, tasks, workspaces } from "@/db";
+import {
+  AGENT_ROLES,
+  PROVIDERS,
+  isSkillId,
+  modelInfo,
+  workspaceProvider,
+  type AgentModelId,
+  type AgentProvider,
+  type SkillId,
+} from "@/lib/agent-config";
 import { getAIKeys, keyStatus } from "@/lib/ai-keys";
-import { agentTurn, initialLoopState, modelUnavailableReason, type LoopState } from "@/lib/agent-loop";
+import { agentTurn, initialLoopState, modelUnavailableReason, type LoopState, type TurnOutcome } from "@/lib/agent-loop";
 import {
   STAGE_META,
   type AnalystBrief,
   type ReviewReport,
+  type RunFailure,
   type RunStage,
   type RunStatus,
   type TestCheck,
   type TestReport,
 } from "@/lib/agent-run-config";
-import { addRunCost, finishRun, getRun, placeTask, updateRun } from "@/lib/agent-runs";
+import { addRunCost, finishRun, getRun, placeTask, saveRunSteps, saveStageEnd, updateRun } from "@/lib/agent-runs";
 import { toolsFor, type ToolContext } from "@/lib/agent-tools";
 import {
   activeAgentModel,
@@ -28,9 +38,11 @@ import {
   logAgentActivity,
   monthSpendMicros,
   startAgentActivity,
+  switchAgentsToProvider,
   taskKeyPrefix,
   updateAgentActivity,
 } from "@/lib/agents";
+import { isAnthropicOutOfCredit } from "@/lib/anthropic";
 import {
   GithubError,
   compareBranches,
@@ -43,6 +55,9 @@ import {
   getGithubToken,
   getPullRequest,
 } from "@/lib/github";
+import { agentLogHref, notify } from "@/lib/notifications";
+import { isOpenAIOutOfCredit } from "@/lib/openai";
+import { updateAIProvider } from "@/lib/workspaces";
 
 /**
  * The work behind each pipeline stage. lib/inngest/agent-run.ts sequences these as durable steps; every function
@@ -328,18 +343,18 @@ export async function beginStage(runId: number, stage: AgentStage): Promise<Begi
   const key = STAGE_META[stage].agent!;
   const allowed = await checkAgentCanRun(ctx.workspace.id, key);
   if (!allowed.ok) {
-    await finishRun(runId, "failed", allowed.error);
+    await stopRun(runId, allowed.error, null);
     return { ok: false };
   }
   const skills = agentSkills(allowed.row.skills);
   const missing = REQUIRED_SKILLS[stage].find((skill) => !skills.includes(skill));
   if (missing) {
-    await finishRun(runId, "failed", `${AGENT_ROLES[key].name} needs the ${SKILL_NAME[missing]} skill for this stage. Attach it on the AI Team page.`);
+    await stopRun(runId, `${AGENT_ROLES[key].name} needs the ${SKILL_NAME[missing]} skill for this stage. Attach it on the AI Team page.`, null);
     return { ok: false };
   }
 
   await placeTask(ctx.workspace.id, ctx.task.id, STAGE_META[stage].column, key);
-  await updateRun(runId, { status: "running", stage, error: null });
+  await updateRun(runId, { status: "running", stage, error: null, failure: null });
   const activityId = await startAgentActivity({
     workspaceId: ctx.workspace.id,
     agentId: allowed.row.id,
@@ -379,7 +394,9 @@ const SKILL_NAME: Partial<Record<SkillId, string>> = { "repo.read": "Read reposi
 export type TurnStepResult<S extends AgentStage> =
   | { kind: "continue"; state: LoopState }
   | { kind: "done"; result: StageResult[S] }
-  | { kind: "stopped"; reason: string };
+  | { kind: "stopped"; reason: string; failure?: RunFailure }
+  /** The provider changed under the stage (auto failover after running out of credit): start it over on the new one. */
+  | { kind: "restart"; reason: string };
 
 /** One model turn of a stage. Re-checks pause and budget every turn, so a change on the AI Team page applies mid-stage. */
 export async function runStageTurn<S extends AgentStage>(input: {
@@ -426,23 +443,71 @@ export async function runStageTurn<S extends AgentStage>(input: {
       conversation: `${input.stage}:${ctx.run.reworkRounds}`,
     }));
 
-  const outcome = await agentTurn<unknown>({
-    apiKey: keys[modelInfo(model).provider],
-    instructions: systemPrompt(row.instructions, ctx, input.stage, agentMaxTurns(row)),
-    tools: toolsFor(toolContext),
-    finish: FINISH[input.stage],
-    toolContext,
-    state,
-    forceFinish: input.forceFinish,
-  }).catch(rethrowGithub);
+  let outcome: TurnOutcome<unknown>;
+  try {
+    outcome = await agentTurn<unknown>({
+      apiKey: keys[modelInfo(model).provider],
+      instructions: systemPrompt(row.instructions, ctx, input.stage, agentMaxTurns(row)),
+      tools: toolsFor(toolContext),
+      finish: FINISH[input.stage],
+      toolContext,
+      state,
+      forceFinish: input.forceFinish,
+    });
+  } catch (error) {
+    const broke = isOpenAIOutOfCredit(error) ? "openai" : isAnthropicOutOfCredit(error) ? "anthropic" : null;
+    if (broke) return outOfCredit(ctx, broke, keyStatus(keys)[otherProvider(broke)]);
+    rethrowGithub(error);
+  }
 
   await addActivityCost(input.activityId, outcome.costMicros);
   await addRunCost(input.runId, outcome.costMicros);
+  const at = { stage: input.stage, round: ctx.run.reworkRounds, turn: outcome.state.turn, model };
+  await saveRunSteps(input.runId, at, outcome.steps);
 
   if (outcome.result === null) return { kind: "continue", state: outcome.state };
   const result = parseResult(input.stage, outcome.result);
-  await updateAgentActivity(input.activityId, stageDoneActivity(input.stage, ctx.key, result, outcome.state.turn));
+  const done = stageDoneActivity(input.stage, ctx.key, result, outcome.state.turn);
+  await updateAgentActivity(input.activityId, done);
+  await saveStageEnd(input.runId, at, { ok: true, summary: done.detail ? `${done.title}: ${done.detail}` : done.title, costMicros: await activityCost(input.activityId) });
   return { kind: "done", result };
+}
+
+const otherProvider = (provider: AgentProvider): AgentProvider => (provider === "openai" ? "anthropic" : "openai");
+
+async function activityCost(activityId: number) {
+  const [row] = await db.select({ cost: agentActivity.costMicros }).from(agentActivity).where(eq(agentActivity.id, activityId));
+  return row?.cost ?? 0;
+}
+
+/**
+ * The stage's provider refused for lack of credit. With auto failover on (Settings → AI providers) and a key for the
+ * other company, the team switches to it and the stage starts over there; otherwise the run stops with a failure the
+ * board can act on (switch and retry). If the team already moved to another provider, the stage just restarts.
+ */
+async function outOfCredit(ctx: RunContext, broke: AgentProvider, otherHasKey: boolean): Promise<{ kind: "restart" | "stopped"; reason: string; failure?: RunFailure }> {
+  const other = otherProvider(broke);
+  const reason = `${PROVIDERS[broke].label} is out of credit.`;
+  if (workspaceProvider(ctx.workspace) !== broke) return { kind: "restart", reason };
+  if (ctx.workspace.aiAutoFailover && otherHasKey) {
+    await updateAIProvider(ctx.workspace.id, other);
+    await switchAgentsToProvider(ctx.workspace.id, other);
+    await notify(ctx.workspace.id, {
+      kind: "provider_switched",
+      title: `Switched the team to ${PROVIDERS[other].label}`,
+      body: `${reason} The agents moved to ${PROVIDERS[other].label} and ${ctx.key} carried on.`,
+      href: `/dashboard/${ctx.workspace.id}/settings#ai`,
+      taskId: ctx.task.id,
+    });
+    return { kind: "restart", reason };
+  }
+  return {
+    kind: "stopped",
+    reason: otherHasKey
+      ? `${reason} Add credit, or switch the team to ${PROVIDERS[other].label} and run it again.`
+      : `${reason} Add credit, or add a ${PROVIDERS[other].label} key in Settings → AI providers.`,
+    failure: { kind: "out_of_credit", provider: broke },
+  };
 }
 
 function parseResult<S extends AgentStage>(stage: S, raw: unknown): StageResult[S] {
@@ -480,13 +545,49 @@ function stageDoneActivity(stage: AgentStage, key: string, result: StageResult[A
   }
 }
 
-/** Ends the run as failed (or cancelled) and closes the stage's activity row with the reason. */
-export async function stopRun(runId: number, reason: string, activityId: number | null, status: RunStatus = "failed") {
-  const run = await getRun(runId);
+/**
+ * Ends the run as failed (or cancelled), closes the stage's activity row and agent log with the reason, and tells the
+ * owner (bell). `failure` marks stops the board can act on (out of credit → switch and retry).
+ */
+export async function stopRun(
+  runId: number,
+  reason: string,
+  activityId: number | null,
+  status: RunStatus = "failed",
+  failure: RunFailure | null = null
+) {
+  const ctx = await loadRunContext(runId);
   // A user's Stop already ended it; don't overwrite that with a later failure.
-  if (!run || run.status === "cancelled" || run.status === "completed") return;
-  await finishRun(runId, reason === "Stopped by the user." ? "cancelled" : status, reason);
+  if (!ctx || ctx.run.status === "cancelled" || ctx.run.status === "completed") return;
+  const final = reason === "Stopped by the user." ? "cancelled" : status;
+  await finishRun(runId, final, reason, failure);
   if (activityId) await updateAgentActivity(activityId, { title: "Stopped", detail: reason });
+  await logStageStop(ctx, reason, activityId);
+  if (final !== "failed") return;
+  await notify(ctx.workspace.id, {
+    kind: failure ? "out_of_credit" : "run_failed",
+    title: failure ? `${PROVIDERS[failure.provider].label} is out of credit` : `Agents stopped on ${ctx.key}`,
+    body: failure ? `${ctx.key} stopped. ${reason}` : reason,
+    href: failure ? `/dashboard/${ctx.workspace.id}/board` : agentLogHref(ctx.workspace.id, ctx.task.id),
+    taskId: ctx.task.id,
+  });
+}
+
+/** Closes the current stage in the agent log with why it stopped (after its last logged turn). */
+async function logStageStop(ctx: RunContext, reason: string, activityId: number | null) {
+  const stage = ctx.run.stage;
+  if (!stage || !STAGE_META[stage as RunStage]?.agent) return;
+  const [last] = await db
+    .select({ turn: agentRunSteps.turn, model: agentRunSteps.model })
+    .from(agentRunSteps)
+    .where(and(eq(agentRunSteps.runId, ctx.run.id), eq(agentRunSteps.stage, stage), eq(agentRunSteps.round, ctx.run.reworkRounds)))
+    .orderBy(desc(agentRunSteps.turn))
+    .limit(1);
+  await saveStageEnd(
+    ctx.run.id,
+    { stage: stage as RunStage, round: ctx.run.reworkRounds, turn: last?.turn ?? 0, model: (last?.model ?? null) as AgentModelId },
+    { ok: false, summary: reason, costMicros: activityId ? await activityCost(activityId) : 0 }
+  );
 }
 
 // ── Analysis ───────────────────────────────────────────────────────────────────
@@ -511,6 +612,13 @@ export async function handleNeedsInfo(runId: number, brief: AnalystBrief) {
   }
   await placeTask(ctx.workspace.id, ctx.task.id, "todo", null);
   await finishRun(runId, "needs_info", brief.question);
+  await notify(ctx.workspace.id, {
+    kind: "needs_info",
+    title: `The analyst needs info on ${ctx.key}`,
+    body: brief.question,
+    href: agentLogHref(ctx.workspace.id, ctx.task.id),
+    taskId: ctx.task.id,
+  });
 }
 
 // ── Development ────────────────────────────────────────────────────────────────
@@ -737,7 +845,45 @@ export async function readyToMerge(runId: number) {
   if (!ctx.workspace.agentAutoMerge) {
     await placeTask(ctx.workspace.id, ctx.task.id, "testing", null);
     await finishRun(runId, "awaiting_merge");
+    await notifyPullRequest(ctx, "is ready to merge", "Review and tests passed. Merge it from the card or the Pull Requests page.");
     return { autoMerge: false };
   }
   return { autoMerge: true };
+}
+
+/** Auto merge gave up waiting on GitHub's checks: the pull request now waits for the user. */
+export async function mergeTimedOut(runId: number) {
+  const ctx = await requireContext(runId);
+  const reason = "Checks were still running after 10 minutes. Merge it from Pull Requests once they pass.";
+  await finishRun(runId, "awaiting_merge", reason);
+  await notifyPullRequest(ctx, "is waiting for its checks", reason);
+}
+
+/** Auto merge went through: tell the owner, since nobody clicked anything. */
+export async function notifyMerged(runId: number) {
+  const ctx = await requireContext(runId);
+  const pr = await runPullRequestNumber(runId);
+  await notify(ctx.workspace.id, {
+    kind: "merged",
+    title: `Merged ${pr ? `PR #${pr}` : "the pull request"} of ${ctx.key}`,
+    body: ctx.task.title,
+    href: `/dashboard/${ctx.workspace.id}/pull-requests`,
+    taskId: ctx.task.id,
+  });
+}
+
+async function runPullRequestNumber(runId: number) {
+  const [row] = await db.select({ number: pullRequests.number }).from(pullRequests).where(eq(pullRequests.runId, runId));
+  return row?.number ?? null;
+}
+
+async function notifyPullRequest(ctx: RunContext, what: string, body: string) {
+  const pr = await runPullRequestNumber(ctx.run.id);
+  await notify(ctx.workspace.id, {
+    kind: "pr_ready",
+    title: `${pr ? `PR #${pr}` : "The pull request"} of ${ctx.key} ${what}`,
+    body,
+    href: `/dashboard/${ctx.workspace.id}/pull-requests`,
+    taskId: ctx.task.id,
+  });
 }

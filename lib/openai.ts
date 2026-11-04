@@ -24,10 +24,19 @@ export function responseCostMicros(model: AgentModelId, usage: ResponseUsage | n
   return Math.round(usd * MICROS_PER_USD);
 }
 
+// Error codes OpenAI uses when the account can't pay for more requests (as opposed to a rate limit, which passes).
+const OUT_OF_CREDIT_CODES = ["insufficient_quota", "billing_hard_limit_reached", "billing_not_active"];
+
+/** True when OpenAI refused because the account is out of credit or billing is off. Retrying won't help. */
+export function isOpenAIOutOfCredit(error: unknown) {
+  return error instanceof OpenAI.APIError && OUT_OF_CREDIT_CODES.includes(String(error.code ?? ""));
+}
+
 /** One message for users when OpenAI fails, without leaking API details. */
 export function openAIErrorMessage(error: unknown) {
   if (error instanceof OpenAI.APIError) {
     if (error.status === 401) return "OpenAI rejected the API key. Check it in Settings → AI providers.";
+    if (isOpenAIOutOfCredit(error)) return "OpenAI is out of credit. Add credit, or switch provider in Settings.";
     if (error.status === 429) return "OpenAI rate limit or quota reached. Add credit, wait a minute, or switch provider in Settings.";
     if (error.status && error.status >= 500) return "OpenAI is having trouble right now. Try again shortly.";
   }

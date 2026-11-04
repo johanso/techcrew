@@ -1,8 +1,20 @@
 "use server";
 
 import { pipelineModelProblem } from "@/lib/agent-pipeline";
-import { createRun, finishRun, getActiveRun, placeTask, releaseTask, replaceWaitingRuns } from "@/lib/agent-runs";
-import { checkAgentCanRun, getAgent, logAgentActivity, RUN_AGENT_ID } from "@/lib/agents";
+import { PROVIDERS, workspaceProvider } from "@/lib/agent-config";
+import { getAIKeys, keyStatus } from "@/lib/ai-keys";
+import {
+  createRun,
+  finishRun,
+  getActiveRun,
+  getLatestRuns,
+  getTaskRunLog,
+  placeTask,
+  releaseTask,
+  replaceWaitingRuns,
+  type RunLog,
+} from "@/lib/agent-runs";
+import { checkAgentCanRun, getAgent, logAgentActivity, RUN_AGENT_ID, switchAgentsToProvider } from "@/lib/agents";
 import {
   createTask,
   getBoardCard,
@@ -20,7 +32,7 @@ import { requireUser } from "@/lib/current-user";
 import { inngest } from "@/lib/inngest/client";
 import { AGENT_TASK_CANCEL, AGENT_TASK_RUN, type AgentTaskRunData } from "@/lib/inngest/agent-run";
 import { adoptPullRequest, getRerunPullRequest, getTaskOpenPullRequest, mergeManually, refreshOpenPullRequests } from "@/lib/pull-requests";
-import { getOwnedWorkspace } from "@/lib/workspaces";
+import { getOwnedWorkspace, updateAIProvider } from "@/lib/workspaces";
 
 export type CardActionResult = { ok: true; card: BoardCard } | { ok: false; error: string };
 
@@ -209,4 +221,35 @@ export async function syncIssuesAction(workspaceId: number, options: { includeBo
   });
   const changed = result.added + result.updated + result.closed + result.reopened + pullRequestsChanged > 0;
   return changed || options.includeBoard ? { ...result, board: await getBoardData(auth.workspace) } : result;
+}
+
+/**
+ * A card whose run stopped because its provider ran out of credit: moves the team to the other company (if it's
+ * still on the broke one; needs that company's key) and runs the card again. A rerun continues on its open PR.
+ */
+export async function switchProviderAndRetryAction(workspaceId: number, cardId: string): Promise<CardActionResult> {
+  const auth = await authorize(workspaceId);
+  if (!auth) return { ok: false, error: "Workspace not found." };
+  const taskId = Number(cardId);
+  if (!Number.isSafeInteger(taskId)) return { ok: false, error: "This card no longer exists." };
+  const failure = (await getLatestRuns(auth.workspace.id)).get(taskId)?.failure;
+  if (failure?.kind !== "out_of_credit") return { ok: false, error: "This card didn't stop for lack of credit." };
+
+  if (workspaceProvider(auth.workspace) === failure.provider) {
+    const other = failure.provider === "openai" ? "anthropic" : "openai";
+    if (!keyStatus(await getAIKeys(auth.workspace.id))[other]) {
+      return { ok: false, error: `Add an ${PROVIDERS[other].label} API key in Settings → AI providers first.` };
+    }
+    await updateAIProvider(auth.workspace.id, other);
+    await switchAgentsToProvider(auth.workspace.id, other);
+  }
+  return runCardAction(workspaceId, cardId);
+}
+
+/** The card's latest run, stage by stage, for its agent log (polled while the run is active). Read-only. */
+export async function getRunLogAction(workspaceId: number, cardId: string): Promise<RunLog | null> {
+  const auth = await authorize(workspaceId);
+  const taskId = Number(cardId);
+  if (!auth || !Number.isSafeInteger(taskId)) return null;
+  return getTaskRunLog(auth.workspace.id, taskId);
 }

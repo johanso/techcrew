@@ -4,7 +4,6 @@ import { useTransition } from "react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import {
-  ChevronsUpDownIcon,
   KeyRoundIcon,
   LogOutIcon,
   MonitorIcon,
@@ -32,7 +31,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
 import { initials } from "@/lib/utils";
 
@@ -62,7 +60,7 @@ function UserIdentity({ user }: { user: MenuUser }) {
   );
 }
 
-/** Settings options shared by the sidebar footer and the header avatar. */
+/** Account, settings, theme and sign-out options of the header avatar menu. */
 function UserMenuItems({ user, workspaceId }: { user: MenuUser; workspaceId: number }) {
   const { theme, setTheme } = useTheme();
   const [signingOut, startSignOut] = useTransition();
@@ -121,42 +119,7 @@ function UserMenuItems({ user, workspaceId }: { user: MenuUser; workspaceId: num
   );
 }
 
-/** Sidebar footer: avatar + name; opens the settings menu. */
-export function SidebarUserMenu({ user, workspaceId }: { user: MenuUser; workspaceId: number }) {
-  const { isMobile } = useSidebar();
-
-  return (
-    <SidebarMenu>
-      <SidebarMenuItem>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <SidebarMenuButton
-                size="lg"
-                tooltip={user.name || user.email}
-                className="rounded-xl hover:bg-card data-popup-open:bg-card"
-              />
-            }
-          >
-            <UserAvatar user={user} />
-            <UserIdentity user={user} />
-            <ChevronsUpDownIcon className="ml-auto" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            side={isMobile ? "top" : "right"}
-            align="end"
-            sideOffset={8}
-            className="w-(--anchor-width) min-w-60"
-          >
-            <UserMenuItems user={user} workspaceId={workspaceId} />
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </SidebarMenuItem>
-    </SidebarMenu>
-  );
-}
-
-/** Header avatar button; same menu as the sidebar footer. */
+/** Header avatar button: the account menu (the only one; the sidebar has none). */
 export function HeaderUserMenu({ user, workspaceId }: { user: MenuUser; workspaceId: number }) {
   return (
     <DropdownMenu>

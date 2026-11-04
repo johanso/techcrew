@@ -38,14 +38,20 @@ export function messageCostMicros(requested: AgentModelId, servedBy: string, usa
   return Math.round(usd * MICROS_PER_USD);
 }
 
+/** True when Anthropic refused because the account's credit balance is too low. Retrying won't help. */
+export function isAnthropicOutOfCredit(error: unknown) {
+  // Out of credit comes back as a 400 whose message says so (or a 402 billing error).
+  return (
+    (error instanceof Anthropic.BadRequestError && /credit balance/i.test(error.message)) ||
+    (error instanceof Anthropic.APIError && error.status === 402)
+  );
+}
+
 /** One message for users when Anthropic fails, without leaking API details. */
 export function anthropicErrorMessage(error: unknown) {
   if (error instanceof Anthropic.AuthenticationError) return "Anthropic rejected the API key. Check it in Settings → AI providers.";
   if (error instanceof Anthropic.RateLimitError) return "Anthropic rate limit reached. Try again in a minute.";
-  // Out of credit comes back as a 400 whose message says so.
-  if (error instanceof Anthropic.BadRequestError && /credit balance/i.test(error.message)) {
-    return "Anthropic credit balance is too low. Add credit or switch provider in Settings.";
-  }
+  if (isAnthropicOutOfCredit(error)) return "Anthropic credit balance is too low. Add credit or switch provider in Settings.";
   if (error instanceof Anthropic.InternalServerError) return "Anthropic is having trouble right now. Try again shortly.";
   console.error("[anthropic]", error);
   return "The AI request failed. Please try again.";

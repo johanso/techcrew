@@ -1,17 +1,20 @@
 import "server-only";
 
-import { and, desc, eq, inArray, isNull, max, min, ne, notExists, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, max, min, ne, notExists, sql } from "drizzle-orm";
 
-import { agentRuns, db, pullRequests, tasks, workspaces, type AgentRunRow } from "@/db";
-import type { AgentKey } from "@/lib/agent-config";
+import { agentRunSteps, agentRuns, db, pullRequests, tasks, workspaces, type AgentRunRow } from "@/db";
+import type { AgentKey, AgentModelId } from "@/lib/agent-config";
 import {
   ACTIVE_RUN_STATUSES,
   RUN_STAGES,
+  STAGE_META,
   RUN_STATUSES,
   type BoardCardRun,
+  type RunFailure,
   type RunStage,
   type RunStatus,
 } from "@/lib/agent-run-config";
+import type { ToolStep } from "@/lib/agent-tools";
 import type { BoardColumnId } from "@/lib/board-config";
 
 /**
@@ -57,10 +60,13 @@ export async function replaceWaitingRuns(taskId: number, newRunId: number) {
     .where(and(eq(agentRuns.taskId, taskId), eq(agentRuns.status, "awaiting_merge"), ne(agentRuns.id, newRunId)));
 }
 
-/** Ends a run. Terminal statuses get `finished_at`; awaiting_merge stays open until the merge. */
-export async function finishRun(runId: number, status: RunStatus, error: string | null = null) {
+/**
+ * Ends a run. Terminal statuses get `finished_at`; awaiting_merge stays open until the merge. `failure` says why as
+ * data when the UI can act on it (out of credit → switch and retry).
+ */
+export async function finishRun(runId: number, status: RunStatus, error: string | null = null, failure: RunFailure | null = null) {
   const terminal = status !== "awaiting_merge";
-  await updateRun(runId, { status, error, ...(terminal ? { finishedAt: new Date() } : {}) });
+  await updateRun(runId, { status, error, failure, ...(terminal ? { finishedAt: new Date() } : {}) });
 }
 
 export async function addRunCost(runId: number, costMicros: number) {
@@ -90,6 +96,7 @@ export async function getLatestRuns(workspaceId: number) {
       status: agentRuns.status,
       stage: agentRuns.stage,
       error: agentRuns.error,
+      failure: agentRuns.failure,
       prNumber: pullRequests.number,
       prUrl: pullRequests.url,
     })
@@ -106,6 +113,7 @@ export async function getLatestRuns(workspaceId: number) {
       status: row.status,
       stage: isRunStage(row.stage) ? row.stage : null,
       error: row.error,
+      failure: row.failure ?? null,
       pullRequest: row.prNumber !== null && row.prUrl ? { number: row.prNumber, url: row.prUrl } : null,
     });
   }
@@ -187,4 +195,131 @@ export async function findAutoPickupCandidates() {
     if (task) picks.push({ workspaceId: id, taskId: task.id });
   }
   return picks;
+}
+
+// ── Agent log ──────────────────────────────────────────────────────────────────
+
+type StepPosition = { stage: RunStage; round: number; turn: number; model: AgentModelId };
+// The stage's end row sorts after every tool call of its turn.
+const END_SEQ = 1000;
+
+async function upsertSteps(rows: (typeof agentRunSteps.$inferInsert)[]) {
+  if (!rows.length) return;
+  await db
+    .insert(agentRunSteps)
+    .values(rows)
+    .onConflictDoUpdate({
+      target: [agentRunSteps.runId, agentRunSteps.stage, agentRunSteps.round, agentRunSteps.turn, agentRunSteps.seq],
+      set: {
+        tool: sql`excluded.tool`,
+        target: sql`excluded.target`,
+        ok: sql`excluded.ok`,
+        summary: sql`excluded.summary`,
+        model: sql`excluded.model`,
+        costMicros: sql`excluded.cost_micros`,
+      },
+    });
+}
+
+/** One turn's tool calls, at fixed positions (seq 0, 1 …) so a retried Inngest step rewrites instead of duplicating. */
+export async function saveRunSteps(runId: number, at: StepPosition, steps: ToolStep[]) {
+  await upsertSteps(steps.map((step, seq) => ({ runId, ...at, seq, ...step })));
+}
+
+/** How a stage ended: its result (ok) or why it stopped, with the stage's model spend. */
+export async function saveStageEnd(runId: number, at: StepPosition, end: { ok: boolean; summary: string; costMicros: number }) {
+  await upsertSteps([{ runId, ...at, seq: END_SEQ, tool: end.ok ? "result" : "stopped", target: null, ...end }]);
+}
+
+export type RunLogStep = { id: number; tool: string; target: string | null; ok: boolean; summary: string | null; turn: number };
+
+export type RunLogStage = {
+  stage: RunStage;
+  round: number;
+  agent: AgentKey | null;
+  model: AgentModelId | null;
+  turns: number;
+  costMicros: number;
+  steps: RunLogStep[];
+  /** The stage's result or stop reason; null while it's still working. */
+  end: { ok: boolean; summary: string | null } | null;
+  /** Files written, edited or deleted, in order, without repeats. */
+  filesChanged: string[];
+};
+
+export type RunLog = {
+  run: {
+    id: number;
+    status: RunStatus;
+    stage: RunStage | null;
+    error: string | null;
+    costMicros: number;
+    reworkRounds: number;
+    startedAt: Date;
+    finishedAt: Date | null;
+  };
+  stages: RunLogStage[];
+};
+
+const WRITE_TOOLS = new Set(["write_file", "replace_in_file", "delete_file"]);
+
+/** The card's latest run with what each stage did, grouped in the order the stages ran. Null if never run. */
+export async function getTaskRunLog(workspaceId: number, taskId: number): Promise<RunLog | null> {
+  const [run] = await db
+    .select()
+    .from(agentRuns)
+    .where(and(eq(agentRuns.workspaceId, workspaceId), eq(agentRuns.taskId, taskId)))
+    .orderBy(desc(agentRuns.id))
+    .limit(1);
+  if (!run || !isRunStatus(run.status)) return null;
+
+  const rows = await db
+    .select()
+    .from(agentRunSteps)
+    .where(eq(agentRunSteps.runId, run.id))
+    .orderBy(asc(agentRunSteps.createdAt), asc(agentRunSteps.round), asc(agentRunSteps.turn), asc(agentRunSteps.seq));
+
+  const stages: RunLogStage[] = [];
+  for (const row of rows) {
+    if (!isRunStage(row.stage)) continue;
+    let group = stages.find((g) => g.stage === row.stage && g.round === row.round);
+    if (!group) {
+      group = {
+        stage: row.stage,
+        round: row.round,
+        agent: STAGE_META[row.stage].agent,
+        model: (row.model as AgentModelId | null) ?? null,
+        turns: 0,
+        costMicros: 0,
+        steps: [],
+        end: null,
+        filesChanged: [],
+      };
+      stages.push(group);
+    }
+    group.turns = Math.max(group.turns, row.turn);
+    if (row.tool === "result" || row.tool === "stopped") {
+      group.end = { ok: row.ok, summary: row.summary };
+      group.costMicros = row.costMicros;
+      continue;
+    }
+    group.steps.push({ id: row.id, tool: row.tool, target: row.target, ok: row.ok, summary: row.summary, turn: row.turn });
+    if (row.ok && row.target && WRITE_TOOLS.has(row.tool) && !group.filesChanged.includes(row.target)) {
+      group.filesChanged.push(row.target);
+    }
+  }
+
+  return {
+    run: {
+      id: run.id,
+      status: run.status,
+      stage: isRunStage(run.stage) ? run.stage : null,
+      error: run.error,
+      costMicros: run.costMicros,
+      reworkRounds: run.reworkRounds,
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
+    },
+    stages,
+  };
 }

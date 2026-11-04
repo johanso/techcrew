@@ -33,6 +33,9 @@ erDiagram
     tasks |o--o{ agent_activity : "about (nullable)"
     tasks ||--o{ agent_runs : "runs through the pipeline"
     agent_runs ||--o{ agent_run_messages : "Claude conversation"
+    agent_runs ||--o{ agent_run_steps : "agent log"
+    workspaces ||--o{ notifications : "bell"
+    users ||--o{ notifications : receives
     agent_runs |o--o| pull_requests : opens
     tasks |o--o{ pull_requests : "for (nullable)"
 
@@ -65,6 +68,7 @@ erDiagram
         boolean agent_auto_pickup
         boolean agent_auto_merge
         text ai_provider
+        boolean ai_auto_failover
     }
     tasks {
         serial id PK
@@ -137,6 +141,7 @@ A workspace is bound to **exactly one** GitHub repository, chosen at creation. O
 | `agent_auto_pickup` | boolean | no | Default `false`. Settings → Agents: the analyst takes never-run Todo cards on its own. |
 | `agent_auto_merge` | boolean | no | Default `false`. Settings → Agents: agent PRs merge once review, tests and CI pass. |
 | `ai_provider` | text | no | Default `openai`. Settings → AI providers: `openai` or `anthropic`; drives AI drafting/trust reviews and the last provider switch. |
+| `ai_auto_failover` | boolean | no | Default `false`. Settings → AI providers: when the provider runs out of credit mid-run and the other has a key, switch the team and restart the stage. |
 | `created_at`, `updated_at` | timestamp | no | |
 
 The repository metadata is captured once. If the repo is renamed or its default branch changes on GitHub, these
@@ -249,6 +254,7 @@ shows each card's latest run.
 | `test_report` | jsonb | yes | | `TestReport`: verdict, summary, checks (failed pre-checks included). |
 | `rework_rounds` | integer | no | `0` | Development rounds after the first (max `MAX_REWORK_ROUNDS` = 2). |
 | `error` | text | yes | | Why it stopped, or the analyst's question (`needs_info`). Shown on the card. |
+| `failure` | jsonb | yes | | `RunFailure`, the stop as data the UI can act on: `{ kind: "out_of_credit", provider }` (board notice, switch and retry). Cleared when a stage starts. |
 | `cost_micros` | integer | no | `0` | Model spend of the whole run. Per-agent spend stays in `agent_activity`. |
 | `created_by_id` | integer | yes | | → `users.id`, `SET NULL`. Null for auto pickup. |
 | `started_at`, `updated_at`, `finished_at` | timestamp | no / no / yes | `now()` | `finished_at` is set on terminal statuses (not `awaiting_merge`). |
@@ -266,6 +272,40 @@ history on every turn.
 | `conversation` | text | no | | `<stage>:<rework round>`, e.g. `development:1`. |
 | `seq` | integer | no | | Position in the conversation. **Unique with `run_id`, `conversation`**: a retried turn overwrites its own rows. |
 | `message` | jsonb | no | | The Anthropic message param, verbatim (thinking blocks must go back unchanged). |
+| `created_at` | timestamp | no | `now()` | |
+
+## agent_run_steps
+
+The card's **agent log**: what each stage did. One row per tool call, plus one `result` (or `stopped`) row when a
+stage ends. Read by `getTaskRunLog` (lib/agent-runs.ts) for the board's "View agent log" panel.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | serial | no | | Primary key. |
+| `run_id` | integer | no | | → `agent_runs.id`, cascade. |
+| `stage`, `round`, `turn`, `seq` | text / int / int / int | no | | Position. **Unique together with `run_id`**: a retried Inngest step rewrites its rows. The stage's end row uses `seq` 1000. |
+| `tool` | text | no | | Tool name (`read_file`, `write_file` …), or `result` / `stopped`. |
+| `target` | text | yes | | The path, prefix or query the call was about. |
+| `ok` | boolean | no | | False when the tool answered with an error, or the stage stopped. |
+| `summary` | text | yes | | First line of the tool's answer (≤ 200 chars) for writes and errors; null for reads (never file contents). The stage's result or stop reason on end rows. |
+| `model` | text | yes | | The model that ran the turn. |
+| `cost_micros` | integer | no | `0` | Only on end rows: the stage's model spend. |
+| `created_at` | timestamp | no | `now()` | |
+
+## notifications
+
+The header bell. One row per event for the workspace's owner ([lib/notifications.ts](../lib/notifications.ts)).
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | serial | no | | Primary key. |
+| `workspace_id` | integer | no | | → `workspaces.id`, cascade. |
+| `user_id` | integer | no | | → `users.id`, cascade. Indexed with `workspace_id`, `created_at`. |
+| `kind` | text | no | | `NOTIFICATION_KINDS`: `pr_ready`, `merged`, `merge_blocked`, `needs_info`, `run_failed`, `out_of_credit`, `provider_switched`. |
+| `title`, `body` | text | no / yes | | |
+| `href` | text | yes | | In-app path, e.g. `/dashboard/1/board?log=42` (opens that card's agent log). |
+| `task_id` | integer | yes | | → `tasks.id`, `SET NULL`. |
+| `read_at` | timestamp | yes | | Null = unread. |
 | `created_at` | timestamp | no | `now()` | |
 
 ## pull_requests
@@ -323,20 +363,23 @@ for either yet.
 
 ## Schema changes
 
-The project uses **`drizzle-kit push`** (no migration files):
+The project uses **Drizzle migrations** (SQL files in `drizzle/`, committed):
 
 1. Edit `db/schema.ts`.
-2. Run `npm run db:push`. It diffs the schema against the live database, prints the SQL, and applies it.
-3. Commit the schema change together with the code that uses it.
+2. `npm run db:generate` writes the next migration (`drizzle/NNNN_<name>.sql`) from the difference between the schema
+   and the last snapshot (`drizzle/meta/`). Read the SQL. Name it with `npx drizzle-kit generate --name <what>`.
+3. `npm run db:migrate` applies pending migrations (recorded in `drizzle.__drizzle_migrations`).
+4. Commit the schema, the migration and the code that uses it together.
 
 Things to know:
 
-- `push` only touches the `public` schema (`schemaFilter` in `drizzle.config.ts`) and ignores `pg_stat_*` tables.
-- Additive changes (new table, new nullable column, new index) apply directly.
-- Risky changes stop for confirmation and need an interactive terminal — e.g. adding a unique constraint to a
-  table that already has rows makes drizzle-kit offer to **truncate** the table. Don't accept that unless you mean
-  it; empty the affected rows deliberately or add the constraint in a way that can't fail.
-- drizzle-kit re-emits `ALTER COLUMN "labels" SET DEFAULT '{}'::text[]` on every push. It's harmless (same value).
-- Dropping a column/table that exists in the database but not in the schema is also proposed by `push` — check
-  that no other branch still needs it.
-- `npm run db:generate` (SQL files in `drizzle/`) is available if the team moves to migrations later.
+- `0000_baseline.sql` is the whole schema as of November 2026. Databases created earlier with `db:push` already have
+  it: run `npm run db:baseline` once (scripts/db-baseline.mjs marks migrations as applied without running them).
+- Only the `public` schema is managed (`schemaFilter` in `drizzle.config.ts`); never the hosted auth service's `auth`
+  schema. `pg_stat_*` tables are ignored.
+- Renames are ambiguous to drizzle-kit (rename vs. drop + add): `generate` asks in an interactive terminal. Answer
+  carefully; a wrong "drop + add" loses the column's data.
+- Adding a unique constraint to a table with rows can fail on duplicates: clean the rows first, in the same migration
+  (edit the generated SQL) or before it.
+- `npm run db:push` still exists for throwaway local databases while prototyping. Don't use it on shared or
+  production databases: it leaves no migration behind.

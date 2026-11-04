@@ -8,6 +8,7 @@ import { AgentPortrait, AgentStatusBadge, BudgetMeter } from "@/components/ai-te
 import { SurfaceHeader } from "@/components/dashboard/page-header";
 import { useLiveTeam } from "@/components/office/live-team";
 import { buttonVariants } from "@/components/ui/button";
+import { PROVIDERS } from "@/lib/agent-config";
 import type { TeamMember } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +25,13 @@ export function TeamStatus({ teamHref, className }: { teamHref: string; classNam
     <section className={cn("surface flex min-w-0 flex-col", className)}>
       <SurfaceHeader
         title="AI team"
-        description={working ? `${working} of ${team.members.length} agents working` : "Everyone is waiting for work"}
+        description={
+          team.outOfCredit
+            ? `Out of ${PROVIDERS[team.outOfCredit].label} credit · see the board`
+            : working
+              ? `${working} of ${team.members.length} agents working`
+              : "Everyone is waiting for work"
+        }
         actions={
           <Link href={teamHref} className={buttonVariants({ variant: "ghost", size: "sm", className: "text-muted-foreground" })}>
             View team

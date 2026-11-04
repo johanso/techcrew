@@ -1,4 +1,4 @@
-import type { AgentKey } from "@/lib/agent-config";
+import type { AgentKey, AgentProvider } from "@/lib/agent-config";
 import type { BoardColumnId } from "@/lib/board-config";
 
 /**
@@ -74,11 +74,15 @@ export type TestReport = {
   checks: TestCheck[];
 };
 
+/** Why a run stopped, as data the UI can act on (alongside the `error` text). */
+export type RunFailure = { kind: "out_of_credit"; provider: AgentProvider };
+
 /** What a board card shows about its latest run. */
 export type BoardCardRun = {
   id: number;
   status: RunStatus;
   stage: RunStage | null;
   error: string | null;
+  failure: RunFailure | null;
   pullRequest: { number: number; url: string } | null;
 };

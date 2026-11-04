@@ -123,13 +123,16 @@ served. For production see [docs/background-jobs.md](background-jobs.md#producti
 ## 4. Create the database tables
 
 ```bash
-npm run db:push
+npm run db:migrate
 ```
 
-This compares `db/schema.ts` with the database and applies the difference (it creates `users`, `workspaces`,
-`github_connections` and `tasks` on a fresh database). It prints the SQL before running it; read it. If a change
-could lose data, drizzle-kit stops and asks for confirmation, which requires an interactive terminal.
-More in [docs/data-model.md](data-model.md#schema-changes).
+This applies the SQL migrations in `drizzle/` that the database hasn't run yet (on a fresh database: all of them,
+starting with `0000_baseline.sql`, which creates every table). Applied migrations are recorded in
+`drizzle.__drizzle_migrations`.
+
+**Database created with `db:push` before migrations existed** (any copy older than November 2026): its tables already
+exist, so run `npm run db:baseline` once. It marks the migrations as applied without running them. After that,
+`npm run db:migrate` as usual. More in [docs/data-model.md](data-model.md#schema-changes).
 
 ## 5. Run
 
@@ -143,7 +146,7 @@ changing the office scene (`office/`). See [features.md](features.md#live-agent-
 
 ## 6. First-run walkthrough
 
-1. Open <http://localhost:3000> → **Get Started** (or `/sign-up`). Create an account.
+1. Open <http://localhost:3000> (it redirects to sign-in) → **Sign up**. Create an account.
 2. You land on `/workspaces`, which forwards you to **Create a new workspace** because you have none.
 3. Name it, pick an icon (or upload a logo), click **Connect GitHub**, authorize, and pick a repository you can
    push to. Click **Next**.
@@ -158,14 +161,17 @@ changing the office scene (`office/`). See [features.md](features.md#live-agent-
 - Cookies are `Secure` automatically when `NODE_ENV=production`.
 - Set `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`, deploy, then sync the app in the Inngest dashboard
   (`https://<your-domain>/api/inngest`).
-- Apply schema changes with `npm run db:push` against the production database before deploying code that needs them.
-- Read [docs/security.md](security.md#known-gaps) — in particular, remove or protect `POST /api/inngest/trigger`.
+- Run `npm run db:migrate` against the production database before deploying code that needs the new schema.
+  Never `db:push` there.
+- Run `npm run check` (types, lint, tests) and `npm run build` in CI before deploying.
+- Read [docs/security.md](security.md#known-gaps).
 
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 | --- | --- |
-| `relation "workspaces" does not exist` (or any table) | Tables weren't created. Run `npm run db:push`. |
+| `relation "workspaces" does not exist` (or any table) | Tables weren't created. Run `npm run db:migrate`. |
+| `npm run db:migrate` fails with `relation "…" already exists` | The database was created with `db:push`. Run `npm run db:baseline` once, then migrate again. |
 | "Connect GitHub" is disabled | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` are not set. Restart the dev server after setting them. |
 | GitHub redirects back with "We couldn't connect to GitHub" | Callback URL mismatch (must be exactly `<NEXT_PUBLIC_APP_URL>/api/github/callback`), wrong client secret, or missing `TOKEN_ENCRYPTION_KEY`. Check the server log for `[github] connect failed`. |
 | A repository is missing from the picker | Only repositories you can **push** to and that aren't archived are listed (max 300). For org repos, the org may need to approve the OAuth App. |
@@ -173,5 +179,5 @@ changing the office scene (`office/`). See [features.md](features.md#live-agent-
 | Board shows "Your GitHub connection expired or was revoked" | The token was revoked on GitHub (or `TOKEN_ENCRYPTION_KEY` changed). Click **Reconnect GitHub**. |
 | **Run** fails with "Is the Inngest Dev Server running?" | Start `npm run inngest:dev`. Without it, the SDK falls back to Inngest Cloud and the placeholder event key is rejected (401). |
 | Logo upload button is disabled | S3 variables are not set. |
-| `npm run db:push` exits with "Interactive prompts require a TTY" | drizzle-kit wants to confirm a risky change (e.g. a new unique constraint on a non-empty table). Run it in a regular terminal and read the prompt; don't accept truncation unless you mean it. |
-| `npm run lint` fails | There's no ESLint config yet. Use `npx tsc --noEmit` and `npm run build`. |
+| `npm run db:generate` asks questions ("Interactive prompts require a TTY") | drizzle-kit can't tell a rename from a drop + add. Run it in a regular terminal and answer the prompt. |
+| `npm install` fails with "Cannot read properties of null (reading 'edgesOut')" | An npm 10 bug while resolving peer dependencies. Add `--legacy-peer-deps` to that install. |

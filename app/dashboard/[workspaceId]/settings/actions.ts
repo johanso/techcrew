@@ -6,7 +6,7 @@ import { PROVIDERS, isAgentProvider } from "@/lib/agent-config";
 import { getAIKeys, keyStatus, removeProviderKey, saveProviderKey, verifyProviderKey } from "@/lib/ai-keys";
 import { switchAgentsToProvider } from "@/lib/agents";
 import { requireUser } from "@/lib/current-user";
-import { getOwnedWorkspace, updateAgentAutomation, updateAIProvider } from "@/lib/workspaces";
+import { getOwnedWorkspace, updateAgentAutomation, updateAIProvider, updateAutoFailover } from "@/lib/workspaces";
 
 export type AutomationFormState = { ok?: boolean; message?: string; savedAt?: number };
 
@@ -36,6 +36,16 @@ export async function saveAutomationAction(workspaceId: number, _prev: Automatio
   await updateAgentAutomation(workspace.id, { agentAutoPickup: pickup === "auto", agentAutoMerge: merge === "auto" });
   revalidatePath(`/dashboard/${workspaceId}/settings`);
   return { ok: true, savedAt: Date.now() };
+}
+
+/** Settings → AI providers: switch provider automatically when the current one runs out of credit mid-run. */
+export async function saveAutoFailoverAction(workspaceId: number, enabled: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
+  const workspace = await authorize(workspaceId);
+  if (!workspace) return { ok: false, error: "Workspace not found." };
+  if (typeof enabled !== "boolean") return { ok: false, error: "Choose on or off." };
+  await updateAutoFailover(workspace.id, enabled);
+  revalidatePath(`/dashboard/${workspaceId}/settings`);
+  return { ok: true };
 }
 
 export type ProviderSwitchState = { ok?: boolean; message?: string; switched?: number };

@@ -8,6 +8,7 @@ import { finishRun, placeTask } from "@/lib/agent-runs";
 import { getAgentRow, logAgentActivity, taskKeyPrefix } from "@/lib/agents";
 import { createAgentTask } from "@/lib/board";
 import { GithubError, createIssue, getCommitChecks, getGithubToken, getPullRequest, mergePullRequest } from "@/lib/github";
+import { notify } from "@/lib/notifications";
 
 /**
  * Agent pull requests: merging (automatically after review + tests, or from the Pull Requests page), the tester's
@@ -164,6 +165,13 @@ async function blockMerge(workspace: PrWorkspace, pr: PullRequestRow, reason: st
 
   await db.update(pullRequests).set({ mergeError: reason, updatedAt: new Date() }).where(eq(pullRequests.id, pr.id));
   if (pr.runId) await finishRun(pr.runId, "failed", `Merge blocked. ${reason}${followUpKey ? ` Follow-up: ${followUpKey}.` : ""}`);
+  await notify(workspace.id, {
+    kind: "merge_blocked",
+    title: `PR #${pr.number} couldn't be merged`,
+    body: `${reason}${followUpKey ? ` The Tester filed ${followUpKey} to fix it.` : ""}`,
+    href: `/dashboard/${workspace.id}/pull-requests`,
+    taskId: pr.taskId,
+  });
   return { status: "blocked", reason, followUpKey };
 }
 

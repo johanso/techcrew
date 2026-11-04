@@ -95,11 +95,18 @@ How each provider runs a stage (`lib/agent-loop.ts`):
 | 17 | Draft with AI / AI trust scan | AI Team → Configure, with a key | Uses the workspace's company (or the other if only it has a key) | ⬜ with a real key |
 | 18 | Live office follows a run | AI Team page open, ▶ Run a card (simulated is enough) | Each agent types at its desk during its stage, bubble shows "Analyzing KEY •••" etc., others still; header "Live · 1 working"; no reload needed | ✅ by the user (2026-11-04) |
 | 19 | Overview and Activity on real data | Overview / Activity with and without cards and runs | Real counts, upcoming cards, AI team status, timeline with cost per step; empty states when there's nothing | ✅ in the browser with test users (2026-11-04) |
+| 20 | Out of credit → switch and retry | A run stopped with `failure: out_of_credit` (seeded), a key for the other company, then **Switch to … and retry** | Notice above the board, card "Out of OpenAI credit"; the button moves the team (models per company) and starts a new run | ✅ in the browser with a seeded run (2026-11-04); the provider actually running dry not tried |
+| 21 | Automatic switch | Settings → Switch automatically on, both keys, then a provider out of credit mid-run | Team switches, stage restarts on the other company, "Switched the team to …" notification | 🟡 toggle saves ✅; detection unit-tested; never run end to end (needs a provider failing with no credit: a fake API server or an empty account) |
+| 22 | Agent log | ⋯ → View agent log, or a notification link (`/board?log=<card>`) | Stages with agent, model, turns, cost, result or stop reason, files changed, tool calls (failures in red); follows a running card | ✅ in the browser (seeded steps + a real stop) |
+| 23 | Notifications | Trigger PR ready / needs info / stop / out of credit | Bell count, list newest first, opening marks read, Mark all as read | ✅ in the browser; `run_failed` produced by a real run stop |
 
 Suggested order for the next session: 9 or 10 on a small, well-described card (e.g. "Add a README section"), then 3,
 4 and 8, then 6/7, then 11 with a deliberately vague card.
 
 ## Testing techniques
+
+- **Unit tests**: `npm test` (Vitest, `vitest.config.mts`). Tests sit next to their module as `*.test.ts`;
+  `server-only` is aliased to `test/server-only.ts`, so `lib/` modules import fine (no database is touched).
 
 - **Test users**: sign up through the app (`/sign-up`) with an `e2e-…@example.com` address, then add a workspace row
   directly in SQL (no GitHub needed to view pages): `insert into workspaces (owner_id, name, icon, github_repo_id,
@@ -125,5 +132,6 @@ Suggested order for the next session: 9 or 10 on a small, well-described card (e
 - `.env` changes need a dev server restart; `AGENTS_SIMULATED=true` hides every provider problem (no key checks).
 - Agent branches are never deleted by the app. Reruns after a closed PR get a `-r<runId>` suffix when the old branch
   still exists.
-- No ESLint config and no automated tests (see [status.md](status.md#technical-debt)); verify with
-  `npx tsc --noEmit` and `npm run build`.
+- Verify with `npm run check` (types, ESLint, Vitest) and `npm run build`. Unit tests cover pure logic only.
+- Playwright's screenshots inject `caret-color: transparent` into focused inputs, which shows up as a hydration
+  warning in the dev overlay ("1 Issue"). It's the test tool, not the app.

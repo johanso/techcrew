@@ -4,6 +4,7 @@ import { BadgeCheckIcon, BotIcon, ExternalLinkIcon, KeyRoundIcon } from "lucide-
 
 import { DetailGrid, PageHeader, SurfaceHeader } from "@/components/dashboard/page-header";
 import { AgentAutomationForm } from "@/components/settings/agent-automation-form";
+import { AutoFailoverToggle } from "@/components/settings/auto-failover-toggle";
 import { ProviderKeyForm } from "@/components/settings/provider-key-form";
 import { ProviderSwitchForm } from "@/components/settings/provider-switch-form";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -100,6 +101,13 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
             provider={provider}
             connected={{ openai: keys.openai.source !== null, anthropic: keys.anthropic.source !== null }}
           />
+          <div className="border-t border-border/70 pt-6">
+            <AutoFailoverToggle
+              workspaceId={workspace.id}
+              enabled={workspace.aiAutoFailover}
+              bothConnected={keys.openai.source !== null && keys.anthropic.source !== null}
+            />
+          </div>
           <div className="flex flex-col gap-6 border-t border-border/70 pt-6">
             <ProviderKeyForm workspaceId={workspace.id} provider="openai" view={keys.openai} />
             <ProviderKeyForm workspaceId={workspace.id} provider="anthropic" view={keys.anthropic} />

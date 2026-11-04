@@ -376,7 +376,7 @@ export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" |
   const prefix = taskKeyPrefix(workspace.name);
   const provider = workspaceProvider(workspace);
 
-  const [rows, spendRows, lastRows, runningRows] = await Promise.all([
+  const [rows, spendRows, lastRows, runningRows, [latestRun]] = await Promise.all([
     db.select().from(agents).where(eq(agents.workspaceId, workspace.id)),
     db
       .select({ agentId: agentActivity.agentId, total: sql<number>`sum(${agentActivity.costMicros})::int` })
@@ -394,7 +394,18 @@ export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" |
       .innerJoin(tasks, eq(tasks.id, agentRuns.taskId))
       .where(and(eq(agentRuns.workspaceId, workspace.id), eq(agentRuns.status, "running")))
       .orderBy(agentRuns.startedAt),
+    db
+      .select({ status: agentRuns.status, failure: agentRuns.failure })
+      .from(agentRuns)
+      .where(eq(agentRuns.workspaceId, workspace.id))
+      .orderBy(desc(agentRuns.updatedAt))
+      .limit(1),
   ]);
+  // The team's company is out of credit while the latest run stopped for it (until a run gets going again).
+  const outOfCredit =
+    latestRun?.status === "failed" && latestRun.failure?.kind === "out_of_credit" && latestRun.failure.provider === provider
+      ? provider
+      : null;
 
   const current = new Map<AgentKey, { label: string; task: NonNullable<TeamMember["task"]> }>();
   for (const run of runningRows) {
@@ -429,7 +440,7 @@ export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" |
     };
   });
 
-  return { members, monthSpendMicros, monthBudgetCents };
+  return { members, monthSpendMicros, monthBudgetCents, outOfCredit };
 }
 
 export type TeamOverview = Awaited<ReturnType<typeof getTeamOverview>>;

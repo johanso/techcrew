@@ -28,12 +28,15 @@ import {
   runCardAction,
   stopCardAction,
   updateCardAction,
+  switchProviderAndRetryAction,
 } from "@/app/dashboard/[workspaceId]/board/actions";
 import { BoardCardView } from "@/components/board/board-card";
 import { BoardColumn } from "@/components/board/board-column";
 import { isFiltering, matchesFilters, matchesQuery, NO_FILTERS, type BoardFilters, type TypeFilter } from "@/components/board/board-filters";
 import { BoardToolbar } from "@/components/board/board-toolbar";
 import { CardDialog, type CardDialogMode, type CardDialogSubmit } from "@/components/board/card-dialog";
+import { CreditNotice } from "@/components/board/credit-notice";
+import { RunLogSheet } from "@/components/board/run-log-sheet";
 import { GithubSyncButton, GithubSyncNotice } from "@/components/board/github-sync-controls";
 import { useGithubSync } from "@/components/board/use-github-sync";
 import { ISSUE_TYPE_META } from "@/components/board/issue-meta";
@@ -67,6 +70,7 @@ import {
   type BoardColumns,
   type BoardData,
 } from "@/lib/board-config";
+import type { AgentProvider, ProviderStatus } from "@/lib/agent-config";
 import { isActiveRun } from "@/lib/agent-run-config";
 import { cn } from "@/lib/utils";
 
@@ -77,10 +81,16 @@ export function KanbanBoard({
   initial,
   repo,
   lastSyncedAt,
+  ai,
+  openLogFor,
 }: {
   workspaceId: number;
   initial: BoardData;
   repo: string;
+  /** The team's provider and which companies have a key, for the out-of-credit notice. */
+  ai: { provider: AgentProvider; connected: ProviderStatus };
+  /** Card id whose agent log opens on load (?log=<id>, e.g. from a notification). */
+  openLogFor: string | null;
   /** Last GitHub issue sync (ISO), or null if this workspace never synced. */
   lastSyncedAt: string | null;
 }) {
@@ -100,6 +110,8 @@ export function KanbanBoard({
   const [boardError, setBoardError] = useState<string | null>(null);
   const [runningIds, setRunningIds] = useState<ReadonlySet<string>>(new Set());
   const [mergingIds, setMergingIds] = useState<ReadonlySet<string>>(new Set());
+  const [retryingCredit, setRetryingCredit] = useState(false);
+  const [logCardId, setLogCardId] = useState<string | null>(openLogFor);
   // The card the remove confirmation is about; kept while the dialog animates out.
   const [removal, setRemoval] = useState<{ open: boolean; card: BoardCard | null; pending: boolean }>({
     open: false,
@@ -204,18 +216,22 @@ export function KanbanBoard({
   };
 
   // Run: the server starts the agent pipeline, then returns the card assigned to the analyst.
+  // A run started: the analyst takes the card, and the server put it on top of Analysis.
+  const showRunStarted = (card: BoardCard) => {
+    setCards((prev) => (prev[card.id] ? { ...prev, [card.id]: card } : prev));
+    setColumns((prev) => {
+      const without = Object.fromEntries(BOARD_COLUMNS.map((c) => [c.id, prev[c.id].filter((id) => id !== card.id)])) as BoardColumns;
+      return { ...without, analysis: [card.id, ...without.analysis] };
+    });
+  };
+
   const runCard = async (card: BoardCard) => {
     if (runningIds.has(card.id)) return;
     setRunningIds((prev) => new Set(prev).add(card.id));
     try {
       const result = await runCardAction(workspaceId, card.id);
       if (!result.ok) return setBoardError(result.error);
-      setCards((prev) => (prev[card.id] ? { ...prev, [card.id]: result.card } : prev));
-      // The analyst takes it: the server put it on top of Analysis.
-      setColumns((prev) => {
-        const without = Object.fromEntries(BOARD_COLUMNS.map((c) => [c.id, prev[c.id].filter((id) => id !== card.id)])) as BoardColumns;
-        return { ...without, analysis: [card.id, ...without.analysis] };
-      });
+      showRunStarted(result.card);
     } catch {
       setBoardError(`We couldn't start the analyst on ${card.key}. Please try again.`);
     } finally {
@@ -267,6 +283,28 @@ export function KanbanBoard({
       pendingWrites.current--;
       settle();
       void github.sync({ includeBoard: true });
+    }
+  };
+
+  // Cards stopped because the provider ran out of credit (latest run), for the notice above the board.
+  const outOfCredit = Object.values(cards).filter((card) => card.run?.status === "failed" && card.run.failure?.kind === "out_of_credit");
+
+  // One by one: the first switches the team (when needed), the rest just run on the new provider.
+  const retryOutOfCredit = async () => {
+    setRetryingCredit(true);
+    try {
+      for (const card of outOfCredit) {
+        const result = await switchProviderAndRetryAction(workspaceId, card.id);
+        if (!result.ok) {
+          setBoardError(`${card.key}: ${result.error}`);
+          break;
+        }
+        showRunStarted(result.card);
+      }
+    } catch {
+      setBoardError("We couldn't restart the stopped cards. Please try again.");
+    } finally {
+      setRetryingCredit(false);
     }
   };
 
@@ -430,6 +468,15 @@ export function KanbanBoard({
 
       <GithubSyncNotice state={github.state} repo={repo} connectHref={connectHref} onRetry={() => void github.sync({ manual: true })} />
 
+      <CreditNotice
+        cards={outOfCredit}
+        provider={ai.provider}
+        connected={ai.connected}
+        settingsHref={`/dashboard/${workspaceId}/settings#ai`}
+        retrying={retryingCredit}
+        onRetry={() => void retryOutOfCredit()}
+      />
+
       {boardError && (
         <div
           role="alert"
@@ -492,6 +539,7 @@ export function KanbanBoard({
               onRunCard={(card) => void runCard(card)}
               onStopCard={(card) => void stopCard(card)}
               onMergeCard={(card) => void mergeCard(card)}
+              onViewLog={(card) => setLogCardId(card.id)}
               onRemoveCard={(card) => setRemoval({ open: true, card, pending: false })}
             />
           ))}
@@ -514,6 +562,21 @@ export function KanbanBoard({
         onOpenChange={(open) => setDialog((d) => ({ ...d, open }))}
         mode={dialog.mode}
         onSubmit={submitCard}
+      />
+
+      <RunLogSheet
+        workspaceId={workspaceId}
+        card={logCardId ? (cards[logCardId] ?? null) : null}
+        onOpenChange={(open) => {
+          if (open) return;
+          setLogCardId(null);
+          // Drop ?log= so a reload doesn't reopen it.
+          const url = new URL(window.location.href);
+          if (url.searchParams.has("log")) {
+            url.searchParams.delete("log");
+            window.history.replaceState(null, "", url);
+          }
+        }}
       />
 
       <AlertDialog open={removal.open} onOpenChange={(open) => !removal.pending && setRemoval((r) => ({ ...r, open }))}>

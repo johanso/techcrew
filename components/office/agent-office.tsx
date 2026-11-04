@@ -1,15 +1,25 @@
 "use client";
 
 import Image from "next/image";
+import { WalletIcon } from "lucide-react";
 
 import { SurfaceHeader } from "@/components/dashboard/page-header";
 import { useLiveTeam } from "@/components/office/live-team";
 import { OfficeAgent } from "@/components/office/office-agent";
 import { OFFICE } from "@/components/office/office-scene";
+import { PROVIDERS, type AgentProvider } from "@/lib/agent-config";
 import { cn } from "@/lib/utils";
 
-/** "Live" while polling works; says so when the last refresh failed. */
-function LiveChip({ connected, working }: { connected: boolean; working: number }) {
+/** "Live" while polling works; says so when the last refresh failed, or when the provider ran out of credit. */
+function LiveChip({ connected, working, outOfCredit }: { connected: boolean; working: number; outOfCredit: AgentProvider | null }) {
+  if (connected && outOfCredit) {
+    return (
+      <span className="flex items-center gap-1.5 rounded-full bg-warning/10 px-2.5 py-1 text-xs font-medium ring-1 ring-warning/30">
+        <WalletIcon aria-hidden className="size-3.5 text-warning" />
+        Out of {PROVIDERS[outOfCredit].label} credit
+      </span>
+    );
+  }
   return (
     <span className="flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium ring-1 ring-border">
       <span
@@ -44,7 +54,7 @@ export function AgentOffice({
 
   return (
     <section className={cn("surface flex min-w-0 flex-col", className)}>
-      <SurfaceHeader title={title} description={description} actions={<LiveChip connected={connected} working={working} />} />
+      <SurfaceHeader title={title} description={description} actions={<LiveChip connected={connected} working={working} outOfCredit={team.outOfCredit} />} />
       <div className="p-4 sm:p-6">
         <figure
           aria-label={`Office: ${working ? `${working} of ${team.members.length} agents working` : "everyone is waiting for work"}`}

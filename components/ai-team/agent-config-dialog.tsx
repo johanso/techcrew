@@ -249,16 +249,28 @@ function ConfigForm({
                 <SelectTrigger id="agent-model" className="w-full data-[size=default]:h-10">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                {/* Wider than the half-width trigger and below it, so names, prices and hints fit; hints may wrap. */}
+                <SelectContent
+                  align="start"
+                  alignItemWithTrigger={false}
+                  className="w-auto max-w-[min(26rem,calc(100vw-2rem))] min-w-(--anchor-width)"
+                >
                   <SelectGroup>
-                    <SelectLabel>{PROVIDERS[provider].label} models</SelectLabel>
+                    {/* pr-8 lines the price header up with the prices (items leave room for the check). */}
+                    <SelectLabel className="flex justify-between gap-3 pr-8">
+                      <span>{PROVIDERS[provider].label} models</span>
+                      <span>per 1M tokens · in / out</span>
+                    </SelectLabel>
                     {modelsFor(provider).map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        <span className="flex flex-col gap-0.5 py-0.5">
-                          <span className="font-medium">{m.label}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {m.hint} · ${m.pricing.input} / ${m.pricing.output} per 1M tokens
+                      <SelectItem key={m.id} value={m.id} className="py-2">
+                        <span className="flex w-full min-w-0 flex-col gap-0.5 whitespace-normal">
+                          <span className="flex items-baseline justify-between gap-3">
+                            <span className="font-medium">{m.label}</span>
+                            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                              ${m.pricing.input} / ${m.pricing.output}
+                            </span>
                           </span>
+                          <span className="text-xs text-muted-foreground">{m.hint}</span>
                         </span>
                       </SelectItem>
                     ))}

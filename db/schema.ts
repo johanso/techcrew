@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { bigint, boolean, date, index, integer, jsonb, pgTable, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
 
 import type { AgentModelId, AgentProvider } from "@/lib/agent-config";
-import type { AnalystBrief, ReviewReport, TestReport } from "@/lib/agent-run-config";
+import type { AnalystBrief, ReviewReport, RunFailure, TestReport } from "@/lib/agent-run-config";
 import type { TrustReport } from "@/lib/agent-trust";
 
 export const users = pgTable("users", {
@@ -69,6 +69,9 @@ export const workspaces = pgTable(
     agentAutoMerge: boolean("agent_auto_merge").default(false).notNull(),
     // Settings → AI providers: the provider the team works on ("openai" | "anthropic"). Also used by AI drafting/scans.
     aiProvider: text("ai_provider").default("openai").notNull(),
+    // When the provider runs out of credit mid-run and the other one has a key, switch the team to it and restart
+    // the stage instead of stopping (Settings → AI providers). Off by default: switching changes every agent's model.
+    aiAutoFailover: boolean("ai_auto_failover").default(false).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -246,6 +249,8 @@ export const agentRuns = pgTable(
     reworkRounds: integer("rework_rounds").notNull().default(0),
     // Why the run stopped (failed / needs info / merge blocked), in words for the user.
     error: text("error"),
+    // The same, as data, for stops the UI can act on (e.g. out of credit → switch provider and retry).
+    failure: jsonb("failure").$type<RunFailure>(),
     // Model spend of the whole run in micro-dollars (per-agent spend is in agent_activity).
     costMicros: integer("cost_micros").notNull().default(0),
     createdById: integer("created_by_id").references(() => users.id, { onDelete: "set null" }),
@@ -282,6 +287,40 @@ export const agentRunMessages = pgTable(
   },
   (table) => [unique("agent_run_messages_conversation_seq").on(table.runId, table.conversation, table.seq)]
 );
+
+/**
+ * What an agent did in a run, for the card's agent log: one row per tool call (read_file, write_file …), plus one
+ * `result` row when a stage ends (its outcome, turns and cost) or a `stopped` row. Written at fixed positions
+ * (stage, round, turn, seq), so a retried Inngest step rewrites its own rows instead of duplicating them.
+ */
+export const agentRunSteps = pgTable(
+  "agent_run_steps",
+  {
+    id: serial("id").primaryKey(),
+    runId: integer("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    stage: text("stage").notNull(),
+    // Rework round (0 = first pass).
+    round: integer("round").notNull(),
+    turn: integer("turn").notNull(),
+    seq: integer("seq").notNull(),
+    // Tool name, or "result" / "stopped" for the stage's end.
+    tool: text("tool").notNull(),
+    // File path, prefix or query the call was about, when it has one.
+    target: text("target"),
+    ok: boolean("ok").notNull(),
+    // Short outcome: the tool's confirmation or error, or the stage's result.
+    summary: text("summary"),
+    model: text("model"),
+    // Only on `result` rows: the stage's model spend in micro-dollars.
+    costMicros: integer("cost_micros").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [unique("agent_run_steps_position").on(table.runId, table.stage, table.round, table.turn, table.seq)]
+);
+
+export type AgentRunStepRow = typeof agentRunSteps.$inferSelect;
 
 /** A pull request an agent opened on the workspace repository. Shown on the Pull Requests page. */
 export const pullRequests = pgTable(
@@ -320,3 +359,31 @@ export const pullRequests = pgTable(
 );
 
 export type PullRequestRow = typeof pullRequests.$inferSelect;
+
+/**
+ * Header bell notifications for a workspace's owner: a pull request is ready to merge, the analyst needs info, a run
+ * stopped, the provider ran out of credit … Values of `kind` come from NOTIFICATION_KINDS in lib/notifications.ts.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    body: text("body"),
+    // In-app path to open (e.g. the board with the card's agent log).
+    href: text("href"),
+    taskId: integer("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    readAt: timestamp("read_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("notifications_user_workspace_created_idx").on(table.userId, table.workspaceId, table.createdAt)]
+);
+
+export type NotificationRow = typeof notifications.$inferSelect;

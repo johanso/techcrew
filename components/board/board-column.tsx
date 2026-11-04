@@ -24,6 +24,7 @@ export function BoardColumn({
   onRunCard,
   onStopCard,
   onMergeCard,
+  onViewLog,
   onRemoveCard,
 }: {
   column: (typeof BOARD_COLUMNS)[number];
@@ -42,6 +43,7 @@ export function BoardColumn({
   onRunCard: (card: BoardCard) => void;
   onStopCard: (card: BoardCard) => void;
   onMergeCard: (card: BoardCard) => void;
+  onViewLog: (card: BoardCard) => void;
   onRemoveCard: (card: BoardCard) => void;
 }) {
   // The column itself is a drop target, so empty columns accept cards too.
@@ -98,6 +100,7 @@ export function BoardColumn({
               onRun={() => onRunCard(card)}
               onStop={() => onStopCard(card)}
               onMerge={() => onMergeCard(card)}
+              onViewLog={() => onViewLog(card)}
               onRemove={() => onRemoveCard(card)}
             />
           ))}

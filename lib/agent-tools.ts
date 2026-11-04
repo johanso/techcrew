@@ -229,3 +229,33 @@ export async function executeTool(ctx: ToolContext, allowed: FunctionTool[], nam
     throw error;
   }
 }
+
+/** One tool call, for the card's agent log. */
+export type ToolStep = {
+  tool: string;
+  /** The path, prefix or query it was about, if any. */
+  target: string | null;
+  ok: boolean;
+  /** The tool's confirmation or error, first line, clipped; null for reads (their output is the file itself). */
+  summary: string | null;
+};
+
+// Tools whose output is content (a file, a listing, a diff): logging it would copy the repo into the database.
+const READ_TOOLS = new Set(["list_files", "read_file", "search_code", "get_diff"]);
+const SUMMARY_MAX = 200;
+
+/** Turns a tool call and its output into a log step. Outputs starting with "Error" or "GitHub error" are failures (run, executeTool). */
+export function toolStep(tool: string, rawArgs: string, output: string): ToolStep {
+  let target: string | null = null;
+  try {
+    const args = JSON.parse(rawArgs || "{}") as Record<string, unknown>;
+    const value = args.path ?? args.path_prefix ?? args.query;
+    if (typeof value === "string" && value) target = value;
+  } catch {
+    // Unparseable arguments: executeTool already answered with an error.
+  }
+  const ok = !/^(Error|GitHub error)/.test(output);
+  const firstLine = output.split("\n", 1)[0]!.trim();
+  const summary = ok && READ_TOOLS.has(tool) ? null : firstLine.slice(0, SUMMARY_MAX) || null;
+  return { tool, target, ok, summary };
+}

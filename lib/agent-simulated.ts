@@ -3,7 +3,7 @@ import "server-only";
 import type { FunctionTool } from "openai/resources/responses/responses";
 
 import type { LoopState, TurnOutcome } from "@/lib/agent-loop";
-import { executeTool, type ToolContext } from "@/lib/agent-tools";
+import { executeTool, toolStep, type ToolContext } from "@/lib/agent-tools";
 
 /**
  * Simulated agents (AGENTS_SIMULATED=true): a scripted stand-in for the model, for trying the pipeline locally
@@ -94,12 +94,13 @@ export async function simulatedTurn<T>(input: {
   const next: LoopState = { ...input.state, turn };
 
   if (!call) {
-    return { state: next, costMicros: 0, calls: [input.finish.name], result: finishResult(input.finish.name, input.toolContext) as T };
+    return { state: next, costMicros: 0, steps: [], result: finishResult(input.finish.name, input.toolContext) as T };
   }
-  const output = await executeTool(input.toolContext, input.tools, call.name, JSON.stringify(call.args));
+  const args = JSON.stringify(call.args);
+  const output = await executeTool(input.toolContext, input.tools, call.name, args);
   // A failed write must not pass as success: surface it the way a model's stage would fail.
   if (call.name === "write_file" && !output.startsWith("Created") && !output.startsWith("Updated")) {
     throw new Error(`Simulated developer couldn't write its file: ${output}`);
   }
-  return { state: next, costMicros: 0, calls: [`${call.name} ${(call.args.path as string | undefined) ?? ""}`.trim()], result: null };
+  return { state: next, costMicros: 0, steps: [toolStep(call.name, args, output)], result: null };
 }

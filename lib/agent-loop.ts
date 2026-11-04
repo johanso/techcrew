@@ -13,7 +13,7 @@ import type { FunctionTool, ResponseInput } from "openai/resources/responses/res
 import { agentRunMessages, db } from "@/db";
 import { PROVIDERS, modelInfo, type AgentModelId, type ProviderStatus } from "@/lib/agent-config";
 import { isSimulatedAgents, simulatedTurn } from "@/lib/agent-simulated";
-import { executeTool, type ToolContext } from "@/lib/agent-tools";
+import { executeTool, toolStep, type ToolContext, type ToolStep } from "@/lib/agent-tools";
 import { anthropicClient, messageCostMicros, toClaudeSchema } from "@/lib/anthropic";
 import { openAIClient, responseCostMicros } from "@/lib/openai";
 
@@ -53,8 +53,8 @@ export type LoopState = {
 export type TurnOutcome<T> = {
   state: LoopState;
   costMicros: number;
-  /** Tool calls made this turn, for the activity log ("read_file src/app.ts"). */
-  calls: string[];
+  /** Tool calls made this turn (the finish call isn't one: the stage's result is logged on its own). */
+  steps: ToolStep[];
   result: T | null;
 };
 
@@ -126,21 +126,21 @@ async function openAITurn<T>(input: TurnInput, state: Extract<LoopState, { provi
   const finish = calls.find((call) => call.name === input.finish.name);
   if (finish) {
     // Strict schema: the arguments already match the finish tool's shape.
-    return { state: next([]), costMicros, calls: [input.finish.name], result: JSON.parse(finish.arguments) as T };
+    return { state: next([]), costMicros, steps: [], result: JSON.parse(finish.arguments) as T };
   }
   if (!calls.length) {
     // Text without a tool call: keep the agent moving instead of ending the stage on prose.
-    return { state: next([{ role: "user", content: NUDGE }]), costMicros, calls: [], result: null };
+    return { state: next([{ role: "user", content: NUDGE }]), costMicros, steps: [], result: null };
   }
 
   const pending: ResponseInput = [];
-  const log: string[] = [];
+  const steps: ToolStep[] = [];
   for (const call of calls) {
     const output = await executeTool(input.toolContext, input.tools, call.name, call.arguments);
     pending.push({ type: "function_call_output", call_id: call.call_id, output });
-    log.push(describeCall(call.name, call.arguments));
+    steps.push(toolStep(call.name, call.arguments, output));
   }
-  return { state: next(pending), costMicros, calls: log, result: null };
+  return { state: next(pending), costMicros, steps, result: null };
 }
 
 // ── Anthropic (Messages API) ───────────────────────────────────────────────────
@@ -220,12 +220,12 @@ async function claudeTurn<T>(input: TurnInput, state: Extract<LoopState, { provi
   const finish = toolUses.find((block) => block.name === input.finish.name);
   if (finish && !truncated) {
     // Strict schema: the input already matches the finish tool's shape.
-    return { state: { ...state, turn: state.turn + 1 }, costMicros, calls: [input.finish.name], result: finish.input as T };
+    return { state: { ...state, turn: state.turn + 1 }, costMicros, steps: [], result: finish.input as T };
   }
 
   // Every tool_use must be answered in the next user message, all results together.
   const results: BetaToolResultBlockParam[] = [];
-  const log: string[] = [];
+  const steps: ToolStep[] = [];
   for (const block of toolUses) {
     const args = JSON.stringify(block.input ?? {});
     if (truncated) {
@@ -234,21 +234,11 @@ async function claudeTurn<T>(input: TurnInput, state: Extract<LoopState, { provi
     }
     const output = await executeTool(input.toolContext, input.tools, block.name, args);
     results.push({ type: "tool_result", tool_use_id: block.id, content: output });
-    log.push(describeCall(block.name, args));
+    steps.push(toolStep(block.name, args, output));
   }
   const reply: BetaMessageParam = results.length ? { role: "user", content: results } : { role: "user", content: NUDGE };
 
   // Stored verbatim: thinking and fallback blocks must go back to the API unchanged.
   await saveMessages(state.runId, state.conversation, state.length, [{ role: "assistant", content: response.content }, reply]);
-  return { state: { ...state, turn: state.turn + 1, length: state.length + 2 }, costMicros, calls: log, result: null };
-}
-
-function describeCall(name: string, rawArgs: string) {
-  try {
-    const args = JSON.parse(rawArgs) as Record<string, unknown>;
-    const target = args.path ?? args.path_prefix ?? args.query;
-    return typeof target === "string" && target ? `${name} ${target}` : name;
-  } catch {
-    return name;
-  }
+  return { state: { ...state, turn: state.turn + 1, length: state.length + 2 }, costMicros, steps, result: null };
 }

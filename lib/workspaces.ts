@@ -40,6 +40,11 @@ export async function updateAIProvider(workspaceId: number, provider: AgentProvi
   await db.update(workspaces).set({ aiProvider: provider, updatedAt: new Date() }).where(eq(workspaces.id, workspaceId));
 }
 
+/** Settings → AI providers: switch to the other company on its own when the current one runs out of credit. */
+export async function updateAutoFailover(workspaceId: number, enabled: boolean) {
+  await db.update(workspaces).set({ aiAutoFailover: enabled, updatedAt: new Date() }).where(eq(workspaces.id, workspaceId));
+}
+
 export async function insertWorkspace(values: NewWorkspace) {
   const [row] = await db.insert(workspaces).values(values).returning();
   return row!;

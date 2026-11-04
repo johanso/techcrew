@@ -1,0 +1,248 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { format, formatDistanceStrict, formatDistanceToNowStrict } from "date-fns";
+import {
+  CircleAlertIcon,
+  CircleCheckIcon,
+  FileDiffIcon,
+  FilePenIcon,
+  FilePlusIcon,
+  FileTextIcon,
+  FileXIcon,
+  FolderTreeIcon,
+  ListChecksIcon,
+  LoaderCircleIcon,
+  ScrollTextIcon,
+  SearchIcon,
+  WrenchIcon,
+  type LucideIcon,
+} from "lucide-react";
+
+import { getRunLogAction } from "@/app/dashboard/[workspaceId]/board/actions";
+import { AgentPortrait } from "@/components/ai-team/agent-visuals";
+import { AgentRunStatus } from "@/components/board/agent-run-status";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
+import { AGENT_MODELS, AGENT_ROLES, formatMicros } from "@/lib/agent-config";
+import { isActiveRun, type RunStage } from "@/lib/agent-run-config";
+import type { RunLog, RunLogStage, RunLogStep } from "@/lib/agent-runs";
+import type { BoardCard } from "@/lib/board-config";
+import { cn } from "@/lib/utils";
+
+// While the agents work, the log follows them.
+const POLL_MS = 5_000;
+
+const STAGE_LABEL: Record<RunStage, string> = {
+  analysis: "Analysis",
+  development: "Development",
+  review: "Review",
+  testing: "Testing",
+  merge: "Merge",
+};
+
+/** How each tool reads in the log: "Read src/app.ts", "Edited README.md" … */
+const TOOL: Record<string, { label: string; icon: LucideIcon }> = {
+  list_files: { label: "Listed", icon: FolderTreeIcon },
+  read_file: { label: "Read", icon: FileTextIcon },
+  search_code: { label: "Searched", icon: SearchIcon },
+  write_file: { label: "Wrote", icon: FilePlusIcon },
+  replace_in_file: { label: "Edited", icon: FilePenIcon },
+  delete_file: { label: "Deleted", icon: FileXIcon },
+  get_diff: { label: "Checked the diff", icon: FileDiffIcon },
+  get_checks: { label: "Checked CI", icon: ListChecksIcon },
+};
+
+function Step({ step }: { step: RunLogStep }) {
+  const meta = TOOL[step.tool] ?? { label: step.tool, icon: WrenchIcon };
+  return (
+    <li className="flex min-w-0 gap-2.5 py-1.5">
+      <meta.icon aria-hidden className={cn("mt-0.5 size-3.5 shrink-0", step.ok ? "text-muted-foreground" : "text-error")} />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <p className="flex min-w-0 items-baseline gap-1.5 text-xs">
+          <span className="shrink-0 font-medium">{meta.label}</span>
+          {step.target && <span className="min-w-0 truncate font-mono text-muted-foreground">{step.target}</span>}
+          {!step.ok && <span className="sr-only">(failed)</span>}
+        </p>
+        {/* Errors matter to the user; confirmations of writes are noise next to the file name. */}
+        {!step.ok && step.summary && <p className="line-clamp-2 text-xs text-error">{step.summary}</p>}
+      </div>
+      <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums" title={`Turn ${step.turn}`}>
+        T{step.turn}
+      </span>
+    </li>
+  );
+}
+
+function StageBlock({ stage, live }: { stage: RunLogStage; live: boolean }) {
+  const role = stage.agent ? AGENT_ROLES[stage.agent] : null;
+  const model = AGENT_MODELS.find((m) => m.id === stage.model);
+  return (
+    <section className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 last:border-b-0">
+      <div className="flex items-center gap-3">
+        {role && stage.agent && <AgentPortrait agent={{ id: stage.agent, name: role.name, tone: role.tone }} size="sm" />}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <p className="truncate text-sm font-bold">
+            {STAGE_LABEL[stage.stage]}
+            {stage.round > 0 && <span className="font-medium text-muted-foreground"> · rework {stage.round}</span>}
+          </p>
+          <p className="truncate text-xs text-muted-foreground">
+            {role?.name}
+            {model && ` · ${model.label}`}
+            {stage.turns > 0 && ` · ${stage.turns} turn${stage.turns === 1 ? "" : "s"}`}
+          </p>
+        </div>
+        {stage.costMicros > 0 && (
+          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold tabular-nums ring-1 ring-border/70">
+            {formatMicros(stage.costMicros)}
+          </span>
+        )}
+      </div>
+
+      {stage.end ? (
+        <p className={cn("flex items-start gap-2 rounded-lg px-3 py-2 text-xs ring-1", stage.end.ok ? "bg-success/8 ring-success/25" : "bg-error/6 ring-error/20")}>
+          {stage.end.ok ? (
+            <CircleCheckIcon aria-hidden className="mt-px size-3.5 shrink-0 text-success" />
+          ) : (
+            <CircleAlertIcon aria-hidden className="mt-px size-3.5 shrink-0 text-error" />
+          )}
+          <span className="line-clamp-4">{stage.end.summary}</span>
+        </p>
+      ) : (
+        live && (
+          <p className="flex items-center gap-2 text-xs text-muted-foreground">
+            <LoaderCircleIcon aria-hidden className="size-3.5 animate-spin text-action" />
+            {role?.name} is working…
+          </p>
+        )
+      )}
+
+      {stage.filesChanged.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <p className="eyebrow text-muted-foreground">Files changed</p>
+          <ul className="flex flex-wrap gap-1.5">
+            {stage.filesChanged.map((file) => (
+              <li key={file} className="max-w-full truncate rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] ring-1 ring-border/70">
+                {file}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {stage.steps.length > 0 && (
+        <details className="group" open={live}>
+          <summary className="cursor-pointer text-xs font-medium text-muted-foreground select-none hover:text-foreground">
+            {stage.steps.length} tool call{stage.steps.length === 1 ? "" : "s"}
+            {stage.steps.some((s) => !s.ok) && ` · ${stage.steps.filter((s) => !s.ok).length} failed`}
+          </summary>
+          <ol className="mt-1 flex flex-col">
+            {stage.steps.map((step) => (
+              <Step key={step.id} step={step} />
+            ))}
+          </ol>
+        </details>
+      )}
+    </section>
+  );
+}
+
+/**
+ * What the agents did on a card's latest run, stage by stage: who worked, on which model, the tools they used, the
+ * files they changed and how each stage ended. Opened from the card's ⋯ menu or a notification (?log=<card>).
+ */
+export function RunLogSheet({ workspaceId, card, onOpenChange }: { workspaceId: number; card: BoardCard | null; onOpenChange: (open: boolean) => void }) {
+  const [log, setLog] = useState<{ cardId: string; data: RunLog | null } | null>(null);
+  const cardId = card?.id ?? null;
+  const live = card?.run ? isActiveRun(card.run.status) : false;
+
+  useEffect(() => {
+    if (!cardId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = async () => {
+      const data = await getRunLogAction(workspaceId, cardId).catch(() => null);
+      if (cancelled) return;
+      setLog({ cardId, data });
+      if (data && isActiveRun(data.run.status)) timer = setTimeout(load, POLL_MS);
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // `live` restarts polling when the board sees a new run start on this card.
+  }, [workspaceId, cardId, live]);
+
+  const data = log?.cardId === cardId ? log.data : undefined;
+  const run = data?.run;
+
+  return (
+    <Sheet open={card !== null} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-lg">
+        <div className="flex items-start gap-3 border-b border-border/70 px-5 py-4 pr-12">
+          <span className="icon-tile size-9 text-brand-emphasis [&_svg]:size-4">
+            <ScrollTextIcon />
+          </span>
+          <div className="flex min-w-0 flex-col">
+            <SheetTitle className="truncate text-base font-bold">Agent log · {card?.key}</SheetTitle>
+            <SheetDescription className="line-clamp-2 text-xs">{card?.title}</SheetDescription>
+          </div>
+        </div>
+
+        {card?.run && <AgentRunStatus run={card.run} className="mx-5 mt-4" />}
+
+        {run && (
+          <dl className="mx-5 mt-4 grid grid-cols-3 overflow-hidden rounded-lg bg-canvas ring-1 ring-border/70">
+            {[
+              { label: "Started", value: formatDistanceToNowStrict(run.startedAt, { addSuffix: true }), title: format(run.startedAt, "PPpp") },
+              {
+                label: run.finishedAt ? "Took" : "Running for",
+                value: formatDistanceStrict(run.finishedAt ?? new Date(), run.startedAt),
+                title: undefined,
+              },
+              { label: "Model spend", value: formatMicros(run.costMicros), title: undefined },
+            ].map((item) => (
+              <div key={item.label} className="flex min-w-0 flex-col gap-0.5 border-r border-border/70 px-3 py-2.5 last:border-r-0">
+                <dt className="truncate text-[11px] font-medium text-muted-foreground">{item.label}</dt>
+                <dd className="truncate text-sm font-bold tabular-nums" title={item.title}>
+                  {item.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+
+        <div className="mt-4 min-h-0 flex-1 overflow-y-auto border-t border-border/70">
+          {data === undefined ? (
+            <div className="flex flex-col gap-3 p-5">
+              <Skeleton className="h-14 w-full" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          ) : !data || data.stages.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
+              <span className="icon-tile text-brand-emphasis">
+                <ScrollTextIcon />
+              </span>
+              <p className="text-sm font-semibold">{data && isActiveRun(data.run.status) ? "Getting started…" : "Nothing logged for this run"}</p>
+              <p className="max-w-64 text-xs text-muted-foreground">
+                {data && isActiveRun(data.run.status)
+                  ? "The analyst's first steps show up here in a few seconds."
+                  : "Runs from before the agent log, or ones that stopped before any agent worked, have no steps."}
+              </p>
+            </div>
+          ) : (
+            data.stages.map((stage) => (
+              <StageBlock
+                key={`${stage.stage}-${stage.round}`}
+                stage={stage}
+                live={isActiveRun(data.run.status) && data.run.stage === stage.stage && data.run.reworkRounds === stage.round}
+              />
+            ))
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}

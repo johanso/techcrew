@@ -3,10 +3,12 @@ import "server-only";
 import type { GetStepTools } from "inngest";
 
 import { MAX_REWORK_ROUNDS } from "@/lib/agent-run-config";
-import { finishRun, getRun } from "@/lib/agent-runs";
+import { getRun } from "@/lib/agent-runs";
 import {
   beginStage,
   handleNeedsInfo,
+  mergeTimedOut,
+  notifyMerged,
   openPullRequest,
   prepareBranch,
   readyToMerge,
@@ -52,6 +54,7 @@ async function runStage<S extends keyof StageResult>(
   if (!begun.ok) return null;
 
   let state: LoopState | null = null;
+  let restarted = false;
   for (let turn = 1; turn <= begun.maxTurns; turn++) {
     const forceFinish = turn === begun.maxTurns;
     const current: LoopState | null = state;
@@ -61,8 +64,18 @@ async function runStage<S extends keyof StageResult>(
     )) as unknown as TurnStepResult<S>;
     if (out.kind === "done") return out.result;
     if (out.kind === "stopped") {
-      await step.run(`${id}-stopped`, () => stopRun(runId, out.reason, begun.activityId));
+      await step.run(`${id}-stopped`, () => stopRun(runId, out.reason, begun.activityId, "failed", out.failure ?? null));
       return null;
+    }
+    if (out.kind === "restart") {
+      // Once per stage: a second provider change in the same stage means neither can work right now.
+      if (restarted) {
+        await step.run(`${id}-stopped`, () => stopRun(runId, `${out.reason} The other provider failed too.`, begun.activityId));
+        return null;
+      }
+      restarted = true;
+      state = null;
+      continue;
     }
     state = out.state;
   }
@@ -153,14 +166,13 @@ export const agentTaskRun = inngest.createFunction(
       });
       if (outcome.status !== "pending") {
         if (outcome.status === "error") await step.run("merge-error", () => stopRun(runId, outcome.reason, null));
+        if (outcome.status === "merged") await step.run("merged-notice", () => notifyMerged(runId));
         return { merge: outcome.status };
       }
       await step.sleep(`merge-wait-${attempt}`, "30s");
     }
     // Still pending after ten minutes: hand it to the user instead of waiting forever.
-    await step.run("merge-timeout", () =>
-      finishRun(runId, "awaiting_merge", "Checks were still running after 10 minutes. Merge it from Pull Requests once they pass.")
-    );
+    await step.run("merge-timeout", () => mergeTimedOut(runId));
     return { awaitingMerge: true };
   }
 );
