@@ -20,11 +20,12 @@ cards from analysis to a merged pull request.
 | GitHub issue sync | ✅ Real | Open issues of the linked repo appear on the board automatically; Refresh button; closing an issue moves its card to Done. |
 | Card actions | ✅ Real | **Run** (starts the agent pipeline), **Stop agents**, **Remove task** (soft delete). |
 | Agent pipeline | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (or `AGENTS_SIMULATED=true` to try it free) | Analyst plans → Developer commits on a branch and opens a PR → Reviewer → Tester → merge (manual or automatic). Rework loops, max turns per agent, skills enforced as tools, follow-up card on merge conflicts or failing builds. Auto pickup of Todo cards (optional). No code execution: verification is static plus CI. |
-| Overview page | 🟡 Dummy data | Stats, upcoming tasks and activity are fixtures (`lib/overview.ts`). |
+| Overview page | ✅ Real | Stats, upcoming tasks and recent activity from the board and the activity feed; empty states when there is nothing yet. |
 | AI Team | ✅ Real | Four default agents (Analyst, Developer, Reviewer, Tester) per workspace: configure instructions, skills, model and budget; Skill Trust Score with **Scan again**; spending; activity drawer. Each agent runs on an OpenAI or Claude model. AI drafts instructions and reviews configs (optional). |
+| Live Agent Office | ✅ Real | AI Team page: the agents at their desks in an illustrated office, typing while they work, with live status bubbles and hover cards (`npm run office:assets` builds the sprites). |
 | Pull Requests page | ✅ Real | Agent PRs with review/test verdicts and **Merge**. |
 | Settings → Agent automation | ✅ Real | Task pickup and merge mode per workspace. |
-| Activity page | 🟡 Empty state | Layout only. |
+| Activity page | ✅ Real | Workspace timeline (agent events + cards people created), grouped by day. |
 | Landing page (`/`) | 🟡 Boilerplate | Marketing page from the starter template. |
 
 Details: [docs/status.md](docs/status.md).

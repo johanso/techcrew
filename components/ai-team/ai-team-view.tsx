@@ -2,19 +2,19 @@ import Link from "next/link";
 import { BotIcon, CoinsIcon, ShieldCheckIcon, SparklesIcon } from "lucide-react";
 
 import { AgentRoster } from "@/components/ai-team/agent-roster";
-import { AGENT_STATUS, AgentPortrait } from "@/components/ai-team/agent-visuals";
-import { AgentOfficePlaceholder } from "@/components/dashboard/agent-office-placeholder";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatTile } from "@/components/dashboard/stat-tile";
+import { AgentOffice } from "@/components/office/agent-office";
+import { LiveTeamProvider } from "@/components/office/live-team";
 import { MICROS_PER_USD, formatCents, formatMicros, type AgentProvider, type ProviderStatus } from "@/lib/agent-config";
 import { trustGrade } from "@/lib/agent-trust";
-import type { AgentTeamStats, AgentView } from "@/lib/agents";
-import { cn } from "@/lib/utils";
+import type { AgentTeamStats, AgentView, TeamOverview } from "@/lib/agents";
 
 /** AI Team content. Presentational: the page loads the data. */
 export function AiTeamView({
   workspace,
   agents,
+  team,
   stats,
   aiEnabled,
   providers,
@@ -22,6 +22,8 @@ export function AiTeamView({
 }: {
   workspace: { id: number; githubRepoFullName: string };
   agents: AgentView[];
+  /** Live status for the office (polled on the client). */
+  team: TeamOverview;
   stats: AgentTeamStats;
   aiEnabled: boolean;
   providers: ProviderStatus;
@@ -109,21 +111,9 @@ export function AiTeamView({
         provider={provider}
       />
 
-      <AgentOfficePlaceholder title="Live Agent Office Workspace" description="Watch your agents work in real time" className="min-h-96">
-        {/* Empty desks waiting for the live view. */}
-        <ul className="relative mb-4 grid w-full max-w-2xl grid-cols-2 gap-3 sm:grid-cols-4" aria-label="Agent desks">
-          {agents.map((agent) => (
-            <li
-              key={agent.id}
-              className="flex flex-col items-center gap-2 rounded-xl bg-card/80 px-3 py-4 ring-1 ring-border/70"
-            >
-              <AgentPortrait agent={agent} status={agent.status} />
-              <span className="text-xs font-semibold">{agent.name}</span>
-              <span className={cn("text-[11px] text-muted-foreground")}>{AGENT_STATUS[agent.status].hint}</span>
-            </li>
-          ))}
-        </ul>
-      </AgentOfficePlaceholder>
+      <LiveTeamProvider workspaceId={workspace.id} initial={team}>
+        <AgentOffice workspaceId={workspace.id} title="Live Agent Office Workspace" description="Watch your agents work in real time" />
+      </LiveTeamProvider>
     </>
   );
 }

@@ -61,6 +61,7 @@ npm run db:studio    # inspect data
 npm run inngest:dev  # local Inngest Dev Server — required for the agent pipeline (Run, auto pickup, auto-merge)
 npx next typegen     # regenerate PageProps / RouteContext types after adding routes
 npx shadcn add <c>   # add a shadcn component into components/ui
+npm run office:assets # rebuild the live office sprite sheets + lib/office-scene.json from office/*.json
 ```
 
 ## 4. Folder structure
@@ -99,19 +100,24 @@ components/
   board/                  Kanban: kanban-board (state + DndContext), board-column, board-card, card-dialog (create + edit),
                           board-toolbar (search + type tabs), board-filters (pure matching logic),
                           use-github-sync (polling hook), github-sync-controls (Refresh button, sync notice),
-                          issue-meta (type/priority/column colors + PriorityBadge, IssueTypePill — reuse everywhere),
+                          issue-meta (type/priority/column colors + PriorityBadge, IssueTypePill, DueDate — reuse everywhere),
                           agent-run-status (the run line on a card: stage, needs info, stopped, ready to merge).
   pull-requests/          pull-requests-view (PR list, verdict chips), merge-button.
+  office/                 Live Agent Office (AI Team page): agent-office (scene + Live chip), office-agent
+                          (sprite, status bubble, hover card), live-team (LiveTeamProvider + useLiveTeam: one poll of
+                          getTeamStatusAction; also keeps the Overview's AI team card live), office-scene (seats ↔ agents, %).
+  activity/               activity-timeline (Activity page: events grouped by day, Show older).
   settings/               agent-automation-form (task pickup + merge mode), provider-switch-form, provider-key-form
                           (masked key + show/hide), option-cards (radio cards shared by the settings forms).
   ai-team/                AI Team: ai-team-view (page markup), agent-roster (cards + open overlay state), agent-card,
                           agent-config-dialog (form + SkillPicker + Draft with AI), trust-panel, spending-panel,
                           agent-activity-sheet, agent-visuals (AgentPortrait, AgentStatusBadge, BudgetMeter, TrustRing).
-  dashboard/              Overview sections: stat-tile, upcoming-tasks, agent-office-placeholder, recent-activity,
-                          agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS).
+  dashboard/              Overview sections: stat-tile, upcoming-tasks, team-status (AI team card, live), recent-activity,
+                          agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS), activity-kind (ACTIVITY_KIND,
+                          ActivityAvatar).
                           Dashboard shell: app-sidebar, workspace-switcher, user-menu, dashboard-header,
                           nav.ts (sidebar sections — server-safe), use-dashboard-section.ts (client hook),
-                          page-header (PageHeader, SurfaceHeader, DetailGrid), stat-tile, section-empty,
+                          page-header (PageHeader, SurfaceHeader, DetailGrid), stat-tile, section-empty (SectionEmpty, SurfaceEmpty),
                           overview-view (Overview markup; the page only loads data).
   app-header.tsx          Signed-in top bar.
   brand.tsx               Product mark.
@@ -125,7 +131,8 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           verifyProviderKey, saveProviderKey / removeProviderKey (encrypted).
   storage.ts              S3 uploads/reads, logo limits.
   workspaces.ts           Workspace queries (always scoped by owner) + getDashboardContext().
-  overview.ts             Overview data contract + getOverviewData(). ⚠️ Returns DUMMY data for now.
+  overview.ts             getOverviewData(): stats + upcoming tasks from getBoardData, recent work activity.
+  activity.ts             getActivityFeed(): agent_activity + cards people created, newest first; WORK_ACTIVITY_KINDS.
   agent-config.ts         AI Team vocabulary shared by server + client: roles + defaults (models per provider), SKILLS,
                           AGENT_MODELS (provider + pricing), PROVIDERS, EQUIVALENT_MODEL, agentModelFor, limits.
   agent-trust.ts          Skill Trust Score: scanAgentRules() (deterministic), trustGrade(). Pure.
@@ -133,7 +140,8 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           scanAgentWithAI(), isConfigAIAvailable().
   openai.ts               OpenAI client (null without a key), responseCostMicros().
   anthropic.ts            Anthropic client (null without a key), messageCostMicros(), toClaudeSchema().
-  agents.ts               Agents persistence: ensureDefaultAgents(), getAgentTeam(), updateAgentConfig(), saveTrustScan(),
+  agents.ts               Agents persistence: ensureDefaultAgents(), getAgentTeam(), getTeamOverview() (read-only, Overview),
+                          updateAgentConfig(), saveTrustScan(),
                           checkAgentCanRun(), logAgentActivity(), stage activity rows, agentMaxTurns(); getAgent(),
                           RUN_AGENT_ID (the analyst), taskKeyPrefix().
   agent-run-config.ts     Pipeline vocabulary shared by server + client: RUN_STAGES/STAGE_META (agent + column per stage),
@@ -162,6 +170,12 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   workspace-icons.ts      Selectable icon set (shared client/server).
   utils.ts                cn(), initials().
 db/                       Drizzle client (index.ts) and schema (schema.ts).
+office/                   office_1_data.json: the office scene bundle (seats + embedded character frames, ≈10 MB), and
+                          characters/: frames of the editor's built-in characters the bundle only references.
+                          Source only — never imported; `npm run office:assets` turns it into public/office/*.webp
+                          sprite sheets and lib/office-scene.json.
+public/                   office-space.webp (the office picture), office/ (generated sprite sheets).
+scripts/                  build-office-assets.mjs (sharp).
 proxy.ts                  Optimistic cookie guard for /dashboard and /workspaces.
 ```
 
@@ -326,8 +340,9 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   start with `<PageHeader eyebrow title description actions? />`, then sections separated by `gap-8`.
   Every sidebar item needs a `tooltip` (icon-only mode).
 - **Overview layout** (`OverviewView`): welcome header → 3 `StatTile`s (Open tasks, In progress, PR ready) →
-  `grid lg:grid-cols-5` with `UpcomingTasks` (`lg:col-span-3`) and `AgentOfficePlaceholder` (`lg:col-span-2`) →
-  `RecentActivity` list. Status/kind → icon + tone maps live next to each component (`TASK_STATUS`, `KIND`).
+  `grid lg:grid-cols-5` with `UpcomingTasks` (`lg:col-span-3`) and `TeamStatus` (`lg:col-span-2`, agents from the
+  read-only `getTeamOverview`, live through a `LiveTeamProvider`) → `RecentActivity` list. The office is only on the
+  AI Team page. Status → icon + tone maps live next to each component (`TASK_STATUS`); activity kinds in `ACTIVITY_KIND`.
 - **Board** (`/dashboard/[id]/board`): six columns — Todo, Analysis, In Development, In Review, Testing, Done —
   each with a light tint from `COLUMN_STYLE` (slate, brand, sky, amber, orange, green). Cards show type pill, key
   (`PREFIX-<number>`, always — GitHub cards add `#<issue>` in the footer), title, labels, priority, due date and the
@@ -388,7 +403,7 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
 - **Base UI Select:** pass `items` to `<Select>` so `<SelectValue />` shows labels, and size triggers with
   `data-[size=default]:h-10` (a plain `h-10` loses to the primitive's attribute selector).
 - **AI Team** (`/dashboard/[id]/ai-team`): header → 3 `StatTile`s (Active agents, Skill Trust Score, Monthly spending) →
-  4 `AgentCard`s (`sm:grid-cols-2 xl:grid-cols-4`) → `AgentOfficePlaceholder` ("Live Agent Office Workspace", empty desks).
+  4 `AgentCard`s (`sm:grid-cols-2 xl:grid-cols-4`) → `AgentOffice` ("Live Agent Office Workspace", in its own `LiveTeamProvider`).
   Agents are rows in `agents`, one per role key, created on first use by `ensureDefaultAgents` (Run and the page both
   call it). Identity (name, role, tone, icon) is fixed per key in `AGENT_ROLES`; users configure description,
   instructions, model, skills, budget and active/paused. Rules:
@@ -401,6 +416,21 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   - **Max turns** (`agents.max_turns`, null = role default from `AGENT_ROLES`) caps model turns per pipeline stage.
   - **Working** status = a `running` run is at that agent's stage (`STAGE_META`), not "has assigned cards".
   - Server actions call `revalidatePath` so cards, stats and open overlays show fresh data; dialog form state survives.
+- **Live Agent Office** (`components/office/`): the office picture keeps its aspect ratio (1264×843) and every agent,
+  bubble and hover anchor is placed in **percent of the picture** from `lib/office-scene.json` (top-left `x`/`y` and
+  `width` from the bundle; height from the character's aspect), so positions hold at any width. Rules:
+  - Never import `office/*.json` in app code (10 MB of data URIs). Change the bundle, then run `npm run office:assets`
+    and commit the new `public/office/*.webp` (file names carry a content hash) and `lib/office-scene.json`.
+  - Which agent sits where is `AGENT_SEAT` in `components/office/office-scene.ts`.
+  - Typing = CSS `office-typing` (steps through the sheet, `steps(N, jump-none)`, 8 fps), only while the agent is
+    `working`; reduced motion stops it. Paused / over budget agents are greyed out.
+  - The status bubble is decorative (`aria-hidden`); the agent's button carries the same text as its `aria-label`.
+    The hover card is a Base UI `Popover` with `openOnHover` (tap on touch screens).
+  - Live status: `LiveTeamProvider` polls `getTeamStatusAction` (`app/dashboard/[workspaceId]/actions.ts`) every 5 s
+    while someone works, 15 s otherwise, only while the tab is visible. It reads `getTeamOverview`, which never writes.
+  - Characters built into the editor are exported as paths, not images (Desk 3 / Reviewer:
+    `/characters/rightfacing/typing/frame_00N.png`). Their frames are downloaded from the editor
+    (https://agent-office-editor.vercel.app + the path) into `office/` at the same path; the script fails if one is missing.
 - **Agent pipeline** (`lib/inngest/agent-run.ts` + `lib/agent-pipeline.ts`): Analyst (Analysis) → Developer (In
   Development, branch `agent/<key>-<slug>`, PR) → Reviewer (In Review) → Tester (Testing) → merge (Done). Rules:
   - Each stage is a tool loop of at most the agent's max turns, **one Inngest step per turn**; the last turn forces the
@@ -430,9 +460,12 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     run is active; users can still drag, and the next stage moves the card again.
 - **Pull Requests** (`/dashboard/[id]/pull-requests`): the page calls `refreshOpenPullRequests` (picks up merges/closes
   made on GitHub), then renders `PullRequestsView`. **Merge** only for PRs with review approved and tests passed.
-- **Dummy data:** until tasks/agents/activity tables exist, `lib/overview.ts` returns fixture data shaped by its
-  exported types (timestamps relative to "now"). To go live, replace only the body of `getOverviewData` — keep
-  the types and the UI untouched. Mark any new fixture source the same way (a `⚠️ DUMMY DATA` doc comment).
+- **Activity feed** (`lib/activity.ts`): `agent_activity` rows plus cards people created (`tasks.created_by_id`),
+  merged newest first. The Activity page shows every kind (`?show=` grows the list in steps of 50, up to 500); the
+  Overview shows only `WORK_ACTIVITY_KINDS`. Icons per kind live in `ACTIVITY_KIND` (`components/dashboard/activity-kind.tsx`),
+  shared with the agent activity drawer. A new activity kind needs an entry there.
+- **Empty states:** every list on the Overview and the Activity page has one (`SurfaceEmpty` inside a surface that keeps
+  its header, `SectionEmpty` for a whole page). Never ship fixture data; mark a placeholder with `⚠️ PLACEHOLDER`.
 - **Horizontal scroll areas must be `relative`.** Absolutely positioned descendants (every `sr-only` label) are only
   clipped by an `overflow` container that is positioned; otherwise they escape and widen the page on mobile.
   `SidebarInset` also carries `min-w-0` so wide content can't stretch the panel.

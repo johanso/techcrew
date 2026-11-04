@@ -1,8 +1,8 @@
 import "server-only";
 
-import { and, desc, eq, gte, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 
-import { agentActivity, agents, db, tasks, workspaces, type AgentRow, type Workspace } from "@/db";
+import { agentActivity, agentRuns, agents, db, tasks, workspaces, type AgentRow, type Workspace } from "@/db";
 import {
   AGENT_KEYS,
   AGENT_MODELS,
@@ -28,7 +28,7 @@ import {
   type AgentTone,
   type SkillId,
 } from "@/lib/agent-config";
-import { MAX_TURNS_MAX, MAX_TURNS_MIN, STAGE_META } from "@/lib/agent-run-config";
+import { MAX_TURNS_MAX, MAX_TURNS_MIN, RUN_STAGES, STAGE_META, type RunStage } from "@/lib/agent-run-config";
 import { getWorkingStages } from "@/lib/agent-runs";
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
 
@@ -349,6 +349,90 @@ export async function getAgentTeam(workspace: Pick<Workspace, "id" | "aiProvider
     },
   };
 }
+
+/** One agent as the Overview and the live office show it. */
+export type TeamMember = Agent & {
+  status: AgentStatus;
+  /** What it is doing right now, e.g. "Reviewing ACM-142" (a running run at its stage). */
+  currentTask: string | null;
+  /** The card behind `currentTask`, with when its run started. */
+  task: { key: string; title: string; startedAt: Date } | null;
+  /** Latest work on a card (assigned, stage, pull request, issue filed); setup events don't count. */
+  lastAction: { title: string; at: Date } | null;
+  /** Label of the active model, e.g. "Claude Sonnet 5.5". */
+  model: string;
+  monthSpendMicros: number;
+  monthlyBudgetCents: number;
+};
+
+const WORK_KINDS: AgentActivityKind[] = ["task_assigned", "task_run", "pull_request", "issue_filed"];
+
+/**
+ * The four agents with their live status, for the Overview and the live office (polled). Read-only: unlike
+ * getAgentTeam it never creates agents, so a role without a row yet shows its defaults (ready, never active).
+ */
+export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" | "aiProvider">) {
+  const { start } = monthWindow();
+  const prefix = taskKeyPrefix(workspace.name);
+  const provider = workspaceProvider(workspace);
+
+  const [rows, spendRows, lastRows, runningRows] = await Promise.all([
+    db.select().from(agents).where(eq(agents.workspaceId, workspace.id)),
+    db
+      .select({ agentId: agentActivity.agentId, total: sql<number>`sum(${agentActivity.costMicros})::int` })
+      .from(agentActivity)
+      .where(and(eq(agentActivity.workspaceId, workspace.id), gte(agentActivity.createdAt, start)))
+      .groupBy(agentActivity.agentId),
+    db
+      .selectDistinctOn([agentActivity.agentId], { agentId: agentActivity.agentId, title: agentActivity.title, at: agentActivity.createdAt })
+      .from(agentActivity)
+      .where(and(eq(agentActivity.workspaceId, workspace.id), inArray(agentActivity.kind, WORK_KINDS)))
+      .orderBy(agentActivity.agentId, desc(agentActivity.createdAt), desc(agentActivity.id)),
+    db
+      .select({ stage: agentRuns.stage, number: tasks.number, title: tasks.title, startedAt: agentRuns.startedAt })
+      .from(agentRuns)
+      .innerJoin(tasks, eq(tasks.id, agentRuns.taskId))
+      .where(and(eq(agentRuns.workspaceId, workspace.id), eq(agentRuns.status, "running")))
+      .orderBy(agentRuns.startedAt),
+  ]);
+
+  const current = new Map<AgentKey, { label: string; task: NonNullable<TeamMember["task"]> }>();
+  for (const run of runningRows) {
+    if (!RUN_STAGES.includes(run.stage as RunStage)) continue;
+    const meta = STAGE_META[run.stage as RunStage];
+    if (!meta.agent || current.has(meta.agent)) continue;
+    const key = `${prefix}-${run.number}`;
+    current.set(meta.agent, { label: `${meta.verb} ${key}`, task: { key, title: run.title, startedAt: run.startedAt } });
+  }
+
+  let monthSpendMicros = 0;
+  let monthBudgetCents = 0;
+  const members = AGENT_KEYS.map((key): TeamMember => {
+    const row = rows.find((r) => r.key === key);
+    const spent = row ? (spendRows.find((s) => s.agentId === row.id)?.total ?? 0) : 0;
+    const budgetCents = row?.monthlyBudgetCents ?? AGENT_ROLES[key].defaults.monthlyBudgetUsd * 100;
+    monthSpendMicros += spent;
+    monthBudgetCents += budgetCents;
+    const working = current.get(key);
+    const last = row ? lastRows.find((l) => l.agentId === row.id) : undefined;
+    const status: AgentStatus =
+      row && !row.enabled ? "paused" : spent >= budgetCents * 10_000 ? "over_budget" : working ? "working" : "ready";
+    return {
+      ...getAgent(key)!,
+      status,
+      currentTask: working?.label ?? null,
+      task: working?.task ?? null,
+      lastAction: last ? { title: last.title, at: last.at } : null,
+      model: modelInfo(row ? activeAgentModel(row, provider) : AGENT_ROLES[key].defaults.models[provider]).label,
+      monthSpendMicros: spent,
+      monthlyBudgetCents: budgetCents,
+    };
+  });
+
+  return { members, monthSpendMicros, monthBudgetCents };
+}
+
+export type TeamOverview = Awaited<ReturnType<typeof getTeamOverview>>;
 
 // ── Configuration ──────────────────────────────────────────────────────────────
 

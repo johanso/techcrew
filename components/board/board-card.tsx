@@ -2,12 +2,11 @@
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { differenceInCalendarDays, format, parseISO } from "date-fns";
-import { CalendarIcon, CalendarX2Icon, CircleCheckIcon, CircleStopIcon, EllipsisIcon, ExternalLinkIcon, GitMergeIcon, PlayIcon, Trash2Icon } from "lucide-react";
+import { CircleCheckIcon, CircleStopIcon, EllipsisIcon, ExternalLinkIcon, GitMergeIcon, PlayIcon, Trash2Icon } from "lucide-react";
 
 import { GitHubIcon } from "@/components/auth/brand-icons";
 import { AgentRunStatus } from "@/components/board/agent-run-status";
-import { IssueTypePill, PriorityBadge } from "@/components/board/issue-meta";
+import { DueDate, IssueTypePill, PriorityBadge } from "@/components/board/issue-meta";
 import { AgentAvatar } from "@/components/dashboard/agent-avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,25 +21,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { isActiveRun } from "@/lib/agent-run-config";
 import type { BoardCard } from "@/lib/board-config";
 import { cn } from "@/lib/utils";
-
-function DueDate({ date, done }: { date: string; done: boolean }) {
-  const days = differenceInCalendarDays(parseISO(date), new Date());
-  const label = days === 0 ? "Today" : days === 1 ? "Tomorrow" : format(parseISO(date), "MMM d");
-  const overdue = days < 0 && !done;
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 whitespace-nowrap",
-        overdue ? "font-semibold text-error" : days <= 1 && !done && "font-semibold text-foreground"
-      )}
-      title={overdue ? `Overdue since ${format(parseISO(date), "MMM d")}` : "Due date"}
-    >
-      {overdue ? <CalendarX2Icon className="size-3.5" /> : <CalendarIcon className="size-3.5" />}
-      {overdue && <span className="sr-only">Overdue:</span>}
-      {label}
-    </span>
-  );
-}
 
 /** Visual card. Also rendered inside the DragOverlay, so it must not use dnd hooks. */
 export function BoardCardView({

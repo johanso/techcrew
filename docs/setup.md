@@ -138,6 +138,9 @@ npm run dev            # terminal 1 — http://localhost:3000
 npm run inngest:dev    # terminal 2 — only needed for the board's Run action
 ```
 
+The live office's sprites (`public/office/*.webp`) are committed; rebuild them with `npm run office:assets` only after
+changing the office scene (`office/`). See [features.md](features.md#live-agent-office).
+
 ## 6. First-run walkthrough
 
 1. Open <http://localhost:3000> → **Get Started** (or `/sign-up`). Create an account.

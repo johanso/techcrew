@@ -97,17 +97,25 @@ own is a 404.
 
 ## Overview
 
-`/dashboard/[workspaceId]` — ⚠️ **dummy data** (`lib/overview.ts`):
+`/dashboard/[workspaceId]` — real data from the board, the agents and the activity feed (`lib/overview.ts`):
 
 - Welcome header with your first name.
-- Three stat cards: **Open tasks**, **In progress**, **PR ready** (fixed numbers).
-- **Upcoming tasks** (left) — five sample tasks with status icon, key, priority, labels, due date and agent;
-  **View board** link.
-- **AI Agent Office Space** (right) — placeholder ("The office is being built").
-- **Recent activity** — six sample events (PR opened, commits pushed, review requested, …) with relative times;
-  **View all** link.
-
-The board has real data now; wiring the Overview to it is a suggested next step ([status.md](status.md)).
+- Three stat cards:
+  - **Open tasks** — cards not in Done. Hint: how many are overdue, else due in the next 7 days.
+  - **In progress** — cards in Analysis, In Development, In Review or Testing. Hint: how many agents they're assigned to.
+  - **PR ready** — cards whose pull request waits for you to merge (manual merge mode).
+- **Upcoming tasks** (left) — up to five open cards, soonest due date first (undated last), then priority, then board
+  order. Each row: status icon (Open = Todo, In progress, PR ready), title, key, type, priority, GitHub issue number,
+  first label (+N for the rest); on the right, where the card is (its agent run — "Reviewing…", "PR #5 ready to
+  merge", "Analyst needs info", "Agents stopped" — else its column) and the due date (red when overdue, or "No due
+  date"). On phones that column moves under the title. **View board** link. Empty state: "No open tasks".
+- **AI team** (right) — the four agents with their portrait, status dot and badge (Ready, Working, Paused, Over
+  budget), and what each is doing: the running stage ("Reviewing ACM-142") or "Active 1 hour ago" (last work on a
+  card; "No work yet" otherwise). Header: how many are working. Footer: the team's spend against its combined monthly
+  budget. **View team** link. Read-only (`getTeamOverview`): it never creates agents; roles without a row show their
+  defaults.
+- **Recent activity** — the six latest *work* events (cards created, Run, stages, pull requests, merges, follow-up
+  issues), leaving out team setup; **View all** link. Empty state: "No activity yet".
 
 ## Board
 
@@ -250,7 +258,28 @@ written instructions, default skills, a model and a monthly budget.
 - **View activity** (drawer) — this month's event count and spend, open cards, then events grouped by day: joined,
   configuration changes, pauses, AI drafts and scans (with their cost), cards assigned by Run, each pipeline stage
   (with its cost and turn count), pull requests opened/merged and follow-up issues filed.
-- **Live Agent Office Workspace** — placeholder with one empty desk per agent.
+- **Live Agent Office Workspace** — the live office (see [Live Agent Office](#live-agent-office)).
+
+## Live Agent Office
+
+On the AI Team page: an illustrated office where each agent sits at its own desk.
+
+- **Who sits where**: Developer at the back desk, Reviewer at the left desk, Tester at the right desk, Analyst at the
+  front desk (matched to what their monitors show).
+- **Typing**: an agent types (its animation frames from the scene bundle, 8 fps) only while one of its stages is
+  running; otherwise it sits still. Paused or over-budget agents are greyed out. Reduced motion turns the animation off.
+- **Status bubble** above each head: "Implementing ACM-142 •••" while working, else Ready / Paused / Over budget. In
+  a narrow office (phones) it shrinks and shows just the card key or the status.
+- **Hover card** (hover, keyboard focus or tap): portrait, role, status; the card it's working on with when the run
+  started, or its last work; its model; this month's spend against its budget; a link to the board or to configure it.
+- **Live**: the header chip says "Live · N working". Status refreshes on its own (every 5 s while someone works, 15 s
+  otherwise, only while the tab is visible). The Overview's AI team card uses the same live refresh. If a
+  refresh fails the chip says "Reconnecting…".
+- Positions are percentages of the picture, so characters stay on their chairs at any screen size.
+- **Assets**: designed in the office editor (https://agent-office-editor.vercel.app) and exported as a scene bundle
+  (`office/office_1_data.json`: seats, positions, character frames). `npm run office:assets` turns it into one WebP
+  sprite sheet per desk (`public/office/`, ≈650 KB in total) and `lib/office-scene.json`. Characters built into the
+  editor are exported as paths only; their frames are downloaded from the editor into `office/characters/`.
 
 Without `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` the page shows "No AI provider connected", **Draft with AI** is disabled and scans are rule-based.
 
@@ -273,7 +302,15 @@ Without `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` the page shows "No AI provider c
   verdicts, merge error if the last merge was blocked, and **Merge** once review and tests passed (manual mode; same
   checks and follow-up rules as auto-merge). Opening the page picks up merges and closes done directly on GitHub
   (cards move to Done). Empty state: "No agent pull requests yet". **View on GitHub** opens the repo's `/pulls`.
-- **Activity** — "No activity yet" (empty state).
+- **Activity** — the workspace timeline, newest first, grouped by day: everything the agents logged (assignments,
+  each pipeline stage with its result and cost, pull requests opened and merged, follow-up issues, configuration,
+  pauses, trust scans, provider switches) plus cards people created on the board ("You" for your own). Each event: title
+  with its cost in a small grey badge on the right (what the agent spent on models for that step; agent stages always
+  show it, $0.00 included),
+  then who and when (time, plus "5 minutes ago" for today), then the detail. Each day's header shows that day's total
+  spend. Rows alternate white and a barely-grey tint (zebra) so long days stay easy to scan. 50 events at a
+  time, **Show older activity** adds 50 more (up to 500). Empty state: "No activity yet" with **Open the board**.
+  Not logged yet: card moves, edits, removals and GitHub syncs.
 
 ## Settings
 

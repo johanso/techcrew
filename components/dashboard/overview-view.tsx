@@ -1,10 +1,11 @@
 import { CircleDotDashedIcon, GitPullRequestArrowIcon, ListTodoIcon } from "lucide-react";
 
-import { AgentOfficePlaceholder } from "@/components/dashboard/agent-office-placeholder";
 import { dashboardHref } from "@/components/dashboard/nav";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { StatTile } from "@/components/dashboard/stat-tile";
+import { TeamStatus } from "@/components/dashboard/team-status";
 import { UpcomingTasks } from "@/components/dashboard/upcoming-tasks";
+import { LiveTeamProvider } from "@/components/office/live-team";
 import type { OverviewData } from "@/lib/overview";
 
 /** Overview content. Presentational: the page loads the data. */
@@ -47,14 +48,17 @@ export function OverviewView({
         />
       </section>
 
-      <div className="grid gap-4 lg:grid-cols-5">
-        <UpcomingTasks
-          tasks={data.upcomingTasks}
-          boardHref={dashboardHref(workspace.id, "board")}
-          className="lg:col-span-3"
-        />
-        <AgentOfficePlaceholder className="lg:col-span-2" />
-      </div>
+      {/* Keeps the AI team card's statuses live. */}
+      <LiveTeamProvider workspaceId={workspace.id} initial={data.team}>
+        <div className="grid gap-4 lg:grid-cols-5">
+          <UpcomingTasks
+            tasks={data.upcomingTasks}
+            boardHref={dashboardHref(workspace.id, "board")}
+            className="lg:col-span-3"
+          />
+          <TeamStatus teamHref={dashboardHref(workspace.id, "ai-team")} className="lg:col-span-2" />
+        </div>
+      </LiveTeamProvider>
 
       <RecentActivity items={data.recentActivity} activityHref={dashboardHref(workspace.id, "activity")} />
     </>

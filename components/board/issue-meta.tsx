@@ -1,4 +1,5 @@
-import { BugIcon, CircleDotIcon, SparklesIcon, type LucideIcon } from "lucide-react";
+import { differenceInCalendarDays, format, parseISO } from "date-fns";
+import { BugIcon, CalendarIcon, CalendarX2Icon, CircleDotIcon, SparklesIcon, type LucideIcon } from "lucide-react";
 
 import type { BoardColumnId, IssuePriority, IssueType } from "@/lib/board-config";
 import { cn } from "@/lib/utils";
@@ -55,6 +56,27 @@ export function IssueTypePill({ type, className }: { type: IssueType; className?
     >
       <meta.icon className={cn("size-3", meta.tone)} />
       {meta.label}
+    </span>
+  );
+}
+
+/** Due date chip: "Today", "Tomorrow" or "MMM d"; overdue (unless done) in the error color with its own icon. */
+export function DueDate({ date, done = false, className }: { date: string; done?: boolean; className?: string }) {
+  const days = differenceInCalendarDays(parseISO(date), new Date());
+  const label = days === 0 ? "Today" : days === 1 ? "Tomorrow" : format(parseISO(date), "MMM d");
+  const overdue = days < 0 && !done;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 whitespace-nowrap",
+        overdue ? "font-semibold text-error" : days <= 1 && !done && "font-semibold text-foreground",
+        className
+      )}
+      title={overdue ? `Overdue since ${format(parseISO(date), "MMM d")}` : "Due date"}
+    >
+      {overdue ? <CalendarX2Icon className="size-3.5" /> : <CalendarIcon className="size-3.5" />}
+      {overdue && <span className="sr-only">Overdue:</span>}
+      {label}
     </span>
   );
 }

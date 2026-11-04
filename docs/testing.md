@@ -1,7 +1,7 @@
 # Testing the agents
 
 How to exercise the AI agent features end to end, what has been verified and what hasn't, and the tricks that make
-testing practical. Written for the next developer or agent picking this up. Last updated **2026-11-03**.
+testing practical. Written for the next developer or agent picking this up. Last updated **2026-11-04**.
 
 - [What to set up](#what-to-set-up)
 - [Three ways to run the agents](#three-ways-to-run-the-agents)
@@ -93,6 +93,8 @@ How each provider runs a stage (`lib/agent-loop.ts`):
 | 15 | Switch company | Settings → AI providers → Switch provider | All agents move to their model for that company; switching back restores earlier picks; logged per agent | ✅ by script and browser |
 | 16 | Model per agent | AI Team → Configure | Picker lists only the workspace's company; server rejects the other company's models | ✅ (UI + script) |
 | 17 | Draft with AI / AI trust scan | AI Team → Configure, with a key | Uses the workspace's company (or the other if only it has a key) | ⬜ with a real key |
+| 18 | Live office follows a run | AI Team page open, ▶ Run a card (simulated is enough) | Each agent types at its desk during its stage, bubble shows "Analyzing KEY •••" etc., others still; header "Live · 1 working"; no reload needed | ✅ by the user (2026-11-04) |
+| 19 | Overview and Activity on real data | Overview / Activity with and without cards and runs | Real counts, upcoming cards, AI team status, timeline with cost per step; empty states when there's nothing | ✅ in the browser with test users (2026-11-04) |
 
 Suggested order for the next session: 9 or 10 on a small, well-described card (e.g. "Add a README section"), then 3,
 4 and 8, then 6/7, then 11 with a deliberately vague card.

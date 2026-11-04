@@ -1,6 +1,6 @@
 # Project status
 
-Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-03**
+Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-04**
 (branch `feat/ai-agents`). For what has been tested and how to test the agents, see [testing.md](testing.md).
 
 - [Feature status](#feature-status)
@@ -29,11 +29,12 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | Agent pipeline: Run / Stop, Analyst → Developer → Reviewer → Tester → merge | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (untested against the live APIs; the Claude path is tested against a local fake of the API). `AGENTS_SIMULATED=true` runs it with scripted agents | `lib/agent-pipeline.ts`, `lib/inngest/agent-run.ts` |
 | Auto pickup of Todo cards, auto or manual merge | ✅ Real | `lib/inngest/agent-pickup.ts`, `lib/pull-requests.ts` |
 | Follow-up card from the Tester on merge conflict / failing build | ✅ Real | `lib/pull-requests.ts` |
-| Overview page | 🟡 Dummy data | `lib/overview.ts` |
+| Overview page (stats, upcoming tasks, recent activity) | ✅ Real, from the board and the activity feed | `lib/overview.ts`, `lib/activity.ts` |
 | AI Team: default agents, configure dialog, Skill Trust Score, spending, activity drawer | ✅ Real, persisted | `components/ai-team`, `lib/agents.ts` |
+| Live Agent Office (AI Team page): agents at desks, typing while working, status bubbles, hover cards, live polling | ✅ Real | `components/office`, `lib/office-scene.json` |
 | AI drafting of instructions + AI-assisted trust scans | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | `lib/agent-ai.ts` |
 | Pull Requests page (agent PRs, verdicts, Merge) | ✅ Real | `components/pull-requests`, `lib/pull-requests.ts` |
-| Activity page | 🟡 Empty state | `app/dashboard/[workspaceId]/activity` |
+| Activity page (workspace timeline) | ✅ Real | `lib/activity.ts`, `components/activity` |
 | Notifications (header bell) | 🟡 Empty state | `dashboard-header.tsx` |
 | Settings page | ✅ AI providers (encrypted keys, provider switch) and agent automation editable; account and workspace read-only | `app/dashboard/[workspaceId]/settings` |
 | Landing page `/` | 🟡 Starter-template marketing page | `app/page.tsx` |
@@ -42,11 +43,8 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 
 Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
-- **`lib/overview.ts`** — the Overview's stats, upcoming tasks and recent activity are fixtures (timestamps relative
-  to "now"). Replace the body of `getOverviewData` with queries over `tasks`; the UI reads only its return type.
 - **Some skills have no tool behind them**: Web research, Read environment secrets and Run tests in a sandbox are
   stored and scored but no agent tool exists for them (see [features.md](features.md#ai-team)).
-- **AI Team office** — "Live Agent Office Workspace" is a placeholder (`AgentOfficePlaceholder`).
 - **`lib/inngest/functions.ts` and `/api/inngest/trigger`** — examples from the starter template, unrelated to the
   product.
 - **`app/page.tsx`** — landing page from the starter template (FastNextJS marketing copy, inline styles, its own
@@ -93,13 +91,13 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 ## Suggested next steps
 
-1. **Overview on real data** — counts per column, upcoming cards by due date, recent card/sync events.
-2. **Try the pipeline with a real OpenAI or Anthropic key** on a test repository and tune the stage prompts and default
+1. **Try the pipeline with a real OpenAI or Anthropic key** on a test repository and tune the stage prompts and default
    max turns. Work through the open rows of the [test plan](testing.md#test-plan-and-status).
-3. **Sandboxed execution** (container/VM) so the Developer and Tester can install, build and run tests before the PR.
-4. **Activity log** table fed by board actions and syncs (powers Activity, Overview and notifications).
-5. **GitHub webhooks** for real-time issues, and optional write-back (close the issue when a card reaches Done).
-6. **Tests + ESLint + migrations**, then remove the starter-template leftovers (landing page, example jobs and
+2. **Sandboxed execution** (container/VM) so the Developer and Tester can install, build and run tests before the PR.
+3. **Notifications** from the activity feed (the header bell is still an empty state). The feed has no events yet for
+   card moves, edits, removals or GitHub syncs; those need an activity table for people's actions.
+4. **GitHub webhooks** for real-time issues, and optional write-back (close the issue when a card reaches Done).
+5. **Tests + ESLint + migrations**, then remove the starter-template leftovers (landing page, example jobs and
    route, unused dependencies) and rename the product.
 
 ## History
@@ -114,4 +112,5 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 | `463701d` | GitHub issue sync; demo data removed. |
 | `15e1257` | Card Run (Analyst + Inngest job) and Remove actions. |
 | `d6f030e` | AI Team page: configurable agents, Skill Trust Score, spending, activity. |
+| `feat/ai-agents` (2) | Overview and Activity on real data (no fixtures left, empty states), AI team card, cost per step on Activity, Live Agent Office on the AI Team page (sprites from the office editor's scene bundle, live status polling). |
 | `feat/ai-agents` | Agent pipeline on the board (Analysis column, stages, PRs, merge, follow-ups, auto pickup), simulated agents, Anthropic as a second provider, provider keys and company switch in Settings, a model per agent per company, Merge / rerun on cards, testing guide. |

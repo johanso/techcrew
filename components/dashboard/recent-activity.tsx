@@ -1,30 +1,12 @@
 import Link from "next/link";
-import { formatDistanceToNowStrict } from "date-fns";
-import {
-  ArrowRightIcon,
-  CircleCheckIcon,
-  CirclePlusIcon,
-  EyeIcon,
-  GitCommitHorizontalIcon,
-  GitPullRequestIcon,
-  UserPlusIcon,
-  type LucideIcon,
-} from "lucide-react";
+import { format, formatDistanceToNowStrict } from "date-fns";
+import { ActivityIcon, ArrowRightIcon } from "lucide-react";
 
-import { AgentAvatar, UserInitial } from "@/components/dashboard/agent-avatar";
+import { ActivityAvatar, actorName } from "@/components/dashboard/activity-kind";
 import { SurfaceHeader } from "@/components/dashboard/page-header";
+import { SurfaceEmpty } from "@/components/dashboard/section-empty";
 import { buttonVariants } from "@/components/ui/button";
-import type { ActivityItem, ActivityKind } from "@/lib/overview";
-import { cn } from "@/lib/utils";
-
-const KIND: Record<ActivityKind, { icon: LucideIcon; tone: string }> = {
-  task_completed: { icon: CircleCheckIcon, tone: "text-success" },
-  pr_opened: { icon: GitPullRequestIcon, tone: "text-brand-emphasis" },
-  commits_pushed: { icon: GitCommitHorizontalIcon, tone: "text-action" },
-  review_requested: { icon: EyeIcon, tone: "text-warning" },
-  task_assigned: { icon: UserPlusIcon, tone: "text-brand-emphasis" },
-  task_created: { icon: CirclePlusIcon, tone: "text-muted-foreground" },
-};
+import type { ActivityItem } from "@/lib/activity";
 
 export function RecentActivity({ items, activityHref }: { items: ActivityItem[]; activityHref: string }) {
   return (
@@ -39,44 +21,37 @@ export function RecentActivity({ items, activityHref }: { items: ActivityItem[];
           </Link>
         }
       />
-      <ul className="flex flex-col">
-        {items.map((item) => {
-          const kind = KIND[item.kind];
-          const actorName = item.actor.type === "agent" ? item.actor.agent.name : item.actor.name;
-          return (
-            <li
-              key={item.id}
-              className="flex items-center gap-4 border-b border-border/70 px-6 py-3.5 last:border-b-0"
-            >
-              <span className="relative shrink-0">
-                {item.actor.type === "agent" ? (
-                  <AgentAvatar agent={item.actor.agent} className="size-8" />
-                ) : (
-                  <UserInitial name={item.actor.name} className="size-8" />
-                )}
-                {/* Event type badge, sitting on the avatar's corner. */}
-                <span
-                  className={cn(
-                    "absolute -right-1 -bottom-1 flex size-4.5 items-center justify-center rounded-full bg-card ring-2 ring-card",
-                    kind.tone
-                  )}
-                >
-                  <kind.icon className="size-3.5" />
-                </span>
-              </span>
+      {items.length === 0 ? (
+        <SurfaceEmpty
+          icon={ActivityIcon}
+          title="No activity yet"
+          description="New cards, agent runs, pull requests and merges show up here as your team works."
+        />
+      ) : (
+        <ul className="flex flex-col">
+          {items.map((item) => (
+            <li key={item.id} className="flex items-center gap-4 border-b border-border/70 px-6 py-3.5 last:border-b-0">
+              <ActivityAvatar item={item} />
 
-              <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-                <span className="font-semibold text-foreground">{actorName}</span> {item.action}{" "}
-                <span className="font-medium text-foreground">{item.target}</span>
-              </p>
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <p className="truncate text-sm font-semibold">{item.title}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">{actorName(item)}</span>
+                  {item.detail && <> · {item.detail}</>}
+                </p>
+              </div>
 
-              <time dateTime={item.at.toISOString()} className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">
+              <time
+                dateTime={item.at.toISOString()}
+                title={format(item.at, "PPpp")}
+                className="shrink-0 text-xs whitespace-nowrap text-muted-foreground"
+              >
                 {formatDistanceToNowStrict(item.at, { addSuffix: true })}
               </time>
             </li>
-          );
-        })}
-      </ul>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

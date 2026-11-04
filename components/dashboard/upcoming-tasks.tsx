@@ -1,18 +1,19 @@
 import Link from "next/link";
-import { format, isToday, isTomorrow } from "date-fns";
 import {
   ArrowRightIcon,
   CircleDotDashedIcon,
   CircleIcon,
   GitPullRequestArrowIcon,
-  UserRoundIcon,
+  ListTodoIcon,
   type LucideIcon,
 } from "lucide-react";
 
-import { PriorityBadge } from "@/components/board/issue-meta";
-import { AgentAvatar } from "@/components/dashboard/agent-avatar";
+import { runStatusMeta } from "@/components/board/agent-run-status";
+import { COLUMN_STYLE, DueDate, IssueTypePill, PriorityBadge } from "@/components/board/issue-meta";
 import { SurfaceHeader } from "@/components/dashboard/page-header";
+import { SurfaceEmpty } from "@/components/dashboard/section-empty";
 import { buttonVariants } from "@/components/ui/button";
+import { BOARD_COLUMNS } from "@/lib/board-config";
 import type { TaskStatus, UpcomingTask } from "@/lib/overview";
 import { cn } from "@/lib/utils";
 
@@ -22,10 +23,28 @@ export const TASK_STATUS: Record<TaskStatus, { label: string; icon: LucideIcon; 
   pr_ready: { label: "PR ready", icon: GitPullRequestArrowIcon, tone: "text-success" },
 };
 
-function dueLabel(date: Date) {
-  if (isToday(date)) return `Today, ${format(date, "h:mm a")}`;
-  if (isTomorrow(date)) return "Tomorrow";
-  return format(date, "EEE, MMM d");
+/** Where the card is: its agent run while one is going on (or stopped), else its board column. */
+function TaskProgress({ task }: { task: UpcomingTask }) {
+  if (task.run && task.run.status !== "completed") {
+    const meta = runStatusMeta(task.run);
+    return (
+      <span className="flex min-w-0 items-center gap-1.5 font-medium">
+        <meta.icon aria-hidden className={cn("size-3.5 shrink-0", meta.tone, meta.spin && "animate-spin")} />
+        <span className="truncate">{meta.label}</span>
+      </span>
+    );
+  }
+  const column = BOARD_COLUMNS.find((c) => c.id === task.column)!;
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 font-medium">
+      <span aria-hidden className={cn("size-2 shrink-0 rounded-full", COLUMN_STYLE[task.column].dot)} />
+      <span className="truncate">{column.title}</span>
+    </span>
+  );
+}
+
+function TaskDue({ task }: { task: UpcomingTask }) {
+  return task.dueDate ? <DueDate date={task.dueDate} /> : <span className="text-muted-foreground">No due date</span>;
 }
 
 export function UpcomingTasks({
@@ -49,58 +68,60 @@ export function UpcomingTasks({
           </Link>
         }
       />
-      <ul className="flex flex-col">
-        {tasks.map((task) => {
-          const status = TASK_STATUS[task.status];
-          const dueSoon = isToday(task.dueAt);
-          return (
-            <li
-              key={task.id}
-              className="flex items-center gap-4 border-b border-border/70 px-6 py-4 transition-colors last:border-b-0 hover:bg-accent/50"
-            >
-              <span className={cn("shrink-0", status.tone)} title={status.label}>
-                <status.icon className="size-5" />
-                <span className="sr-only">{status.label}</span>
-              </span>
-
-              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <p className="truncate text-sm font-semibold">{task.title}</p>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                  <span className="font-medium tabular-nums">{task.key}</span>
-                  <PriorityBadge priority={task.priority} />
-                  {task.labels.map((label) => (
-                    <span key={label} className="rounded-md bg-muted px-1.5 py-0.5 font-medium ring-1 ring-border/70">
-                      {label}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-3">
-                <span
-                  className={cn(
-                    "hidden text-xs whitespace-nowrap sm:inline",
-                    dueSoon ? "font-semibold text-foreground" : "text-muted-foreground"
-                  )}
-                >
-                  {dueLabel(task.dueAt)}
+      {tasks.length === 0 ? (
+        <SurfaceEmpty
+          icon={ListTodoIcon}
+          title="No open tasks"
+          description="Add a card on the board, or open an issue on the linked GitHub repository. Open cards show up here."
+        />
+      ) : (
+        <ul className="flex flex-col">
+          {tasks.map((task) => {
+            const status = TASK_STATUS[task.status];
+            return (
+              <li
+                key={task.id}
+                className="flex items-start gap-4 border-b border-border/70 px-6 py-4 transition-colors last:border-b-0 hover:bg-accent/50"
+              >
+                <span className={cn("mt-0.5 shrink-0", status.tone)} title={status.label}>
+                  <status.icon className="size-5" />
+                  <span className="sr-only">{status.label}</span>
                 </span>
-                {task.assignee ? (
-                  <AgentAvatar agent={task.assignee} />
-                ) : (
-                  <span
-                    title="Unassigned"
-                    className="inline-flex size-7 items-center justify-center rounded-full bg-muted text-muted-foreground ring-1 ring-border"
-                  >
-                    <UserRoundIcon className="size-3.5" />
-                    <span className="sr-only">Unassigned</span>
-                  </span>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <p className="truncate text-sm font-semibold">{task.title}</p>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground tabular-nums">{task.key}</span>
+                    <IssueTypePill type={task.type} />
+                    <PriorityBadge priority={task.priority} />
+                    {task.githubIssueNumber !== null && <span className="tabular-nums">#{task.githubIssueNumber}</span>}
+                    {task.labels[0] && (
+                      <span className="max-w-28 truncate rounded-md bg-muted px-1.5 py-0.5 font-medium ring-1 ring-border/70">
+                        {task.labels[0]}
+                      </span>
+                    )}
+                    {task.labels.length > 1 && (
+                      <span className="tabular-nums" title={task.labels.slice(1).join(", ")}>
+                        +{task.labels.length - 1}
+                      </span>
+                    )}
+                  </div>
+                  {/* On phones the progress column below moves under the meta row. */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:hidden">
+                    <TaskProgress task={task} />
+                    <TaskDue task={task} />
+                  </div>
+                </div>
+
+                <div className="hidden w-36 shrink-0 flex-col items-end gap-1.5 text-xs sm:flex">
+                  <TaskProgress task={task} />
+                  <TaskDue task={task} />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }

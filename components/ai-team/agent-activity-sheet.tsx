@@ -1,39 +1,14 @@
 "use client";
 
 import { format, formatDistanceToNowStrict, isToday, isYesterday } from "date-fns";
-import {
-  BugIcon,
-  CpuIcon,
-  GitPullRequestIcon,
-  HistoryIcon,
-  ListTodoIcon,
-  PauseIcon,
-  PlayIcon,
-  ShieldCheckIcon,
-  SlidersHorizontalIcon,
-  SparklesIcon,
-  UserPlusIcon,
-  type LucideIcon,
-} from "lucide-react";
+import { HistoryIcon } from "lucide-react";
 
 import { AgentPortrait } from "@/components/ai-team/agent-visuals";
+import { ACTIVITY_KIND } from "@/components/dashboard/activity-kind";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { formatMicros } from "@/lib/agent-config";
-import type { AgentActivityKind, AgentActivityView, AgentView } from "@/lib/agents";
+import type { AgentActivityView, AgentView } from "@/lib/agents";
 import { cn } from "@/lib/utils";
-
-const KIND: Record<AgentActivityKind, { icon: LucideIcon; tone: string }> = {
-  joined: { icon: UserPlusIcon, tone: "text-brand-emphasis" },
-  configured: { icon: SlidersHorizontalIcon, tone: "text-action" },
-  paused: { icon: PauseIcon, tone: "text-muted-foreground" },
-  resumed: { icon: PlayIcon, tone: "text-success" },
-  generated: { icon: SparklesIcon, tone: "text-brand-emphasis" },
-  scan: { icon: ShieldCheckIcon, tone: "text-success" },
-  task_assigned: { icon: ListTodoIcon, tone: "text-warning" },
-  task_run: { icon: CpuIcon, tone: "text-action" },
-  pull_request: { icon: GitPullRequestIcon, tone: "text-brand-emphasis" },
-  issue_filed: { icon: BugIcon, tone: "text-error" },
-};
 
 function dayLabel(date: Date) {
   if (isToday(date)) return "Today";
@@ -113,7 +88,7 @@ export function AgentActivitySheet({
                 </h3>
                 <ol className="flex flex-col px-5">
                   {group.items.map((item, index) => {
-                    const kind = KIND[item.kind] ?? KIND.configured;
+                    const kind = ACTIVITY_KIND[item.kind] ?? ACTIVITY_KIND.configured;
                     const at = new Date(item.at);
                     return (
                       <li key={item.id} className="relative flex gap-3 py-3.5">
