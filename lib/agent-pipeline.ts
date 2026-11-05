@@ -215,7 +215,8 @@ const STAGE_PROTOCOL: Record<AgentStage, (ctx: RunContext) => string> = {
   analysis: () => `Your job in this stage: understand the card and decide who works on it next.
 - Explore the code the card touches with your tools. Do not modify anything.
 - If the card can be implemented (make reasonable, stated assumptions for small gaps), decide "ready": the card goes to the Developer. Give acceptance criteria, an ordered plan, the relevant files and notes the developer needs.
-- Only if essential information is missing and no reasonable assumption exists, decide "needs_info" with one specific question for a human.`,
+- Only if essential information is missing and no reasonable assumption exists, decide "needs_info" with one specific question for a human.
+- If the task lists earlier questions, treat the answers as requirements and don't ask the same question again.`,
   development: (ctx) => `Your job in this stage: implement the card on branch ${ctx.run.branch}, created from ${ctx.workspace.githubDefaultBranch}.
 - write_file, replace_in_file and delete_file each commit to that branch. You can't touch any other branch.
 - Read the code before changing it and follow the repository's conventions. Keep the change focused on the acceptance criteria.
@@ -223,11 +224,13 @@ const STAGE_PROTOCOL: Record<AgentStage, (ctx: RunContext) => string> = {
 - When the work is complete, call submit_work. A pull request is opened from your summary.`,
   review: (ctx) => `Your job in this stage: review the changes on ${ctx.run.branch} (get_diff) against the card's acceptance criteria.
 - Check correctness first, then security, then consistency with the codebase's conventions.
-- Approve when there is no blocker or major issue. Otherwise request changes with specific findings: file path and what to fix. The developer gets your findings verbatim.`,
+- Approve when there is no blocker or major issue. Otherwise request changes with specific findings: file path and what to fix. The developer gets your findings verbatim.
+- Request changes only for problems the developer can fix in the code. Nobody in this pipeline can run the code, a browser or a device: when something needs that kind of check, approve and name it in your summary as a manual check for the owner. Minor findings never block.`,
   testing: (ctx) => `Your job in this stage: verify the work on ${ctx.run.branch} before it can be merged. There is no test runner, so verify statically:
 - The expected files were added or changed, with the right content, and nothing outside the card's scope changed.
 - The branch is set up correctly: based on ${ctx.workspace.githubDefaultBranch}, has commits, no leftover conflict markers.
 - The acceptance criteria are covered by the code. Check CI with get_checks when available.
+- Don't fail for checks only a human can do (running a browser or a device); name them in your summary as manual checks.
 - Automated pre-checks are listed in the task. Verdict "pass" only if everything required holds; otherwise "fail" with what must be fixed.`,
 };
 
@@ -293,8 +296,22 @@ function feedbackBlock(ctx: RunContext) {
   if (!parts.length) return "";
   return `
 
-This is rework round ${ctx.run.reworkRounds}. The branch already has your earlier commits. Fix every point below and keep what was fine:
+This is rework round ${ctx.run.reworkRounds}. The branch already has your earlier commits. Fix every point below and keep what was fine. If a point can't be solved in the code (it asks for a run, a browser or a device), don't change code for it: say so in notes_for_reviewer.
 ${parts.join("\n\n")}`;
+}
+
+/**
+ * A review after rework: without its earlier findings the reviewer reviews from scratch each round and can keep
+ * finding something new, so the work never converges.
+ */
+function reReviewBlock(ctx: RunContext) {
+  const { review, reworkRounds } = ctx.run;
+  if (reworkRounds === 0 || review?.verdict !== "request_changes") return "";
+  return `
+
+This is a re-review after rework round ${reworkRounds}. Your previous review requested these changes:
+${bullets(review.findings.map((f) => `[${f.severity}] ${f.path}: ${f.detail}`))}
+Check that each one was addressed (or that the developer's notes explain why it can't be done in the code). Approve unless one of them is still unfixed or the rework introduced a new blocker or major problem.`;
 }
 
 /** A rerun continues an earlier run's branch and pull request: say so, so the developer builds on that work. */
@@ -307,14 +324,44 @@ async function rerunBlock(ctx: RunContext) {
 This card was run before. Branch ${pr.headBranch} already has that run's commits and pull request #${pr.number} is open. Read the changes first (they are on the branch), keep what fits the brief above, and fix or finish the rest. Don't start over.`;
 }
 
+// Older questions rarely matter once the newest are answered, and each one lengthens every prompt of the run.
+const EARLIER_QUESTIONS_MAX = 3;
+
+/**
+ * Questions the analyst asked on earlier runs of this card, with the owner's answers. Without this a rerun starts
+ * blind: the analyst explores again and may ask the same thing.
+ */
+async function earlierQuestionsBlock(ctx: RunContext) {
+  const rows = await db
+    .select({ brief: agentRuns.brief, error: agentRuns.error, answer: agentRuns.answer })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.taskId, ctx.task.id), eq(agentRuns.status, "needs_info")))
+    .orderBy(desc(agentRuns.id))
+    .limit(EARLIER_QUESTIONS_MAX);
+  const items = rows
+    .reverse()
+    .map((row) => ({ question: row.brief?.question || row.error, answer: row.answer }))
+    .filter((item): item is { question: string; answer: string | null } => Boolean(item.question));
+  if (!items.length) return "";
+  return `
+
+Earlier questions from the analyst on this card (oldest first). The owner's answers are part of the card's requirements:
+${items
+  .map(
+    (item) =>
+      `- Question: ${item.question}\n  Answer: ${item.answer ?? "(not answered in TechTeam; the card's description may have been updated since)"}`
+  )
+  .join("\n")}`;
+}
+
 async function stageBrief(ctx: RunContext, stage: AgentStage, work: WorkResult | null) {
   switch (stage) {
     case "analysis":
-      return taskBlock(ctx);
+      return taskBlock(ctx) + (await earlierQuestionsBlock(ctx));
     case "development":
-      return taskBlock(ctx) + briefBlock(ctx.run.brief) + (await rerunBlock(ctx)) + feedbackBlock(ctx);
+      return taskBlock(ctx) + (await earlierQuestionsBlock(ctx)) + briefBlock(ctx.run.brief) + (await rerunBlock(ctx)) + feedbackBlock(ctx);
     case "review":
-      return taskBlock(ctx) + briefBlock(ctx.run.brief) + workBlock(work);
+      return taskBlock(ctx) + briefBlock(ctx.run.brief) + workBlock(work) + reReviewBlock(ctx);
     case "testing": {
       const prechecks = await testPrechecks(ctx, work);
       return `${taskBlock(ctx)}${briefBlock(ctx.run.brief)}${workBlock(work)}
@@ -621,10 +668,45 @@ export async function handleNeedsInfo(runId: number, brief: AnalystBrief) {
   });
 }
 
+/**
+ * The owner answers the question of the card's latest run: saved on that run (later runs read it, see
+ * earlierQuestionsBlock) and, when the question was asked on the GitHub issue, posted there under it.
+ * Refused unless the latest run is waiting on an answer. Answering again replaces the earlier answer.
+ */
+export async function answerAnalyst(workspaceId: number, taskId: number, answer: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const [run] = await db
+    .select({ id: agentRuns.id, status: agentRuns.status })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.workspaceId, workspaceId), eq(agentRuns.taskId, taskId)))
+    .orderBy(desc(agentRuns.id))
+    .limit(1);
+  if (run?.status !== "needs_info") return { ok: false, error: "The analyst isn't waiting for an answer on this card." };
+  await updateRun(run.id, { answer });
+
+  const ctx = await requireContext(run.id);
+  const analyst = await getAgentRow(workspaceId, "analyst");
+  // Same condition as the question (handleNeedsInfo), so the issue never shows an answer without its question.
+  if (ctx.task.githubIssueNumber && analyst?.skills.includes("issues.comment")) {
+    const token = await getGithubToken(ctx.workspace.ownerId).catch(() => null);
+    if (token) {
+      await createIssueComment(
+        token,
+        ctx.workspace.githubRepoFullName,
+        ctx.task.githubIssueNumber,
+        `**Answer for the analyst (TechTeam)**\n\n${answer}`
+      ).catch((error) => console.warn("[agents] answer comment failed", error));
+    }
+  }
+  return { ok: true };
+}
+
 // ── Development ────────────────────────────────────────────────────────────────
 
 const slug = (text: string) =>
   text
+    // "Añadir sección" → "anadir seccion": accents off before the ASCII filter, not turned into dashes.
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")

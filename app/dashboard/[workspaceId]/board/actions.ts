@@ -1,7 +1,8 @@
 "use server";
 
-import { pipelineModelProblem } from "@/lib/agent-pipeline";
+import { answerAnalyst, pipelineModelProblem } from "@/lib/agent-pipeline";
 import { PROVIDERS, workspaceProvider } from "@/lib/agent-config";
+import { parseAnswer } from "@/lib/agent-run-config";
 import { getAIKeys, keyStatus } from "@/lib/ai-keys";
 import {
   createRun,
@@ -105,6 +106,35 @@ export async function runCardAction(workspaceId: number, cardId: string): Promis
   if (!Number.isSafeInteger(taskId) || (await isGithubTask(auth.workspace, taskId)) === null) {
     return { ok: false, error: "This card no longer exists." };
   }
+  return startRun(auth, taskId);
+}
+
+/**
+ * Answer: replies to the analyst's question on the card's latest run (lib/agent-pipeline answerAnalyst), then runs
+ * the card again. The new run's prompts carry the question and the answer.
+ */
+export async function answerCardAction(workspaceId: number, cardId: string, raw: unknown): Promise<CardActionResult> {
+  const auth = await authorize(workspaceId);
+  if (!auth) return { ok: false, error: "Workspace not found." };
+  const taskId = Number(cardId);
+  if (!Number.isSafeInteger(taskId) || (await isGithubTask(auth.workspace, taskId)) === null) {
+    return { ok: false, error: "This card no longer exists." };
+  }
+  const answer = parseAnswer(raw);
+  if (!answer.ok) return answer;
+  try {
+    const saved = await answerAnalyst(auth.workspace.id, taskId, answer.value);
+    if (!saved.ok) return saved;
+  } catch (error) {
+    console.error("[board] answer failed", error);
+    return { ok: false, error: "We couldn't save your answer. Please try again." };
+  }
+  // The answer is kept even if the run can't start (paused analyst, missing key …): the next Run picks it up.
+  return startRun(auth, taskId);
+}
+
+/** Starts the pipeline on a card that exists in the workspace (callers check). */
+async function startRun(auth: NonNullable<Awaited<ReturnType<typeof authorize>>>, taskId: number): Promise<CardActionResult> {
   if (await getActiveRun(auth.workspace.id, taskId)) return { ok: false, error: "The agents are already working on this card." };
   const agent = getAgent(RUN_AGENT_ID)!;
   // Paused or out-of-budget agents don't take new work (configured on the AI Team page).
@@ -221,6 +251,12 @@ export async function syncIssuesAction(workspaceId: number, options: { includeBo
   });
   const changed = result.added + result.updated + result.closed + result.reopened + pullRequestsChanged > 0;
   return changed || options.includeBoard ? { ...result, board: await getBoardData(auth.workspace) } : result;
+}
+
+/** The board as stored, without touching GitHub: polled every few seconds while agents work on a card. */
+export async function getBoardAction(workspaceId: number): Promise<BoardData | null> {
+  const auth = await authorize(workspaceId);
+  return auth ? getBoardData(auth.workspace) : null;
 }
 
 /**

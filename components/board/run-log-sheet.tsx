@@ -13,6 +13,8 @@ import {
   FolderTreeIcon,
   ListChecksIcon,
   LoaderCircleIcon,
+  MessageCircleQuestionIcon,
+  MessageCircleReplyIcon,
   ScrollTextIcon,
   SearchIcon,
   WrenchIcon,
@@ -22,16 +24,26 @@ import {
 import { getRunLogAction } from "@/app/dashboard/[workspaceId]/board/actions";
 import { AgentPortrait } from "@/components/ai-team/agent-visuals";
 import { AgentRunStatus } from "@/components/board/agent-run-status";
+import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AGENT_MODELS, AGENT_ROLES, formatMicros } from "@/lib/agent-config";
 import { isActiveRun, type RunStage } from "@/lib/agent-run-config";
 import type { RunLog, RunLogStage, RunLogStep } from "@/lib/agent-runs";
+
+type RunLogEnd = NonNullable<RunLogStage["end"]>;
 import type { BoardCard } from "@/lib/board-config";
 import { cn } from "@/lib/utils";
 
 // While the agents work, the log follows them.
 const POLL_MS = 5_000;
+
+/** How a stage's end reads: done, waiting on the owner's answer, or stopped. */
+const STAGE_END: Record<RunLogEnd["kind"], { icon: LucideIcon; tone: string; box: string }> = {
+  result: { icon: CircleCheckIcon, tone: "text-success", box: "bg-success/8 ring-success/25" },
+  question: { icon: MessageCircleQuestionIcon, tone: "text-warning", box: "bg-warning/8 ring-warning/25" },
+  stopped: { icon: CircleAlertIcon, tone: "text-error", box: "bg-error/6 ring-error/20" },
+};
 
 const STAGE_LABEL: Record<RunStage, string> = {
   analysis: "Analysis",
@@ -77,6 +89,7 @@ function Step({ step }: { step: RunLogStep }) {
 function StageBlock({ stage, live }: { stage: RunLogStage; live: boolean }) {
   const role = stage.agent ? AGENT_ROLES[stage.agent] : null;
   const model = AGENT_MODELS.find((m) => m.id === stage.model);
+  const end = stage.end ? STAGE_END[stage.end.kind] : null;
   return (
     <section className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 last:border-b-0">
       <div className="flex items-center gap-3">
@@ -99,14 +112,10 @@ function StageBlock({ stage, live }: { stage: RunLogStage; live: boolean }) {
         )}
       </div>
 
-      {stage.end ? (
-        <p className={cn("flex items-start gap-2 rounded-lg px-3 py-2 text-xs ring-1", stage.end.ok ? "bg-success/8 ring-success/25" : "bg-error/6 ring-error/20")}>
-          {stage.end.ok ? (
-            <CircleCheckIcon aria-hidden className="mt-px size-3.5 shrink-0 text-success" />
-          ) : (
-            <CircleAlertIcon aria-hidden className="mt-px size-3.5 shrink-0 text-error" />
-          )}
-          <span className="line-clamp-4">{stage.end.summary}</span>
+      {end ? (
+        <p className={cn("flex items-start gap-2 rounded-lg px-3 py-2 text-xs ring-1", end.box)}>
+          <end.icon aria-hidden className={cn("mt-px size-3.5 shrink-0", end.tone)} />
+          <span className="line-clamp-4">{stage.end?.summary}</span>
         </p>
       ) : (
         live && (
@@ -151,7 +160,18 @@ function StageBlock({ stage, live }: { stage: RunLogStage; live: boolean }) {
  * What the agents did on a card's latest run, stage by stage: who worked, on which model, the tools they used, the
  * files they changed and how each stage ended. Opened from the card's ⋯ menu or a notification (?log=<card>).
  */
-export function RunLogSheet({ workspaceId, card, onOpenChange }: { workspaceId: number; card: BoardCard | null; onOpenChange: (open: boolean) => void }) {
+export function RunLogSheet({
+  workspaceId,
+  card,
+  onOpenChange,
+  onAnswer,
+}: {
+  workspaceId: number;
+  card: BoardCard | null;
+  onOpenChange: (open: boolean) => void;
+  /** Opens the answer dialog for a card whose analyst waits on a question. */
+  onAnswer: (card: BoardCard) => void;
+}) {
   const [log, setLog] = useState<{ cardId: string; data: RunLog | null } | null>(null);
   const cardId = card?.id ?? null;
   const live = card?.run ? isActiveRun(card.run.status) : false;
@@ -191,6 +211,12 @@ export function RunLogSheet({ workspaceId, card, onOpenChange }: { workspaceId: 
         </div>
 
         {card?.run && <AgentRunStatus run={card.run} className="mx-5 mt-4" />}
+        {card?.run?.status === "needs_info" && (
+          <Button variant="outline" className="mx-5 mt-2.5 h-9 self-start" onClick={() => onAnswer(card)}>
+            <MessageCircleReplyIcon />
+            Answer the analyst
+          </Button>
+        )}
 
         {run && (
           <dl className="mx-5 mt-4 grid grid-cols-3 overflow-hidden rounded-lg bg-canvas ring-1 ring-border/70">

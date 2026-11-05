@@ -99,7 +99,7 @@ The header bell shows a count of unread notifications (9+ above nine) and opens 
 | PR ready to merge | Review and tests passed with manual merge, or auto merge gave up waiting on checks | Pull Requests |
 | Merged | Auto merge went through | Pull Requests |
 | Merge blocked | A conflict or failing build; says which follow-up card the Tester filed | Pull Requests |
-| Analyst needs info | The analyst asked a question instead of starting | The card's agent log |
+| Analyst needs info | The analyst asked a question instead of starting | The card's agent log (Answer the analyst) |
 | Agents stopped | A run failed (paused agent, budget, missing skill, GitHub, out of turns, error) | The card's agent log |
 | Out of credit | The provider refused for lack of credit and the run stopped | The board (switch and retry) |
 | Switched provider | Auto failover moved the team to the other company | Settings → AI providers |
@@ -255,7 +255,7 @@ A run takes a card through the board's columns, one agent per stage:
 | --- | --- | --- |
 | Analysis | Analyst | Reads the card and the code (read-only). Hands it to the Developer with acceptance criteria, a plan, relevant files and notes, or asks one question (**needs info**: comment on the GitHub issue with *Comment on issues*, card back to Todo). |
 | In Development | Developer | Creates `agent/<key>-<slug>` from the default branch and commits to it through the GitHub API (write, edit, delete files). Then a pull request is opened (`Closes #<issue>` for GitHub cards). |
-| In Review | Reviewer | Reads the diff against the acceptance criteria. Approves, or requests changes with file-level findings (posted on the PR with *Review pull requests*). |
+| In Review | Reviewer | Reads the diff against the acceptance criteria. Approves, or requests changes with file-level findings (posted on the PR with *Review pull requests*). Only for what the developer can fix in code: checks that need a browser or device are listed as manual checks and never block. A re-review gets its earlier findings and checks those. |
 | Testing | Tester | Verifies statically (no test runner): automated pre-checks (branch exists and has commits, reported files are in the diff, no conflict markers, PR open) plus its own review and CI results. |
 | Done | — | After the merge. |
 
@@ -273,7 +273,12 @@ A run takes a card through the board's columns, one agent per stage:
   *Write code* → write/edit/delete on the run's branch; *Read CI results* → checks). Dependency manifests need
   *Manage dependencies*; CI workflows, `.env*` files (except `.env.example`) and `.git/` can never be written.
 - Each card shows its run: stage in progress, "Analyst needs info" + the question, "Agents stopped" + the reason,
-  "PR #n ready to merge" or "Merged PR #n". The board refreshes every 10 s while any run is active.
+  "PR #n ready to merge" or "Merged PR #n". The board re-reads itself every 10 s while any run is active (database only; GitHub is synced every minute).
+- **Answering the analyst**: while a card waits on a question, ▶ becomes **Answer** (also in the ⋯ menu and the agent
+  log). The answer is saved with the question, posted under it on the GitHub issue when the question is there, and the
+  card runs again right away. The agents keep the last three questions and answers for every later run of the card,
+  so the analyst doesn't explore blind or ask the same thing twice. Editing the description and pressing Run works
+  too (the question then goes in unanswered).
 
 ## AI Team
 

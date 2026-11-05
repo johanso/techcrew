@@ -44,6 +44,17 @@ export const MAX_REWORK_ROUNDS = 2;
 export const MAX_TURNS_MIN = 3;
 export const MAX_TURNS_MAX = 100;
 
+/** Longest answer to the analyst's question; it goes into every later agent prompt for the card. */
+export const ANSWER_MAX = 2000;
+
+/** Validates an answer to the analyst's question (server action input). */
+export function parseAnswer(raw: unknown): { ok: true; value: string } | { ok: false; error: string } {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!value) return { ok: false, error: "Write an answer for the analyst." };
+  if (value.length > ANSWER_MAX) return { ok: false, error: `Keep the answer under ${ANSWER_MAX} characters.` };
+  return { ok: true, value };
+}
+
 // ── Stage results (stored as jsonb on agent_runs) ──────────────────────────────
 
 export type AnalystBrief = {

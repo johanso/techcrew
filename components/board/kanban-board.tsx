@@ -24,6 +24,7 @@ import {
   createCardAction,
   moveCardsAction,
   removeCardAction,
+  answerCardAction,
   mergeCardAction,
   runCardAction,
   stopCardAction,
@@ -34,6 +35,7 @@ import { BoardCardView } from "@/components/board/board-card";
 import { BoardColumn } from "@/components/board/board-column";
 import { isFiltering, matchesFilters, matchesQuery, NO_FILTERS, type BoardFilters, type TypeFilter } from "@/components/board/board-filters";
 import { BoardToolbar } from "@/components/board/board-toolbar";
+import { AnswerDialog, type AnswerSubmit } from "@/components/board/answer-dialog";
 import { CardDialog, type CardDialogMode, type CardDialogSubmit } from "@/components/board/card-dialog";
 import { CreditNotice } from "@/components/board/credit-notice";
 import { RunLogSheet } from "@/components/board/run-log-sheet";
@@ -112,6 +114,7 @@ export function KanbanBoard({
   const [mergingIds, setMergingIds] = useState<ReadonlySet<string>>(new Set());
   const [retryingCredit, setRetryingCredit] = useState(false);
   const [logCardId, setLogCardId] = useState<string | null>(openLogFor);
+  const [answerCardId, setAnswerCardId] = useState<string | null>(null);
   // The card the remove confirmation is about; kept while the dialog animates out.
   const [removal, setRemoval] = useState<{ open: boolean; card: BoardCard | null; pending: boolean }>({
     open: false,
@@ -234,6 +237,34 @@ export function KanbanBoard({
       showRunStarted(result.card);
     } catch {
       setBoardError(`We couldn't start the analyst on ${card.key}. Please try again.`);
+    } finally {
+      setRunningIds((prev) => {
+        const next = new Set(prev);
+        next.delete(card.id);
+        return next;
+      });
+    }
+  };
+
+  const closeLog = () => {
+    setLogCardId(null);
+    // Drop ?log= so a reload doesn't reopen it.
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("log")) {
+      url.searchParams.delete("log");
+      window.history.replaceState(null, "", url);
+    }
+  };
+
+  // Answer: the server saves the answer and runs the card again; like Run, the analyst takes it into Analysis.
+  const answerCard: AnswerSubmit = async (card, answer) => {
+    setRunningIds((prev) => new Set(prev).add(card.id));
+    try {
+      const result = await answerCardAction(workspaceId, card.id, answer);
+      if (!result.ok) return result.error;
+      showRunStarted(result.card);
+    } catch {
+      return `We couldn't send your answer on ${card.key}. Please try again.`;
     } finally {
       setRunningIds((prev) => {
         const next = new Set(prev);
@@ -539,6 +570,7 @@ export function KanbanBoard({
               onRunCard={(card) => void runCard(card)}
               onStopCard={(card) => void stopCard(card)}
               onMergeCard={(card) => void mergeCard(card)}
+              onAnswerCard={(card) => setAnswerCardId(card.id)}
               onViewLog={(card) => setLogCardId(card.id)}
               onRemoveCard={(card) => setRemoval({ open: true, card, pending: false })}
             />
@@ -564,19 +596,21 @@ export function KanbanBoard({
         onSubmit={submitCard}
       />
 
+      <AnswerDialog
+        card={answerCardId ? (cards[answerCardId] ?? null) : null}
+        onOpenChange={(open) => !open && setAnswerCardId(null)}
+        onSubmit={answerCard}
+      />
+
       <RunLogSheet
         workspaceId={workspaceId}
         card={logCardId ? (cards[logCardId] ?? null) : null}
-        onOpenChange={(open) => {
-          if (open) return;
-          setLogCardId(null);
-          // Drop ?log= so a reload doesn't reopen it.
-          const url = new URL(window.location.href);
-          if (url.searchParams.has("log")) {
-            url.searchParams.delete("log");
-            window.history.replaceState(null, "", url);
-          }
+        // One modal at a time: the log closes, then the answer dialog opens.
+        onAnswer={(card) => {
+          closeLog();
+          setAnswerCardId(card.id);
         }}
+        onOpenChange={(open) => !open && closeLog()}
       />
 
       <AlertDialog open={removal.open} onOpenChange={(open) => !removal.pending && setRemoval((r) => ({ ...r, open }))}>

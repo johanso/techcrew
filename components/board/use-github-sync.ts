@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { syncIssuesAction } from "@/app/dashboard/[workspaceId]/board/actions";
+import { getBoardAction, syncIssuesAction } from "@/app/dashboard/[workspaceId]/board/actions";
 import type { BoardData } from "@/lib/board-config";
 import type { SyncCounts, SyncResult } from "@/lib/github-issues";
 
-export type SyncFailure = Extract<SyncResult, { ok: false }>["reason"];
+/** Why the last sync failed: GitHub's answer (SyncResult), or "unavailable" when our server didn't answer. */
+export type SyncFailure = Extract<SyncResult, { ok: false }>["reason"] | "unavailable";
 
 export type GithubSyncState = {
   status: "idle" | "syncing" | "error";
@@ -18,7 +19,8 @@ export type GithubSyncState = {
 
 // Polling stands in for webhooks (which would need a public URL and admin rights on the repo).
 const POLL_MS = 60_000;
-// While agents work on a card, the board follows their progress (stage moves, PRs) at this pace.
+// While agents work on a card, the board follows their progress (stage moves, PRs) at this pace. These polls only
+// read the database; GitHub is still synced every POLL_MS.
 const LIVE_POLL_MS = 10_000;
 const REFOCUS_MIN_GAP_MS = 15_000;
 
@@ -35,7 +37,7 @@ function summarize({ added, updated, closed, reopened }: SyncCounts) {
 
 /**
  * Keeps the board in sync with the repository's GitHub issues: on mount, when the tab regains focus,
- * every minute while visible (every 10 s, with the full board, while `live`), and on demand. `isBusy` reports a drag or an unsaved move — a fresh board
+ * every minute while visible, and on demand. While `live`, the board is also re-read every 10 s (database only). `isBusy` reports a drag or an unsaved move — a fresh board
  * must not land then (it would undo the move on screen), so it's fetched again via `flushDeferred` later.
  */
 export function useGithubSync({
@@ -93,13 +95,34 @@ export function useGithubSync({
           summary: summarize(result) || (manual ? "Up to date" : undefined),
         });
       } catch {
-        setState((s) => ({ ...s, status: "error", failure: "error" }));
+        // The action itself failed (our server, the auth service …): GitHub wasn't necessarily involved.
+        setState((s) => ({ ...s, status: "error", failure: "unavailable" }));
       } finally {
         inFlight.current = false;
       }
     },
     [workspaceId]
   );
+
+  // Agents' progress is in the database: no GitHub call needed. Failures just wait for the next tick.
+  const refreshBoard = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    try {
+      const board = await getBoardAction(workspaceId);
+      if (!board) return;
+      if (callbacks.current.isBusy()) {
+        deferred.current = true;
+      } else {
+        deferred.current = false;
+        callbacks.current.onBoard(board);
+      }
+    } catch {
+      // The next tick (or the minute sync) tries again.
+    } finally {
+      inFlight.current = false;
+    }
+  }, [workspaceId]);
 
   /** Call when a drag or move finishes: applies a board that had to be skipped meanwhile. */
   const flushDeferred = useCallback(() => {
@@ -126,10 +149,10 @@ export function useGithubSync({
   useEffect(() => {
     if (!live) return;
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void sync({ includeBoard: true });
+      if (document.visibilityState === "visible") void refreshBoard();
     }, LIVE_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [live, sync]);
+  }, [live, refreshBoard]);
 
   return { state, sync, flushDeferred };
 }

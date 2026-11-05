@@ -104,7 +104,7 @@ analysis ──ready──▶ development ──▶ PR ──▶ review ──ap
 Every 2 minutes: for each workspace with **Settings → Agents → Task pickup: Automatic** and no `queued`/`running`
 run, creates a run for the top Todo card that **was never run** and sends `agent/task.run`. Skipped entirely without
 a provider (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `AGENTS_SIMULATED=true`), and per workspace while the Analyst is paused or over budget, or an agent's model has no provider key. Cards that were run before (failed,
-needs info) wait for a human to press Run.
+needs info) wait for a human to press Run (or Answer, for a question).
 
 ## Local development
 

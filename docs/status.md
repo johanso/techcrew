@@ -26,9 +26,10 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | Kanban board: columns, create/edit, drag and drop, search, filters | ✅ Real, persisted | `components/board`, `lib/board.ts` |
 | GitHub issue sync (auto + Refresh, close → Done) | ✅ Real | `lib/github-issues.ts` |
 | Remove task (soft delete) | ✅ Real | `removeCardAction` |
+| Answer the analyst's question from the card, its menu or the agent log (answer kept for later runs) | ✅ Real, verified with OpenAI | `components/board/answer-dialog.tsx`, `answerCardAction`, `agent_runs.answer` |
 | Agent log per card (tool calls, files changed, how each stage ended, cost) | ✅ Real (from runs started after it shipped) | `components/board/run-log-sheet.tsx`, `agent_run_steps` |
 | Out of credit: board notice, switch company and retry, optional automatic switch | ✅ Real (automatic switch not run end to end) | `components/board/credit-notice.tsx`, `lib/agent-pipeline.ts` |
-| Agent pipeline: Run / Stop, Analyst → Developer → Reviewer → Tester → merge | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (untested against the live APIs; the Claude path is tested against a local fake of the API). `AGENTS_SIMULATED=true` runs it with scripted agents | `lib/agent-pipeline.ts`, `lib/inngest/agent-run.ts` |
+| Agent pipeline: Run / Stop, Analyst → Developer → Reviewer → Tester → merge | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (verified live with OpenAI on 2026-11-05; the Claude path only against a local fake of the API). `AGENTS_SIMULATED=true` runs it with scripted agents | `lib/agent-pipeline.ts`, `lib/inngest/agent-run.ts` |
 | Auto pickup of Todo cards, auto or manual merge | ✅ Real | `lib/inngest/agent-pickup.ts`, `lib/pull-requests.ts` |
 | Follow-up card from the Tester on merge conflict / failing build | ✅ Real | `lib/pull-requests.ts` |
 | Overview page (stats, upcoming tasks, recent activity) | ✅ Real, from the board and the activity feed | `lib/overview.ts`, `lib/activity.ts` |
@@ -63,7 +64,7 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 - **One commit per file edit** on agent branches (contents API); merges are squashed, so `main` gets one commit.
 - **Reviews are posted as comments**, not approvals: GitHub doesn't let the token's own account approve its own PR.
 - **Auto pickup only takes never-run cards**, one at a time per workspace, every 2 minutes.
-- **Live board progress is polled** (every 10 s while a run is active), not pushed.
+- **Live board progress is polled** (every 10 s while a run is active, database only), not pushed.
 - **Workspace and account editing** isn't available (settings are read-only), nor deleting workspaces or accounts.
 - **The agent pipeline locally requires the Inngest Dev Server** (`npm run inngest:dev`).
 - **The agents have only run in simulated mode** (`AGENTS_SIMULATED=true`) and against a local fake of the Anthropic

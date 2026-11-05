@@ -176,6 +176,7 @@ always with the owner's token and always on the linked repository:
 | Review comment | Reviewer verdict (*Review pull requests*) | `POST /pulls/{n}/reviews` (event `COMMENT`) |
 | Test report comment | Tester verdict (*Comment on issues*) | `POST /issues/{n}/comments` |
 | Question on the issue | Analyst needs info (*Comment on issues*) | `POST /issues/{n}/comments` |
+| Answer on the issue | The owner answers the analyst on the board (only when the question was posted) | `POST /issues/{n}/comments` |
 | Squash merge | Manual Merge, or auto-merge after review + tests + CI | `PUT /pulls/{n}/merge` (with the head sha) |
 | Follow-up issue | Merge blocked by conflict / failing build (*File issues*) | `POST /issues` (label `bug`) |
 

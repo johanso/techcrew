@@ -24,6 +24,7 @@ export function BoardColumn({
   onRunCard,
   onStopCard,
   onMergeCard,
+  onAnswerCard,
   onViewLog,
   onRemoveCard,
 }: {
@@ -43,6 +44,7 @@ export function BoardColumn({
   onRunCard: (card: BoardCard) => void;
   onStopCard: (card: BoardCard) => void;
   onMergeCard: (card: BoardCard) => void;
+  onAnswerCard: (card: BoardCard) => void;
   onViewLog: (card: BoardCard) => void;
   onRemoveCard: (card: BoardCard) => void;
 }) {
@@ -100,6 +102,7 @@ export function BoardColumn({
               onRun={() => onRunCard(card)}
               onStop={() => onStopCard(card)}
               onMerge={() => onMergeCard(card)}
+              onAnswer={() => onAnswerCard(card)}
               onViewLog={() => onViewLog(card)}
               onRemove={() => onRemoveCard(card)}
             />

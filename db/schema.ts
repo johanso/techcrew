@@ -251,6 +251,8 @@ export const agentRuns = pgTable(
     error: text("error"),
     // The same, as data, for stops the UI can act on (e.g. out of credit → switch provider and retry).
     failure: jsonb("failure").$type<RunFailure>(),
+    // The owner's answer to the analyst's question (needs info); later runs of the card get it in their task.
+    answer: text("answer"),
     // Model spend of the whole run in micro-dollars (per-agent spend is in agent_activity).
     costMicros: integer("cost_micros").notNull().default(0),
     createdById: integer("created_by_id").references(() => users.id, { onDelete: "set null" }),

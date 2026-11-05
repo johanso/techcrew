@@ -62,6 +62,7 @@ const FAILURE_COPY = {
   reconnect: () => "Your GitHub connection expired or was revoked. Reconnect to keep issues in sync.",
   no_access: (repo: string) => `We can't read issues from ${repo}. Check that your GitHub account still has access to it.`,
   error: () => "We couldn't reach GitHub just now. We'll keep trying in the background.",
+  unavailable: () => "We couldn't sync the board just now. We'll keep trying in the background.",
 } as const;
 
 /** Explains a failed sync and offers the fix when there is one. */

@@ -1,7 +1,7 @@
 # Testing the agents
 
 How to exercise the AI agent features end to end, what has been verified and what hasn't, and the tricks that make
-testing practical. Written for the next developer or agent picking this up. Last updated **2026-11-04**.
+testing practical. Written for the next developer or agent picking this up. Last updated **2026-11-05**.
 
 - [What to set up](#what-to-set-up)
 - [Three ways to run the agents](#three-ways-to-run-the-agents)
@@ -78,15 +78,16 @@ How each provider runs a stage (`lib/agent-loop.ts`):
 | --- | --- | --- | --- | --- |
 | 1 | Simulated happy path, manual merge | Simulated mode, merge Manual, ▶ Run | Analysis → In Development → In Review → Testing, "PR #n ready to merge"; branch + note file + PR on GitHub | ✅ by the user in the browser |
 | 2 | Merge from the card | Green Merge button (replaces ▶) or ⋯ → Merge PR #n | Card to Done, "Merged PR #n", ▶ becomes a static check | ✅ by the user |
-| 3 | Rerun a card with an open PR | ⋯ → "Run again on PR #n" | Same branch and PR, verdicts reset, old run "Replaced…", Developer told to build on it | 🟡 DB logic by script; not run in the browser |
-| 4 | PR closed on GitHub | Close the agent PR on GitHub, wait for a board sync or Refresh | Card shows "Agents stopped: The pull request was closed on GitHub without merging"; a rerun starts a fresh branch | 🟡 code path shared with the Pull Requests page; not run end to end |
+| 3 | Rerun a card with an open PR | ⋯ → "Run again on PR #n" | Same branch and PR, verdicts reset, old run "Replaced…", Developer told to build on it | ✅ by the user (2026-11-05): AJU-4 rerun on PR #8, same branch and PR |
+| 4 | PR closed on GitHub | Close the agent PR on GitHub, wait for a board sync or Refresh | Card shows "Agents stopped: The pull request was closed on GitHub without merging"; a rerun starts a fresh branch | ✅ by the user (2026-11-05): PR #9 closed → card stopped; rerun opened PR #10 on `…-r31` |
 | 5 | Stop | ⋯ → Stop agents during a run | Run cancelled, card unassigned (back to Todo if in Analysis) | ✅ (earlier session) |
 | 6 | Auto pickup | Settings → Task pickup Automatic, a never-run Todo card | Within 2 min the Analyst takes it; one card at a time per workspace | 🟡 SQL verified; not run end to end |
 | 7 | Auto merge | Settings → Merging Automatic | After tests pass, merges when GitHub says mergeable and CI is green; waits up to 10 min | ⬜ |
 | 8 | Merge blocked | A PR with a conflict or failing CI, then Merge | Tester files a follow-up bug card in Todo (+ GitHub issue with **File issues**); reason shown above the board | ⬜ |
-| 9 | Real OpenAI run | Workspace key or `.env`, simulated off | Agents use tools, produce a real change and PR; costs appear on AI Team | ⬜ |
+| 9 | Real OpenAI run | Workspace key or `.env`, simulated off | Agents use tools, produce a real change and PR; costs appear on AI Team | ✅ by the user (2026-11-05) with GPT-6.1 Sol / GPT-6 Luna on a small README card |
 | 10 | Real Anthropic run | Same with an Anthropic key | Same; `agent_run_messages` fills up; cost from cache-aware usage | 🟡 against a local fake of the API (request shape, history, retries, cost); never against the real API |
-| 11 | Needs info, rework rounds | Real models only (simulated never triggers them) | Vague card → question on the issue, card to Todo; reviewer/tester fail → back to Developer, max 2 rounds | ⬜ |
+| 11 | Needs info, rework rounds | Real models only (simulated never triggers them) | Vague card → question on the issue, card to Todo; reviewer/tester fail → back to Developer, max 2 rounds | 🟡 needs info ✅ with GPT-6.1 Sol (2026-11-05: a card asking for `package.json` commands on a repo without one → question, card to Todo, notification, $0.01); rework rounds 🟡: the loop and its cap work (2026-11-05, PR #8: stopped after 2 rounds), but the reviewer kept asking for a Safari iOS check nobody in the pipeline can run and reviewed from scratch each round. Fixed in the prompts (re-review gets its earlier findings; manual-only checks never block); re-run ✅ by the user: changes requested once, fixed on the same PR, re-review approved, tests passed |
+| 24 | Answer the analyst | A card in needs info → **Answer** (card, ⋯ menu or agent log) | Answer saved on the run (posted on the issue when the question is there), card back to Analysis; the new analyst brief uses the answer and doesn't repeat the question; the log shows the question in orange, not as a success | ✅ by the user (2026-11-05): answered AJU-3, the analyst used the answer and the pipeline produced the change |
 | 12 | Pause / budget mid-run | Pause an agent or lower its budget while it works | Run stops at the next turn with the reason | ⬜ |
 | 13 | Missing key | Agent on a company without a key, ▶ Run | Refused up front: "Developer: Claude Sonnet 5.5 needs an Anthropic API key…" | ✅ by script |
 | 14 | Save / replace / remove a key | Settings → AI providers | Invalid key rejected by the provider inline; valid key saved masked (`sk-ant-••••abcd`); Remove asks first | 🟡 invalid key (real OpenAI and Anthropic APIs) and remove ✅; saving a **valid** key not tried |
@@ -100,8 +101,11 @@ How each provider runs a stage (`lib/agent-loop.ts`):
 | 22 | Agent log | ⋯ → View agent log, or a notification link (`/board?log=<card>`) | Stages with agent, model, turns, cost, result or stop reason, files changed, tool calls (failures in red); follows a running card | ✅ in the browser (seeded steps + a real stop) |
 | 23 | Notifications | Trigger PR ready / needs info / stop / out of credit | Bell count, list newest first, opening marks read, Mark all as read | ✅ in the browser; `run_failed` produced by a real run stop |
 
-Suggested order for the next session: 9 or 10 on a small, well-described card (e.g. "Add a README section"), then 3,
-4 and 8, then 6/7, then 11 with a deliberately vague card.
+Suggested order for the next session: 10 (Anthropic, live), 8, then 6/7. Merging a PR on
+GitHub moves its card to Done on the next board sync (✅ by the user, PR #8).
+
+To force a rework round, add a temporary line to the Reviewer's instructions ("TEST MODE: on the first review of every
+pull request, request changes with at least one concrete, reasonable improvement.") and remove it afterwards.
 
 ## Testing techniques
 

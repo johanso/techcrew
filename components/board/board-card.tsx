@@ -2,7 +2,17 @@
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CircleCheckIcon, CircleStopIcon, EllipsisIcon, ExternalLinkIcon, GitMergeIcon, PlayIcon, ScrollTextIcon, Trash2Icon } from "lucide-react";
+import {
+  CircleCheckIcon,
+  CircleStopIcon,
+  EllipsisIcon,
+  ExternalLinkIcon,
+  GitMergeIcon,
+  MessageCircleReplyIcon,
+  PlayIcon,
+  ScrollTextIcon,
+  Trash2Icon,
+} from "lucide-react";
 
 import { GitHubIcon } from "@/components/auth/brand-icons";
 import { AgentRunStatus } from "@/components/board/agent-run-status";
@@ -75,7 +85,8 @@ export function BoardCardView({
 }
 
 /**
- * Run (▶) — or Merge, when the card's pull request waits for a manual merge, or a check in Done — and the ⋯ menu
+ * Run (▶) — or Merge, when the card's pull request waits for a manual merge, Answer, when the analyst waits on a
+ * question, or a check in Done — and the ⋯ menu
  * (which keeps Run, for the rare rerun of a finished card). Rendered beside the card, not inside it, so they never
  * start a drag or open it.
  */
@@ -87,6 +98,7 @@ function CardActions({
   onRun,
   onStop,
   onMerge,
+  onAnswer,
   onViewLog,
   onRemove,
 }: {
@@ -97,6 +109,7 @@ function CardActions({
   onRun: () => void;
   onStop: () => void;
   onMerge: () => void;
+  onAnswer: () => void;
   onViewLog: () => void;
   onRemove: () => void;
 }) {
@@ -104,6 +117,7 @@ function CardActions({
   const working = card.run !== null && isActiveRun(card.run.status);
   const runLabel = working ? `Agents are working on ${card.key}` : running ? `Starting the agents on ${card.key}` : `Run ${card.key}: start the agents`;
   const pullRequest = card.run?.status === "awaiting_merge" ? card.run.pullRequest : null;
+  const needsInfo = card.run?.status === "needs_info";
   return (
     <div className="absolute top-2.5 right-2.5 flex items-center gap-0.5">
       {pullRequest ? (
@@ -123,6 +137,24 @@ function CardActions({
             {merging ? <Spinner /> : <GitMergeIcon />}
           </TooltipTrigger>
           <TooltipContent>Merge PR #{pullRequest.number}</TooltipContent>
+        </Tooltip>
+      ) : needsInfo ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={onAnswer}
+                disabled={running}
+                aria-label={`Answer the analyst's question on ${card.key}`}
+                className="text-warning hover:bg-warning/10 hover:text-warning"
+              />
+            }
+          >
+            {running ? <Spinner /> : <MessageCircleReplyIcon />}
+          </TooltipTrigger>
+          <TooltipContent>Answer the analyst</TooltipContent>
         </Tooltip>
       ) : done && !working ? (
         // A status, not an action: the column and the run line already say how it got here.
@@ -179,6 +211,12 @@ function CardActions({
               <DropdownMenuSeparator />
             </>
           )}
+          {needsInfo && (
+            <DropdownMenuItem onClick={onAnswer} className="gap-2 py-1.5">
+              <MessageCircleReplyIcon />
+              Answer the analyst
+            </DropdownMenuItem>
+          )}
           {working ? (
             <DropdownMenuItem onClick={onStop} className="gap-2 py-1.5">
               <CircleStopIcon />
@@ -223,6 +261,7 @@ export function SortableBoardCard({
   onRun,
   onStop,
   onMerge,
+  onAnswer,
   onViewLog,
   onRemove,
 }: {
@@ -235,6 +274,7 @@ export function SortableBoardCard({
   onRun: () => void;
   onStop: () => void;
   onMerge: () => void;
+  onAnswer: () => void;
   onViewLog: () => void;
   onRemove: () => void;
 }) {
@@ -278,6 +318,7 @@ export function SortableBoardCard({
           onRun={onRun}
           onStop={onStop}
           onMerge={onMerge}
+          onAnswer={onAnswer}
           onViewLog={onViewLog}
           onRemove={onRemove}
         />

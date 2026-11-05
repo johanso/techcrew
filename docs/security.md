@@ -18,8 +18,12 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 
 - The session token from the auth service lives in the `session_token` cookie: **HTTP-only** (no JavaScript access),
   `SameSite=Lax`, `Secure` in production, expiring with the session.
-- Every request that needs a user validates the token with the auth service (`GET /get-session`), cached once per
-  request. A missing or invalid token is treated as signed out.
+- Every request that needs a user validates the token with the auth service (`GET /get-session`). Validated sessions
+  are kept in memory for **60 s** (`lib/session-cache.ts`, keyed by a SHA-256 of the token), because the dashboard polls
+  several actions and the service rate-limits ("Too many requests"). Trade-off: a session revoked from another device
+  keeps working on this server for up to a minute; signing out here forgets it at once. If the service fails, a session
+  validated in the last 10 minutes is still accepted; never past its own expiry. A missing or invalid token is treated
+  as signed out (not cached).
 - Social sign-in returns the token in the URL **fragment** (`#token=…`), which browsers never send to servers. The
   callback page removes it from the address bar immediately and exchanges it through a server action.
 - Sign-out revokes the session on the auth service and deletes the cookie.

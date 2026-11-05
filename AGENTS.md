@@ -94,7 +94,7 @@ app/
       board/ ai-team/ pull-requests/ activity/   One page.tsx per sidebar section.
       ai-team/actions.ts  saveAgentAction, scanAgentAction, generateAgentAction (auth + validation).
       board/actions.ts    createCardAction, updateCardAction, moveCardsAction, removeCardAction, runCardAction,
-                          stopCardAction, mergeCardAction, switchProviderAndRetryAction (out of credit), getRunLogAction
+                          answerCardAction (answer the analyst + run again), stopCardAction, mergeCardAction, switchProviderAndRetryAction (out of credit), getRunLogAction
                           (agent log), syncIssuesAction (also refreshes agent PRs) (auth + validation).
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
       settings/           Account (#account), workspace (#workspace), AI providers (#ai: keys + provider switch) and agent
@@ -112,7 +112,8 @@ components/
                           use-github-sync (polling hook), github-sync-controls (Refresh button, sync notice),
                           issue-meta (type/priority/column colors + PriorityBadge, IssueTypePill, DueDate — reuse everywhere),
                           agent-run-status (the run line on a card: stage, needs info, stopped, out of credit, ready to
-                          merge), run-log-sheet (agent log panel), credit-notice (out of credit: switch and retry).
+                          merge), run-log-sheet (agent log panel), credit-notice (out of credit: switch and retry),
+                          answer-dialog (answer the analyst's question).
   pull-requests/          pull-requests-view (PR list, verdict chips), merge-button.
   office/                 Live Agent Office (AI Team page): agent-office (scene + Live chip), office-agent
                           (sprite, status bubble, hover card), live-team (LiveTeamProvider + useLiveTeam: one poll of
@@ -136,7 +137,8 @@ components/
   brand.tsx               Product mark.
 hooks/                    Client hooks (use-field-errors, use-mobile).
 lib/                      Server logic. Files that touch secrets/DB start with `import "server-only"`.
-  auth.ts                 Hosted-auth client, session cookie.
+  auth.ts                 Hosted-auth client, session cookie; getSession reuses sessions validated in the last 60 s
+                          (session-cache.ts: the auth service rate-limits the dashboard's polls).
   current-user.ts         getCurrentUser() / requireUser(returnTo).
   github.ts               GitHub OAuth + REST + connection persistence.
   crypto.ts               encrypt / decrypt for secrets at rest.
@@ -158,12 +160,14 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           checkAgentCanRun(), logAgentActivity(), stage activity rows, agentMaxTurns(); getAgent(),
                           RUN_AGENT_ID (the analyst), taskKeyPrefix().
   agent-run-config.ts     Pipeline vocabulary shared by server + client: RUN_STAGES/STAGE_META (agent + column per stage),
-                          RUN_STATUSES, MAX_REWORK_ROUNDS, max-turn limits, brief/review/test report types, BoardCardRun.
+                          RUN_STATUSES, MAX_REWORK_ROUNDS, max-turn limits, ANSWER_MAX + parseAnswer, brief/review/test
+                          report types, BoardCardRun.
   agent-runs.ts           agent_runs persistence: createRun, finishRun, getActiveRun, getLatestRuns, placeTask (moves +
                           assigns a card for the pipeline), releaseTask, replaceWaitingRuns (rerun), findAutoPickupCandidates;
                           agent log: saveRunSteps, saveStageEnd, getTaskRunLog.
   agent-pipeline.ts       Stage work: prompts, beginStage / runStageTurn (pause, budget, skills checked every turn),
-                          branch, PR, review/test recording (+ deterministic pre-checks), needs-info, readyToMerge,
+                          branch, PR, review/test recording (+ deterministic pre-checks), needs-info + answerAnalyst
+                          (earlier questions and answers go into later runs' prompts), readyToMerge,
                           pipelineModelProblem (Run pre-check: every agent's model has a key), out-of-credit handling
                           (stop with `failure`, or auto failover + stage restart), stopRun (log + notify).
   agent-simulated.ts      AGENTS_SIMULATED=true: scripted stand-in for the model (one real tool call, then a passing result).
@@ -381,6 +385,10 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   (rerun stays in the menu). While its PR waits for a manual
   merge, ▶ becomes **Merge** (`mergeCardAction` → `mergeManually`, the same checks as the Pull Requests page) and the menu
   adds Merge and View PR on GitHub; the board reloads afterwards (card to Done, or the Tester's follow-up card).
+  When the analyst asked a question (`needs_info`), ▶ becomes **Answer** (also in the ⋯ menu and the agent log):
+  `AnswerDialog` → `answerCardAction` saves the answer on that run (`agent_runs.answer`, posted under the question on
+  the GitHub issue when the question was posted there) and runs the card again. Every later run of the card gets the
+  last questions and answers in its analysis and development prompts (`earlierQuestionsBlock`).
   Running a card again while it has an open PR continues on that branch and PR (`adoptPullRequest`, verdicts reset;
   earlier runs waiting on it end as replaced, `replaceWaitingRuns`); the developer's brief says so (`rerunBlock`).
   The PR is re-checked on GitHub first (`getRerunPullRequest`), and every board sync applies merges/closes done on
@@ -390,8 +398,9 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     to Analysis assigned to the analyst; if queuing fails the run is marked failed and nothing moves. Refused while a
     run is active, when an agent's model has no provider key (`pipelineModelProblem`), or when the analyst is paused/over budget. Locally: `npm run inngest:dev`.
   - **Stop agents** (`stopCardAction`) marks the run cancelled, sends `agent/task.cancel` and unassigns the card.
-  - Cards show their latest run with `AgentRunStatus`; ▶ is disabled while it is queued/running, and the board polls
-    every 10 s (`useGithubSync({ live })`) while any card has an active run.
+  - Cards show their latest run with `AgentRunStatus`; ▶ is disabled while it is queued/running, and the board re-reads
+    itself every 10 s while any card has an active run (`useGithubSync({ live })` → `getBoardAction`, database only;
+    GitHub stays on the 60 s sync).
   - **Remove task** (`removeCardAction`, after an `AlertDialog` confirm) sets `removed_at`. Rows are never deleted:
     keys aren't reused, and a removed GitHub card is never imported again (the issue stays open on GitHub).
     Every board query goes through `onBoard()` in `lib/board.ts`, which skips removed rows. The board opts out of the page max width with

@@ -254,6 +254,7 @@ shows each card's latest run.
 | `test_report` | jsonb | yes | | `TestReport`: verdict, summary, checks (failed pre-checks included). |
 | `rework_rounds` | integer | no | `0` | Development rounds after the first (max `MAX_REWORK_ROUNDS` = 2). |
 | `error` | text | yes | | Why it stopped, or the analyst's question (`needs_info`). Shown on the card. |
+| `answer` | text | yes | | The owner's answer to the analyst's question (`needs_info` runs, `answerCardAction`). Later runs of the card read it into their prompts. |
 | `failure` | jsonb | yes | | `RunFailure`, the stop as data the UI can act on: `{ kind: "out_of_credit", provider }` (board notice, switch and retry). Cleared when a stage starts. |
 | `cost_micros` | integer | no | `0` | Model spend of the whole run. Per-agent spend stays in `agent_activity`. |
 | `created_by_id` | integer | yes | | → `users.id`, `SET NULL`. Null for auto pickup. |
