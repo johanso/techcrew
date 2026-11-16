@@ -1,7 +1,9 @@
 import { AGENT_ROLES, PERMISSION_BY_ID, type AgentKey, type PermissionId, type PermissionRisk } from "@/lib/agent-config";
+import type { SkillScanFinding, SkillSource } from "@/lib/agent-skills-config";
 
 /**
- * Trust Score: a 0–100 rating of how safely an agent is configured, from its permissions, instructions and budget.
+ * Trust Score: a 0–100 rating of how safely an agent is configured, from its permissions, instructions, budget and
+ * the scan findings of the uploaded skills it has switched on (built-ins count as reviewed: they arrive by pull request).
  * `scanAgentRules` is deterministic and free; lib/agent-ai.ts adds an optional OpenAI review on top.
  * Pure module (no DB, no secrets): the dialog can import the types and `trustGrade`.
  */
@@ -31,11 +33,16 @@ export type TrustReport = {
   coverage?: number | null;
 };
 
+/** An enabled skill as the trust scan sees it: its source and its security scan findings. */
+export type TrustSkillInput = { slug: string; source: SkillSource; findings: SkillScanFinding[] };
+
 export type TrustScanInput = {
   key: AgentKey;
   instructions: string;
   permissions: PermissionId[];
   monthlyBudgetCents: number;
+  /** Skills switched on for the agent (agent_skill_assignments). Omitted = none. */
+  skills?: TrustSkillInput[];
 };
 
 /** Points every granted permission costs, even when well guarded: more power is more risk. */
@@ -63,7 +70,7 @@ function riskyLine(instructions: string, pattern: RegExp) {
 type Check = { id: string; failed: boolean; finding: Omit<TrustFinding, "id" | "source"> };
 
 export function scanAgentRules(input: TrustScanInput): TrustReport {
-  const { key, instructions, permissions, monthlyBudgetCents } = input;
+  const { key, instructions, permissions, monthlyBudgetCents, skills = [] } = input;
   const has = (id: PermissionId) => permissions.includes(id);
   const text = instructions.toLowerCase();
   const role = AGENT_ROLES[key];
@@ -203,6 +210,25 @@ export function scanAgentRules(input: TrustScanInput): TrustReport {
           .join(", ")} ${permissions.length > 1 ? "aren't" : "isn't"} part of this role's defaults. Make sure the agent needs them.`,
       },
     },
+
+    // ── Skills: one check per enabled uploaded skill, failed at its worst scan finding ──
+    ...skills
+      .filter((skill) => skill.source !== "builtin")
+      .map((skill): Check => {
+        const worst = [...skill.findings].sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity))[0];
+        return {
+          id: `skill-${skill.slug}`,
+          failed: Boolean(worst),
+          finding: {
+            severity: worst?.severity ?? "info",
+            title: `Skill “${skill.slug}” has scan findings`,
+            detail: `${skill.findings
+              .slice(0, 3)
+              .map((f) => f.title)
+              .join("; ")}${skill.findings.length > 3 ? ` and ${skill.findings.length - 3} more` : ""}. Its text reaches the agent's prompt: fix the skill and upload a new version, or switch it off.`,
+          },
+        };
+      }),
 
     // ── Budget ──
     {

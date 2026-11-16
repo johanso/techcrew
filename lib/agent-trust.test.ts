@@ -43,3 +43,23 @@ describe("scanAgentRules", () => {
     expect(first).toEqual(second);
   });
 });
+
+describe("scanAgentRules with skills", () => {
+  const finding = (severity: "high" | "medium") => ({ id: `x:${severity}`, severity, title: `A ${severity} finding`, detail: "", path: "SKILL.md:1", source: "rules" as const });
+
+  it("counts the scan findings of enabled uploaded skills", () => {
+    const base = defaults("developer");
+    const clean = scanAgentRules({ ...base, skills: [{ slug: "clean", source: "uploaded", findings: [] }] });
+    const warned = scanAgentRules({ ...base, skills: [{ slug: "risky", source: "uploaded", findings: [finding("medium"), finding("high")] }] });
+    expect(clean.score).toBe(scanAgentRules(base).score);
+    expect(clean.checksTotal).toBe(scanAgentRules(base).checksTotal + 1);
+    expect(warned.score).toBeLessThan(clean.score);
+    expect(warned.findings.find((f) => f.id === "skill-risky")).toMatchObject({ severity: "high", title: expect.stringContaining("risky") });
+  });
+
+  it("treats built-ins as reviewed", () => {
+    const base = defaults("reviewer");
+    const report = scanAgentRules({ ...base, skills: [{ slug: "modern-web-guidance", source: "builtin", findings: [finding("high")] }] });
+    expect(report).toMatchObject({ score: scanAgentRules(base).score, checksTotal: scanAgentRules(base).checksTotal });
+  });
+});

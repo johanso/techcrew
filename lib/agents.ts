@@ -40,6 +40,7 @@ import {
   workingAgents,
 } from "@/lib/agent-run-config";
 import { getEndedStages, getWorkingAgents } from "@/lib/agent-runs";
+import { ensureBuiltinSkills, getEnabledSkillIds, getTrustSkills } from "@/lib/agent-skills";
 import { ISSUE_TYPES, type IssueType } from "@/lib/board-config";
 import { LIVE_ACTIONS, agentDoingSentence, type LiveRun, type LiveStage } from "@/lib/live-process";
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
@@ -135,12 +136,13 @@ export function agentMaxTurns(row: Pick<AgentRow, "key" | "maxTurns">) {
 
 /**
  * Creates any of the default agents this workspace doesn't have yet, each with a first (rule-based) trust
- * scan. Safe to call on every request: concurrent calls can't duplicate thanks to (workspace_id, key).
+ * scan, then the built-in skills with their default assignments (ensureBuiltinSkills). Safe to call on every
+ * request: concurrent calls can't duplicate thanks to (workspace_id, key).
  */
 export async function ensureDefaultAgents(workspaceId: number) {
   const existing = await db.select({ key: agents.key }).from(agents).where(eq(agents.workspaceId, workspaceId));
   const missing = AGENT_KEYS.filter((key) => !existing.some((row) => row.key === key));
-  if (!missing.length) return;
+  if (!missing.length) return ensureBuiltinSkills(workspaceId);
   const [workspace] = await db.select({ aiProvider: workspaces.aiProvider }).from(workspaces).where(eq(workspaces.id, workspaceId));
   const provider = workspace ? workspaceProvider(workspace) : "openai";
 
@@ -187,6 +189,8 @@ export async function ensureDefaultAgents(workspaceId: number) {
       ])
     );
   }
+  // New agents get their role's built-in skills.
+  await ensureBuiltinSkills(workspaceId, true);
 }
 
 export async function getAgentRow(workspaceId: number, key: AgentKey) {
@@ -232,6 +236,8 @@ export type AgentView = Agent & {
   instructions: string;
   model: AgentModelId;
   permissions: PermissionId[];
+  /** Ids of the library skills switched on for this agent (agent_skill_assignments). */
+  skillIds: number[];
   monthlyBudgetCents: number;
   maxTurns: number;
   enabled: boolean;
@@ -277,7 +283,7 @@ export async function getAgentTeam(
   await ensureDefaultAgents(workspace.id);
   const { start, end } = monthWindow();
 
-  const [rows, spendRows, taskRows, activityRows, working] = await Promise.all([
+  const [rows, spendRows, taskRows, activityRows, working, skillIds] = await Promise.all([
     db.select().from(agents).where(eq(agents.workspaceId, workspace.id)),
     db
       .select({
@@ -302,6 +308,7 @@ export async function getAgentTeam(
       .orderBy(desc(agentActivity.createdAt), desc(agentActivity.id))
       .limit(ACTIVITY_PER_AGENT * AGENT_KEYS.length),
     getWorkingAgents(workspace.id),
+    getEnabledSkillIds(workspace.id),
   ]);
 
   const now = Date.now();
@@ -328,6 +335,7 @@ export async function getAgentTeam(
         instructions: row.instructions,
         model: activeAgentModel(row, provider),
         permissions: row.permissions.filter(isPermissionId),
+        skillIds: skillIds.get(key) ?? [],
         monthlyBudgetCents: row.monthlyBudgetCents,
         maxTurns: agentMaxTurns(row),
         enabled: row.enabled,
@@ -682,7 +690,8 @@ export async function updateAgentConfig(workspaceId: number, key: AgentKey, inpu
     row.permissions.join() !== input.permissions.join();
   // A Switch evaluation stays until the next SwitchAgent scan (the panel flags it as older than the change); a rule
   // or AI score is recomputed so it never describes a configuration that no longer exists.
-  const report = trustInputsChanged && row.trustReport?.mode !== "switch" ? scanAgentRules({ key, ...input }) : null;
+  const report =
+    trustInputsChanged && row.trustReport?.mode !== "switch" ? scanAgentRules({ key, ...input, skills: await getTrustSkills(row.id) }) : null;
   const now = new Date();
 
   await db
@@ -748,6 +757,27 @@ export async function switchAgentsToProvider(workspaceId: number, provider: Agen
     switched++;
   }
   return switched;
+}
+
+/**
+ * Re-runs the rule-based trust scan on the saved configuration after something it weighs changed outside the
+ * dialog (a skill switched on or off, a new skill version). A Switch evaluation stays, as it does for dialog saves:
+ * the panel flags it as older than the change. Returns the new score, or null when nothing was rescanned.
+ */
+export async function refreshRuleTrust(row: AgentRow) {
+  if (row.trustReport?.mode === "switch" || !isAgentKey(row.key)) return null;
+  const report = scanAgentRules({
+    key: row.key,
+    instructions: row.instructions,
+    permissions: row.permissions.filter(isPermissionId),
+    monthlyBudgetCents: row.monthlyBudgetCents,
+    skills: await getTrustSkills(row.id),
+  });
+  await db
+    .update(agents)
+    .set({ trustScore: report.score, trustReport: report, trustScannedAt: new Date(report.scannedAt) })
+    .where(eq(agents.id, row.id));
+  return report.score;
 }
 
 export async function saveTrustScan(row: AgentRow, report: TrustReport, costMicros: number) {

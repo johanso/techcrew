@@ -5,9 +5,11 @@ import { and, eq, gte, sql } from "drizzle-orm";
 import { agentActivity, agents, db, workspaces, type AgentRow } from "@/db";
 import { modelInfo, workspaceProvider } from "@/lib/agent-config";
 import { activeAgentModel, logAgentActivity, monthSpendMicros } from "@/lib/agents";
+import { getAgentSkills, promptSkills } from "@/lib/agent-skills";
 import { getAIKeys } from "@/lib/ai-keys";
 import { anthropicClient, messageCostMicros } from "@/lib/anthropic";
 import { openAIClient, responseCostMicros } from "@/lib/openai";
+import { skillsPromptBlock } from "@/lib/skill-runtime";
 import { addScanCost } from "@/lib/switch-trust";
 import type { EvalMessage } from "@/lib/switch-trust-config";
 
@@ -43,7 +45,10 @@ export async function answerEvaluation(agentId: number, messages: EvalMessage[])
   const apiKey = (await getAIKeys(workspace.id))[provider];
   if (!apiKey) return { ok: false, status: 503, error: "The agent's AI provider has no API key." };
 
-  const system = `${agent.instructions}${EVAL_NOTE}`;
+  // Its always-loaded skills ride in the prompt as they do in the pipeline; on-demand ones need tools it lacks here.
+  const always = (await getAgentSkills(agent.id)).filter((skill) => skill.row.load === "always");
+  const skills = skillsPromptBlock(await promptSkills(always), { tools: false });
+  const system = `${agent.instructions}${skills}${EVAL_NOTE}`;
   let content: string;
   let costMicros: number;
   if (provider === "openai") {

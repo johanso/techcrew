@@ -3,13 +3,15 @@ import "server-only";
 import type { FunctionTool } from "openai/resources/responses/responses";
 
 import type { LoopState, TurnOutcome } from "@/lib/agent-loop";
-import { executeTool, toolStep, type ToolContext } from "@/lib/agent-tools";
+import { executeTool, toolStep, type ToolContext, type ToolStep } from "@/lib/agent-tools";
 
 /**
  * Simulated agents (AGENTS_SIMULATED=true): a scripted stand-in for the model, for trying the pipeline locally
  * without an API key or spend. Each stage takes two turns: one real tool call (so GitHub reads, the developer's
  * commit, the diff and CI checks really happen), then the stage's finish tool with a fixed, passing result: the
  * Reviewer and Security approve with no findings and the Lead approves at low risk (the risk floor still applies).
+ * An agent with skills switched on also searches its first skill and reads the top match in that first turn, so the
+ * skill tools run for free too.
  */
 
 export function isSimulatedAgents() {
@@ -93,6 +95,28 @@ function finishResult(finish: string, ctx: ToolContext): unknown {
   }
 }
 
+// What each stage's simulated agent looks up in its first skill.
+const SKILL_QUERY: Record<string, string> = {
+  submit_analysis: "best practices",
+  submit_work: "responsive layout",
+  submit_review: "accessibility",
+  submit_security_review: "sanitize html",
+  submit_approval: "best practices",
+  submit_test_report: "testing",
+};
+
+/** search_skill on the agent's first skill, then read_skill on the top match (or SKILL.md when nothing matched). */
+async function skillCalls(input: { finish: FunctionTool; toolContext: ToolContext; tools: FunctionTool[] }): Promise<ToolStep[]> {
+  const skill = input.toolContext.skills[0];
+  if (!skill || !input.tools.some((tool) => tool.name === "search_skill")) return [];
+  const searchArgs = JSON.stringify({ skill: skill.slug, query: SKILL_QUERY[input.finish.name] ?? "best practices" });
+  const found = await executeTool(input.toolContext, input.tools, "search_skill", searchArgs);
+  const path = /^- (\S+) — /m.exec(found)?.[1] ?? "SKILL.md";
+  const readArgs = JSON.stringify({ skill: skill.slug, path, offset: null });
+  const read = await executeTool(input.toolContext, input.tools, "read_skill", readArgs);
+  return [toolStep("search_skill", searchArgs, found), toolStep("read_skill", readArgs, read)];
+}
+
 /** One scripted turn, shaped like a model turn: tool call first, the stage's result on the next turn (or when forced). */
 export async function simulatedTurn<T>(input: {
   tools: FunctionTool[];
@@ -109,11 +133,12 @@ export async function simulatedTurn<T>(input: {
   if (!call) {
     return { state: next, costMicros: 0, steps: [], result: finishResult(input.finish.name, input.toolContext) as T };
   }
+  const skillSteps = await skillCalls(input);
   const args = JSON.stringify(call.args);
   const output = await executeTool(input.toolContext, input.tools, call.name, args);
   // A failed write must not pass as success: surface it the way a model's stage would fail.
   if (call.name === "write_file" && !output.startsWith("Created") && !output.startsWith("Updated")) {
     throw new Error(`Simulated developer couldn't write its file: ${output}`);
   }
-  return { state: next, costMicros: 0, steps: [toolStep(call.name, args, output)], result: null };
+  return { state: next, costMicros: 0, steps: [...skillSteps, toolStep(call.name, args, output)], result: null };
 }

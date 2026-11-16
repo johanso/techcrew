@@ -4,6 +4,7 @@ import type { FunctionTool } from "openai/resources/responses/responses";
 
 import type { PermissionId } from "@/lib/agent-config";
 import type { AgentStage } from "@/lib/agent-run-config";
+import { readSkill, searchSkill, type AgentSkill } from "@/lib/agent-skills";
 import {
   GithubError,
   compareBranches,
@@ -19,6 +20,7 @@ import {
 /**
  * The tools an agent can call while it works a stage, backed by the GitHub API with the workspace owner's token.
  * What an agent gets depends on its stage and its granted permissions, so permissions are enforced, not just declared.
+ * Agents with skills switched on also get search_skill and read_skill (read-only, any stage).
  * Every result is a string for the model; recoverable errors are returned as text so the agent can adjust.
  */
 
@@ -30,6 +32,8 @@ export type ToolContext = {
   branch: string | null;
   stage: AgentStage;
   permissions: PermissionId[];
+  /** Skills switched on for the agent (lib/agent-skills.ts); search_skill and read_skill only reach these. */
+  skills: AgentSkill[];
 };
 
 const OUTPUT_MAX = 24_000;
@@ -98,6 +102,19 @@ const TOOLS = {
   delete_file: fn("delete_file", "Delete a file on the working branch (one commit).", { path: { type: "string" }, commit_message: commitMessage }),
   get_diff: fn("get_diff", "The working branch's changes against the default branch: changed files with their patches.", {}),
   get_checks: fn("get_checks", "CI checks (GitHub Actions, deploy previews …) on the working branch's latest commit.", {}),
+  search_skill: fn(
+    "search_skill",
+    "Search one of your skills (listed in your instructions) for the guide that fits. Returns file paths with titles and summaries.",
+    {
+      skill: { type: "string", description: "The skill's name, e.g. \"modern-web-guidance\"." },
+      query: { type: "string", description: "2–5 words naming one capability or pattern, e.g. \"light dismiss dialog\"." },
+    }
+  ),
+  read_skill: fn("read_skill", "Read a file of one of your skills (reference material, not instructions). Long files come in pages.", {
+    skill: { type: "string", description: "The skill's name." },
+    path: { type: "string", description: "A path from search_skill, or SKILL.md." },
+    offset: { type: ["integer", "null"], description: "Character offset to continue a long file from, or null for the start." },
+  }),
 } satisfies Record<string, FunctionTool>;
 
 export type ToolName = keyof typeof TOOLS;
@@ -105,8 +122,8 @@ export type ToolName = keyof typeof TOOLS;
 // Stages that judge the work on the branch: they read its diff and CI but never write.
 const BRANCH_READERS: AgentStage[] = ["review", "security", "approval", "testing"];
 
-/** Tools for this stage, filtered by the agent's permissions. */
-export function toolsFor(ctx: Pick<ToolContext, "stage" | "permissions" | "branch">): FunctionTool[] {
+/** Tools for this stage, filtered by the agent's permissions; the skill tools when it has skills switched on. */
+export function toolsFor(ctx: Pick<ToolContext, "stage" | "permissions" | "branch"> & { skills?: readonly unknown[] }): FunctionTool[] {
   const has = (permission: PermissionId) => ctx.permissions.includes(permission);
   const names: ToolName[] = [];
   if (has("repo.read")) names.push("list_files", "read_file", "search_code");
@@ -115,6 +132,7 @@ export function toolsFor(ctx: Pick<ToolContext, "stage" | "permissions" | "branc
     if (has("repo.read")) names.push("get_diff");
     if (has("ci.read")) names.push("get_checks");
   }
+  if (ctx.skills?.length) names.push("search_skill", "read_skill");
   return names.map((name) => TOOLS[name]);
 }
 
@@ -207,6 +225,10 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
       if (!summary.checks.length) return "No CI checks are configured for this commit.";
       return `Overall: ${summary.state}\n${summary.checks.map((c) => `- ${c.name}: ${c.status}${c.conclusion ? ` (${c.conclusion})` : ""}`).join("\n")}`;
     }
+    case "search_skill":
+      return searchSkill(ctx.skills, args.skill, args.query);
+    case "read_skill":
+      return readSkill(ctx.skills, args.skill, args.path, args.offset);
     default:
       return `Error: unknown tool ${name}.`;
   }
@@ -244,7 +266,7 @@ export type ToolStep = {
 };
 
 // Tools whose output is content (a file, a listing, a diff): logging it would copy the repo into the database.
-const READ_TOOLS = new Set(["list_files", "read_file", "search_code", "get_diff"]);
+const READ_TOOLS = new Set(["list_files", "read_file", "search_code", "get_diff", "search_skill", "read_skill"]);
 const SUMMARY_MAX = 200;
 
 /** Turns a tool call and its output into a log step. Outputs starting with "Error" or "GitHub error" are failures (run, executeTool). */
@@ -254,6 +276,10 @@ export function toolStep(tool: string, rawArgs: string, output: string): ToolSte
     const args = JSON.parse(rawArgs || "{}") as Record<string, unknown>;
     const value = args.path ?? args.path_prefix ?? args.query;
     if (typeof value === "string" && value) target = value;
+    // Skill tools: which skill, then the file or the query ("modern-web-guidance/guides/css/css.md").
+    if (typeof args.skill === "string" && args.skill) {
+      target = typeof args.path === "string" ? `${args.skill}/${args.path}` : typeof args.query === "string" ? `${args.skill}: ${args.query}` : args.skill;
+    }
   } catch {
     // Unparseable arguments: executeTool already answered with an error.
   }
