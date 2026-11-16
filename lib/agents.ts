@@ -34,7 +34,7 @@ import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
 import type { TrustScanView } from "@/lib/switch-trust-config";
 
 /**
- * AI agents of a workspace: the four roles from lib/agent-config.ts, persisted in `agents` and created on first use.
+ * AI agents of a workspace: the six roles from lib/agent-config.ts, persisted in `agents` and created on first use.
  * Every function takes a workspace the caller has already authorized and scopes its queries to it.
  */
 
@@ -122,7 +122,7 @@ export function agentMaxTurns(row: Pick<AgentRow, "key" | "maxTurns">) {
 // ── Defaults ───────────────────────────────────────────────────────────────────
 
 /**
- * Creates any of the four default agents this workspace doesn't have yet, each with a first (rule-based) trust
+ * Creates any of the default agents this workspace doesn't have yet, each with a first (rule-based) trust
  * scan. Safe to call on every request: concurrent calls can't duplicate thanks to (workspace_id, key).
  */
 export async function ensureDefaultAgents(workspaceId: number) {

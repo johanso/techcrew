@@ -300,7 +300,7 @@ async function queueScanJob(scanId: number) {
 export type RequestScansResult = { ok: true; queued: number; skipped: number; error?: string } | { ok: false; error: string };
 
 /**
- * Starts a SwitchAgent scan for each of `keys` (all four when omitted). Agents with a scan already in progress
+ * Starts a SwitchAgent scan for each of `keys` (every agent when omitted). Agents with a scan already in progress
  * are skipped. Returns at once; the score updates when the background job finishes.
  */
 export async function requestSwitchScans(input: {

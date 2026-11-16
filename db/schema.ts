@@ -152,7 +152,7 @@ export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 
 /**
- * An AI agent of a workspace. Every workspace gets the four roles from lib/agent-config.ts (`key`), created on
+ * An AI agent of a workspace. Every workspace gets the six roles from lib/agent-config.ts (`key`), created on
  * first use by ensureDefaultAgents(); the user configures them on the AI Team page.
  */
 export const agents = pgTable(
@@ -162,7 +162,7 @@ export const agents = pgTable(
     workspaceId: integer("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
-    // Role key ("analyst", "developer", "reviewer", "tester"); also what tasks.assignee_agent_id stores.
+    // Role key ("analyst", "developer", "reviewer", "security", "lead", "tester"); also what tasks.assignee_agent_id stores.
     key: text("key").notNull(),
     description: text("description").notNull(),
     instructions: text("instructions").notNull(),

@@ -17,7 +17,7 @@ function memberLine(member: TeamMember) {
   return member.lastAction ? `Active ${formatDistanceToNowStrict(member.lastAction.at, { addSuffix: true })}` : "No work yet";
 }
 
-/** Overview: the four agents with what they're doing now, plus this month's spend. Live via <LiveTeamProvider>. */
+/** Overview: every agent with what they're doing now, plus this month's spend. Live via <LiveTeamProvider>. */
 export function TeamStatus({ teamHref, className }: { teamHref: string; className?: string }) {
   const { team } = useLiveTeam();
   const working = team.members.filter((m) => m.status === "working").length;
