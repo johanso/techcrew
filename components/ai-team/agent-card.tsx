@@ -1,4 +1,4 @@
-import { ActivityIcon, BlocksIcon, CpuIcon, ListTodoIcon, SlidersHorizontalIcon } from "lucide-react";
+import { ActivityIcon, BlocksIcon, CpuIcon, LibraryBigIcon, ListTodoIcon, SlidersHorizontalIcon } from "lucide-react";
 
 import { AgentPortrait, AgentStatusBadge, BudgetMeter, TrustChip } from "@/components/ai-team/agent-visuals";
 import { Button } from "@/components/ui/button";
@@ -74,10 +74,16 @@ export function AgentCard({
             <CpuIcon className="size-3.5" />
             <span className="font-medium text-foreground">{model?.label ?? agent.model}</span>
           </li>
-          <li className="flex items-center gap-1.5" title="Attached permissions">
+          <li className="flex items-center gap-1.5" title="What the agent may do">
             <BlocksIcon className="size-3.5" />
             <span>
-              <span className="font-medium text-foreground tabular-nums">{agent.permissions.length}</span> permissions
+              Permissions · <span className="font-medium text-foreground tabular-nums">{agent.permissions.length}</span>
+            </span>
+          </li>
+          <li className="flex items-center gap-1.5" title="Knowledge the agent reads while it works">
+            <LibraryBigIcon className="size-3.5" />
+            <span>
+              Skills · <span className="font-medium text-foreground tabular-nums">{agent.skillIds.length}</span>
             </span>
           </li>
           <li>

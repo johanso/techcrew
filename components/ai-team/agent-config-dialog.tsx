@@ -6,6 +6,7 @@ import { CheckIcon, RotateCcwIcon, SaveIcon, SparklesIcon, Undo2Icon } from "luc
 
 import { generateAgentAction, saveAgentAction } from "@/app/dashboard/[workspaceId]/ai-team/actions";
 import { AGENT_STATUS, AgentPortrait } from "@/components/ai-team/agent-visuals";
+import { SkillsPanel } from "@/components/ai-team/skills-panel";
 import { SpendingPanel } from "@/components/ai-team/spending-panel";
 import { TrustPanel } from "@/components/ai-team/trust-panel";
 import { FormMessage } from "@/components/auth/form-parts";
@@ -40,6 +41,7 @@ import {
 } from "@/lib/agent-config";
 import { MAX_TURNS_MAX, MAX_TURNS_MIN } from "@/lib/agent-run-config";
 import type { AgentConfigField, AgentView } from "@/lib/agents";
+import type { SkillView } from "@/lib/agent-skills-config";
 import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
 import { cn } from "@/lib/utils";
 
@@ -62,6 +64,7 @@ export function AgentConfigDialog({
   providers,
   provider,
   switchTrust,
+  skills,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -72,6 +75,8 @@ export function AgentConfigDialog({
   providers: ProviderStatus;
   provider: AgentProvider;
   switchTrust: SwitchTrustStatus;
+  /** The workspace's skill library (Settings → Agent skills). */
+  skills: SkillView[];
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -85,6 +90,7 @@ export function AgentConfigDialog({
           providers={providers}
           provider={provider}
           switchTrust={switchTrust}
+          skills={skills}
           onSaved={() => onOpenChange(false)}
         />
       </DialogContent>
@@ -100,6 +106,7 @@ function ConfigForm({
   providers,
   provider,
   switchTrust,
+  skills,
   onSaved,
 }: {
   agent: AgentView;
@@ -109,6 +116,8 @@ function ConfigForm({
   providers: ProviderStatus;
   provider: AgentProvider;
   switchTrust: SwitchTrustStatus;
+  /** The workspace's skill library (Settings → Agent skills). */
+  skills: SkillView[];
   onSaved: () => void;
 }) {
   const defaults = AGENT_ROLES[agent.id].defaults;
@@ -368,6 +377,7 @@ function ConfigForm({
         <aside className="flex min-w-0 flex-col gap-4 border-t border-border/70 bg-canvas px-5 py-6 lg:border-t-0 lg:border-l">
           <TrustPanel agent={agent} workspaceId={workspaceId} dirty={dirty} aiEnabled={aiEnabled} switchTrust={switchTrust} />
           <SpendingPanel spend={agent.spend} budgetCents={budgetCents} />
+          <SkillsPanel agent={agent} skills={skills} permissions={permissions} workspaceId={workspaceId} />
         </aside>
       </div>
 

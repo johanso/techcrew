@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { PROVIDERS, isAgentKey, isPermissionId, modelInfo, workspaceProvider, type AgentKey } from "@/lib/agent-config";
 import { configAIErrorMessage, generateAgentConfig, getWorkspaceConfigAI, scanAgentWithAI } from "@/lib/agent-ai";
+import { getTrustSkills } from "@/lib/agent-skills";
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
 import {
   getAgentRow,
@@ -14,6 +15,7 @@ import {
   type AgentConfigField,
 } from "@/lib/agents";
 import { requireUser } from "@/lib/current-user";
+import { setAgentSkill } from "@/lib/skill-install";
 import { requestSwitchScans, syncSwitchCostCap } from "@/lib/switch-trust";
 import { getOwnedWorkspace } from "@/lib/workspaces";
 
@@ -72,6 +74,7 @@ export async function scanAgentAction(workspaceId: number, key: string): Promise
     description: agent.description,
     instructions: agent.instructions,
     permissions: agent.permissions.filter(isPermissionId),
+    skills: await getTrustSkills(agent.id),
     monthlyBudgetCents: agent.monthlyBudgetCents,
   };
 
@@ -156,4 +159,24 @@ export async function generateAgentAction(workspaceId: number, key: string, raw:
   } catch (error) {
     return { ok: false, error: configAIErrorMessage(ai, error) };
   }
+}
+
+/**
+ * Configure → Skills: switches one library skill on or off for this agent. Saves at once (like the auto-failover
+ * toggle), re-runs the rule-based trust scan and logs it in the agent's activity.
+ */
+export async function setAgentSkillAction(workspaceId: number, key: string, skillId: unknown, enabled: unknown): Promise<{ ok: true } | Failure> {
+  const auth = await authorize(workspaceId, key);
+  if (!auth) return { ok: false, error: "Agent not found." };
+  if (typeof skillId !== "number" || typeof enabled !== "boolean") return { ok: false, error: "Invalid request." };
+  try {
+    const result = await setAgentSkill(auth.workspace.id, auth.key, skillId, enabled);
+    if (!result.ok) return result;
+  } catch (error) {
+    console.error("[ai-team] skill toggle failed", error);
+    return { ok: false, error: "We couldn't save that. Please try again." };
+  }
+  refresh(workspaceId);
+  revalidatePath(`/dashboard/${workspaceId}/settings`);
+  return { ok: true };
 }
