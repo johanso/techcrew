@@ -34,6 +34,9 @@ Smarter gates and a live view of the pipeline. Target version: 0.2.0.
 ### Removed
 - The Live Agent Office (replaced by the live process), its sprites and the `office:assets` script.
 
+### Security
+- Next.js 16.4.4 → 16.4.6: 16.4.4 is affected by a published security advisory (`next upgrade --agent=security`).
+
 ## [0.1.0] — 2026-11-16
 
 The MVP: a workspace linked to one GitHub repository, its issues on a Kanban board, and a team of four AI agents that
