@@ -29,6 +29,7 @@ import {
   buildSwitchReport,
   isPendingScan,
   maskSwitchKey,
+  type SwitchRun,
   pickFastEvaluation,
   runErrorMessage,
   runPhase,
@@ -56,6 +57,8 @@ const SCAN_MAX_AGE_MS = 30 * 60_000;
 const STALE_MS = 10 * 60_000;
 // A queued scan older than this gets its job checked, to report an unreachable app early.
 const JOB_CHECK_AFTER_MS = 60_000;
+// The trigger returns a pre-minted run id: until Switch's worker picks the run up, reading it answers 404.
+const RUN_APPEAR_MS = 10 * 60_000;
 
 // ── Connection ─────────────────────────────────────────────────────────────────
 
@@ -450,11 +453,20 @@ export async function advanceTrustScan(scanId: number): Promise<TrustScanStatus>
       await db.update(trustScans).set({ status: "running", switchRunId: runId, updatedAt: new Date() }).where(eq(trustScans.id, scan.id));
     }
 
+    const readRun = async (id: string): Promise<SwitchRun> => {
+      try {
+        return await getSwitchRun(creds, id);
+      } catch (error) {
+        const young = Date.now() - scan.createdAt.getTime() < RUN_APPEAR_MS;
+        if (error instanceof SwitchApiError && error.status === 404 && young) return { id, status: "queued" };
+        throw error;
+      }
+    };
     const deadline = Date.now() + POLL_WINDOW_MS;
-    let run = await getSwitchRun(creds, runId);
+    let run = await readRun(runId);
     while (runPhase(run.status) === "pending" && Date.now() < deadline) {
       await sleep(POLL_EVERY_MS);
-      run = await getSwitchRun(creds, runId);
+      run = await readRun(runId);
     }
 
     const phase = runPhase(run.status);

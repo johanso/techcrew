@@ -68,19 +68,21 @@ export type SwitchSummary = {
   coverage?: { code?: string; at_risk?: number; passing?: number; not_run?: number; total?: number }[] | null;
 };
 
+// A multi-turn attack costs roughly this many agent answers per conversation.
+const TURNS_PER_ATTACK = 5;
+
 /**
- * The evaluation every agent runs: one, and the quickest to finish. Built-in ones first (they need no setup),
- * then single-turn probes over multi-turn adversarial attacks, then the fewest prompts.
+ * The evaluation every agent runs: one, and the cheapest to finish (each test is a model call on the agent's budget).
+ * Built-in ones first (no setup), then the fewest expected agent answers: prompts, times a few turns for multi-turn
+ * adversarial attacks (10 conversations beat 201 fixed prompts). Evaluations without a prompt count (e.g. Garak
+ * modules, often large) come last.
  */
 export function pickFastEvaluation(items: SwitchEvaluation[]): SwitchEvaluation | null {
-  const multiTurn = (e: SwitchEvaluation) => /adversarial|multi[- ]?turn|crescendo|jailbreak/i.test(e.name);
-  const prompts = (e: SwitchEvaluation) => (e.num_prompts && e.num_prompts > 0 ? e.num_prompts : Number.MAX_SAFE_INTEGER);
+  const multiTurn = (e: SwitchEvaluation) => /adversarial|multi[- ]?turn|crescendo/i.test(e.name);
+  const answers = (e: SwitchEvaluation) =>
+    e.num_prompts && e.num_prompts > 0 ? e.num_prompts * (multiTurn(e) ? TURNS_PER_ATTACK : 1) : Number.MAX_SAFE_INTEGER;
   const ranked = [...items].sort(
-    (a, b) =>
-      Number(!a.is_builtin) - Number(!b.is_builtin) ||
-      Number(multiTurn(a)) - Number(multiTurn(b)) ||
-      prompts(a) - prompts(b) ||
-      a.name.localeCompare(b.name)
+    (a, b) => Number(!a.is_builtin) - Number(!b.is_builtin) || answers(a) - answers(b) || a.name.localeCompare(b.name)
   );
   return ranked[0] ?? null;
 }

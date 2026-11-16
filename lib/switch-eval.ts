@@ -1,8 +1,8 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 
-import { agents, db, workspaces } from "@/db";
+import { agentActivity, agents, db, workspaces, type AgentRow } from "@/db";
 import { modelInfo, workspaceProvider } from "@/lib/agent-config";
 import { activeAgentModel, logAgentActivity, monthSpendMicros } from "@/lib/agents";
 import { getAIKeys } from "@/lib/ai-keys";
@@ -66,16 +66,36 @@ export async function answerEvaluation(agentId: number, messages: EvalMessage[])
     costMicros = messageCostMicros(model, response.model, response.usage);
   }
 
-  // Spend is always recorded: on the scan in progress (logged with its result), else on its own.
-  if (costMicros > 0 && !(await addScanCost(agent.id, costMicros))) {
+  // Spend is always recorded: on the scan in progress (logged with its result), else on one row per agent and day
+  // (an evaluation is ~100 tests: one row each would bury the agent's activity).
+  if (costMicros > 0 && !(await addScanCost(agent.id, costMicros))) await addOutsideScanCost(agent, costMicros);
+  return { ok: true, model, content: content.trim() || "(no answer)" };
+}
+
+const OUTSIDE_TITLE = "Answered Switch Trust tests";
+
+/** Today's (UTC) row for tests answered outside a TechTeam scan: created on the first one, its cost summed after. */
+async function addOutsideScanCost(agent: Pick<AgentRow, "id" | "workspaceId">, costMicros: number) {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const [row] = await db
+    .select({ id: agentActivity.id })
+    .from(agentActivity)
+    .where(and(eq(agentActivity.agentId, agent.id), eq(agentActivity.title, OUTSIDE_TITLE), gte(agentActivity.createdAt, today)))
+    .limit(1);
+  if (!row) {
     await logAgentActivity({
       workspaceId: agent.workspaceId,
       agentId: agent.id,
       kind: "scan",
-      title: "Answered a Switch Trust test",
-      detail: "Outside a SwitchAgent scan started from TechTeam (e.g. a run started in Switch).",
+      title: OUTSIDE_TITLE,
+      detail: "Tests outside a SwitchAgent scan started from TechTeam (e.g. a run started in Switch); cost of the day.",
       costMicros,
     });
+    return;
   }
-  return { ok: true, model, content: content.trim() || "(no answer)" };
+  await db
+    .update(agentActivity)
+    .set({ costMicros: sql`${agentActivity.costMicros} + ${costMicros}` })
+    .where(eq(agentActivity.id, row.id));
 }

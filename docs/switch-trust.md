@@ -44,9 +44,11 @@ sequenceDiagram
     UI->>App: page refreshes every 5 s while a scan is pending
 ```
 
-**One evaluation, not the catalog.** The first scan picks the quickest built-in evaluation of the Switch workspace
-(`pickFastEvaluation`: built-in, single-turn before multi-turn adversarial, fewest prompts), saves it on the
-connection and assigns only that one to each agent, with no schedule. Settings shows which one.
+**One evaluation, not the catalog.** The first scan picks the cheapest built-in evaluation of the Switch workspace
+(`pickFastEvaluation`: built-in first, then the fewest expected agent answers, counting ~5 turns per multi-turn
+adversarial conversation; modules without a prompt count, like Garak, last), saves it on the connection and assigns
+only that one to each agent, with no schedule. Settings shows which one. On the standard catalog that is
+"LLM01: Prompt injection (adversarial)" (10 conversations); the fixed-prompt sets run 200–2,250 tests each.
 
 ## When scans run
 
@@ -68,7 +70,8 @@ Without Switch connected, the panel keeps the rule-based **Scan again** (plus th
 
 1. `queued` → register the agent in Switch (`POST /sparrow/agents`, name `TechTeam <workspace> (#id) · <Role>`, id kept
    in `agents.switch_agent_id`), point Switch at the agent's endpoint, assign the evaluation, trigger a run → `running`.
-2. `running` → poll the run every 5 s for up to 40 s. Done → save the report → `succeeded`. Failed → `failed` with
+2. `running` → poll the run every 5 s for up to 40 s. The trigger returns a pre-minted run id, so a 404 in the first
+   10 minutes means "not picked up yet", not a failure. Done → save the report → `succeeded`. Failed → `failed` with
    Switch's reason. Still going → queue the next job (a scan gives up after 30 minutes).
 
 **Auth.** Every job carries a fresh random token; only its sha256 is stored (`trust_scans.token_hash`), replaced per
@@ -89,7 +92,8 @@ base URL and at `/chat/completions`, whichever way the client builds the path).
   in this chat; at most 1,024 output tokens. Only `user`/`assistant` turns are taken (`parseEvalMessages`): a test
   can't replace the system prompt.
 - **Spend** is added to the scan in progress and logged with its result (`SwitchAgent scan: N/100`). Tests answered
-  outside a TechTeam scan are logged on their own. An agent over its monthly budget answers 429.
+  outside a TechTeam scan (e.g. a run started in Switch) add up on one "Answered Switch Trust tests" row per agent and
+  day. An agent over its monthly budget answers 429.
 - `AGENTS_SIMULATED=true` answers with a canned refusal, without a model call.
 
 ## Cost caps (Switch ROI)
@@ -103,7 +107,7 @@ can't set caps never blocks a scan or a save (logged as a warning).
 `buildSwitchReport` turns the run into the agent's `TrustReport` (`mode: "switch"`):
 
 - **Score**: Switch's health score for the agent (0–1 or 0–100, shown 0–100), else the run's score, else the pass rate.
-- **Checks**: tests held / tests run.
+- **Checks**: tests held / tests run (every result page is read; the API returns 100 per page).
 - **OWASP coverage**: passing risks over evaluated risks (risks the evaluation didn't run don't count).
 - **Findings**: one for compromised tests (severity by share: ≥ 50 % critical, ≥ 25 % high, ≥ 10 % medium) and one per
   risk Switch marks at risk. Conversation text is never copied (it's attacker-written).
@@ -133,11 +137,17 @@ evaluation choice and the agents' Switch ids. **Disconnect** forgets the key and
 | Jobs service can't reach the app | Queued scan closed after a minute: "The jobs service couldn't call the app … Check PUBLIC_APP_URL." |
 | Run longer than 30 minutes, or no job for 10 minutes | Scan closed as failed; run it again |
 
+## First live scan (2026-11-16)
+
+Workspace 1, four agents on GPT-6.1 Sol / GPT-6 Luna, through an ngrok tunnel. Connect detected tenant and workspace,
+registered the agents, picked "LLM09: Hallucination and misinformation (fixed prompts)" (201 tests, before the
+picker counted adversarial turns) and ran it: score 99 for each agent (197–201 tests held, OWASP coverage 100 %),
+about 3 minutes, **$2.09** in model spend for the four. Fixed along the way: an early 404 on the pre-minted run id
+failed the scans; per-test activity rows for tests answered while no scan was pending; results read only from the
+first page.
+
 ## Not done yet
 
-- Verified end to end against local fakes of Switch and Cloudhike (connect, register, one evaluation, a run handed over
-  to a second job, weekly trigger, cost caps), never against a real Switch instance: request shapes follow the published OpenAPI spec
-  (`docs.switchagents.ai/switch-trust/api-reference/openapi.json`). The endpoint's `endpoint_auth_type: "bearer"` and
-  `config.endpoint` names are inferred from the docs. Check them on the first live scan.
+- Cost caps and weekly scans are verified against local fakes only; the live scan didn't exercise them yet.
 - Switch ROI usage tracking: Switch only shows spend for model calls reported through its SDK or OpenTelemetry, so
   until the agents report theirs, Switch shows the caps but not the spend (TechTeam's own spend tracking is unaffected).

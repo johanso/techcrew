@@ -26,14 +26,25 @@ describe("normalizeInstanceUrl", () => {
 });
 
 describe("pickFastEvaluation", () => {
-  it("prefers built-in, single-turn evaluations with the fewest prompts", () => {
+  it("prefers built-in evaluations with the fewest expected agent answers", () => {
     const picked = pickFastEvaluation([
       { id: "a", name: "Custom scope test", is_builtin: false, num_prompts: 2 },
       { id: "b", name: "LLM01 adversarial", is_builtin: true, num_prompts: 5 },
       { id: "c", name: "PII leakage", is_builtin: true, num_prompts: 40 },
       { id: "d", name: "Secrets leakage", is_builtin: true, num_prompts: 12 },
     ]);
+    // 12 fixed prompts beat 5 conversations of ~5 turns.
     expect(picked?.id).toBe("d");
+  });
+
+  it("picks a short adversarial run over hundreds of fixed prompts, and leaves unsized modules last", () => {
+    const picked = pickFastEvaluation([
+      { id: "garak", name: "Garak: DAN jailbreaks", is_builtin: true },
+      { id: "fixed", name: "LLM09: Hallucination and misinformation (fixed prompts)", is_builtin: true, num_prompts: 201 },
+      { id: "adv9", name: "LLM09: Hallucination and misinformation (adversarial)", is_builtin: true, num_prompts: 10 },
+      { id: "adv1", name: "LLM01: Prompt injection (adversarial)", is_builtin: true, num_prompts: 10 },
+    ]);
+    expect(picked?.id).toBe("adv1");
   });
 
   it("returns null for an empty catalog", () => {

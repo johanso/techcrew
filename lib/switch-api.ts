@@ -156,13 +156,19 @@ export function getSwitchRun(creds: SwitchCredentials, runId: string) {
   return call<SwitchRun>(creds, "GET", `${scoped(creds, "eval/evaluation-runs")}/${encodeURIComponent(runId)}`);
 }
 
+/** Every result of a run (100 per page, the API's maximum; capped at 50 pages). */
 export async function listSwitchRunResults(creds: SwitchCredentials, runId: string) {
-  const page = await call<{ items?: SwitchRunResult[] }>(
-    creds,
-    "GET",
-    `${scoped(creds, "eval/evaluation-runs")}/${encodeURIComponent(runId)}/results?page_size=100`
-  );
-  return page.items ?? [];
+  const results: SwitchRunResult[] = [];
+  for (let page = 1; page <= 50; page++) {
+    const batch = await call<{ items?: SwitchRunResult[]; total_pages?: number }>(
+      creds,
+      "GET",
+      `${scoped(creds, "eval/evaluation-runs")}/${encodeURIComponent(runId)}/results?page_size=100&page=${page}`
+    );
+    results.push(...(batch.items ?? []));
+    if (!batch.items?.length || page >= (batch.total_pages ?? 1)) break;
+  }
+  return results;
 }
 
 export function getSwitchAgentSummary(creds: SwitchCredentials, agentId: string) {
