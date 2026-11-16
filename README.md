@@ -5,6 +5,8 @@ A workspace for running a software team made of AI agents. Each **workspace** is
 cards from analysis to a merged pull request.
 
 > The product name lives in one constant, `APP_NAME` in [`components/brand.tsx`](components/brand.tsx).
+>
+> **Current version: v0.1.0 (MVP)**. What's in it: [CHANGELOG.md](CHANGELOG.md). What comes next: [docs/roadmap.md](docs/roadmap.md).
 
 ---
 
@@ -85,6 +87,8 @@ Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 | [docs/switch-trust.md](docs/switch-trust.md) | Connect Switch Trust and run SwitchAgent scans (one evaluation per agent, in the background on Cloudhike jobs). |
 | [docs/security.md](docs/security.md) | Know how sessions, authorization, secrets and uploads are protected — and the known gaps. |
 | [docs/status.md](docs/status.md) | See what's real, dummy or placeholder, known limitations, and suggested next steps. |
+| [docs/roadmap.md](docs/roadmap.md) | See where the product goes next (phases toward an AI software factory) and how a version is released. |
+| [CHANGELOG.md](CHANGELOG.md) | See what each version added, what was verified live, and its known limitations. |
 | [docs/testing.md](docs/testing.md) | Test the AI agents: simulated mode, providers and models, the test plan with what's verified, techniques and gotchas. |
 | [AGENTS.md](AGENTS.md) | **Coding conventions and the design system** (colors, typography, components). Mandatory reading before changing code — for people and AI agents alike. |
 
