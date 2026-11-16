@@ -8,7 +8,9 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
-Smarter gates and a live view of the pipeline. Target version: 0.2.0.
+## [0.2.0] — 2026-11-16
+
+Smarter gates and a live view of the pipeline.
 
 ### Added
 - **Security** and **Lead** agents. Security reviews every pull request for leaked secrets, injection, unsafe
@@ -107,5 +109,6 @@ takes a card from analysis to a merged pull request, with cost, trust and human 
   budget mid-run, Draft with AI with a real key, automatic provider switch.
 - Switch shows caps but not spend until usage is reported through the Switch SDK.
 
-[Unreleased]: https://github.com/jricardomillion/techcrew/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jricardomillion/techcrew/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.2.0
 [0.1.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.1.0
