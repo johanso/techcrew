@@ -3,7 +3,7 @@ import { ZapIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-export const APP_NAME = "FastNextJS";
+export const APP_NAME = "TechTeam";
 
 /** The square logo on its own (e.g. the collapsed sidebar). */
 export function BrandMark({ className }: { className?: string }) {

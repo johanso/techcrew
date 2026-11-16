@@ -1,16 +1,15 @@
 import "server-only";
 
-import type { Workspace } from "@/db";
-import { DUMMY_AGENTS as AGENTS, taskKeyPrefix, type Agent } from "@/lib/agents";
-import type { IssuePriority } from "@/lib/board-config";
+import { addDays, differenceInCalendarDays, parseISO } from "date-fns";
 
-/**
- * Data for the workspace Overview page.
- *
- * ⚠️ DUMMY DATA. There are no tasks, agents or activity tables yet. The types below are the
- * contract the UI renders; when real data lands, replace the body of `getOverviewData` with
- * queries and keep the return shape. Nothing else needs to change.
- */
+import type { Workspace } from "@/db";
+import { getActivityFeed, WORK_ACTIVITY_KINDS, type ActivityItem } from "@/lib/activity";
+import type { BoardCardRun } from "@/lib/agent-run-config";
+import { getTeamOverview, type TeamOverview } from "@/lib/agents";
+import { getBoardData } from "@/lib/board";
+import { ISSUE_PRIORITIES, type BoardCard, type BoardColumnId, type IssuePriority, type IssueType } from "@/lib/board-config";
+
+/** Data for the workspace Overview page, from the board (tasks + latest runs), the agents and the activity feed. */
 
 export type TaskStatus = "open" | "in_progress" | "pr_ready";
 export type TaskPriority = IssuePriority;
@@ -19,24 +18,17 @@ export type UpcomingTask = {
   id: string;
   key: string;
   title: string;
+  type: IssueType;
   status: TaskStatus;
+  /** Board column the card sits in. */
+  column: BoardColumnId;
   priority: TaskPriority;
-  dueAt: Date;
-  assignee: Agent | null;
+  /** Calendar date, "yyyy-MM-dd". */
+  dueDate: string | null;
   labels: string[];
-};
-
-export type ActivityKind = "task_completed" | "pr_opened" | "commits_pushed" | "review_requested" | "task_assigned" | "task_created";
-
-export type ActivityItem = {
-  id: string;
-  kind: ActivityKind;
-  actor: { type: "agent"; agent: Agent } | { type: "user"; name: string };
-  /** Short predicate, e.g. "opened a pull request". */
-  action: string;
-  /** What the action was about, e.g. a task or branch name. */
-  target: string;
-  at: Date;
+  /** Latest agent run, or null if the card was never run. */
+  run: BoardCardRun | null;
+  githubIssueNumber: number | null;
 };
 
 export type OverviewStat = { count: number; hint: string };
@@ -44,125 +36,104 @@ export type OverviewStat = { count: number; hint: string };
 export type OverviewData = {
   stats: { open: OverviewStat; inProgress: OverviewStat; prReady: OverviewStat };
   upcomingTasks: UpcomingTask[];
+  team: TeamOverview;
   recentActivity: ActivityItem[];
 };
 
-const HOUR = 60 * 60 * 1000;
-const DAY = 24 * HOUR;
+const UPCOMING_LIMIT = 5;
+const RECENT_ACTIVITY_LIMIT = 6;
+const IN_PROGRESS_COLUMNS: BoardColumnId[] = ["analysis", "in_development", "in_review", "testing"];
 
-export async function getOverviewData(workspace: Pick<Workspace, "id" | "name">, userName: string | null): Promise<OverviewData> {
-  // Relative to "now" so due dates and timestamps always read naturally.
-  const now = Date.now();
-  const prefix = taskKeyPrefix(workspace.name);
-  const you = userName?.split(" ")[0] ?? "You";
+function taskStatus(card: BoardCard, column: BoardColumnId): TaskStatus {
+  if (card.run?.status === "awaiting_merge") return "pr_ready";
+  return column === "todo" ? "open" : "in_progress";
+}
+
+/** Due date first (soonest, undated last), then priority, then board order. */
+function byUrgency(a: { card: BoardCard; index: number }, b: { card: BoardCard; index: number }) {
+  if (a.card.dueDate !== b.card.dueDate) {
+    if (!a.card.dueDate) return 1;
+    if (!b.card.dueDate) return -1;
+    return a.card.dueDate < b.card.dueDate ? -1 : 1;
+  }
+  const priority = ISSUE_PRIORITIES.indexOf(a.card.priority) - ISSUE_PRIORITIES.indexOf(b.card.priority);
+  return priority || a.index - b.index;
+}
+
+function plural(count: number, word: string) {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+export async function getOverviewData(workspace: Pick<Workspace, "id" | "name" | "aiProvider">, viewerId: number): Promise<OverviewData> {
+  const [board, team, activity] = await Promise.all([
+    getBoardData(workspace),
+    getTeamOverview(workspace),
+    getActivityFeed(workspace, { limit: RECENT_ACTIVITY_LIMIT, viewerId, kinds: WORK_ACTIVITY_KINDS }),
+  ]);
+
+  // Every card that isn't done, in board order (columns left to right, then position).
+  const open = (Object.entries(board.columns) as [BoardColumnId, string[]][])
+    .filter(([column]) => column !== "done")
+    .flatMap(([column, ids]) => ids.map((id) => ({ card: board.cards[id]!, column })))
+    .map((entry, index) => ({ ...entry, index }));
+
+  const today = new Date();
+  const weekEnd = addDays(today, 7);
+  const overdue = open.filter(({ card }) => card.dueDate && differenceInCalendarDays(parseISO(card.dueDate), today) < 0).length;
+  const dueThisWeek = open.filter(({ card }) => {
+    if (!card.dueDate) return false;
+    const due = parseISO(card.dueDate);
+    return differenceInCalendarDays(due, today) >= 0 && differenceInCalendarDays(due, weekEnd) <= 0;
+  }).length;
+
+  const inProgress = open.filter(({ column }) => IN_PROGRESS_COLUMNS.includes(column));
+  const agentsWorking = new Set(inProgress.flatMap(({ card }) => (card.assignee ? [card.assignee.name] : []))).size;
+  const prReady = open.filter(({ card }) => card.run?.status === "awaiting_merge").length;
 
   return {
     stats: {
-      open: { count: 12, hint: "4 due this week" },
-      inProgress: { count: 5, hint: "Across 3 agents" },
-      prReady: { count: 3, hint: "Waiting for your review" },
+      open: {
+        count: open.length,
+        hint:
+          open.length === 0
+            ? "Nothing on the board yet"
+            : overdue
+              ? `${overdue} overdue`
+              : dueThisWeek
+                ? `${dueThisWeek} due this week`
+                : "None due this week",
+      },
+      inProgress: {
+        count: inProgress.length,
+        hint:
+          inProgress.length === 0
+            ? "No agent is working on a card"
+            : agentsWorking
+              ? `Across ${plural(agentsWorking, "agent")}`
+              : "Not assigned to an agent",
+      },
+      prReady: {
+        count: prReady,
+        hint: prReady ? "Waiting for you to merge" : "Nothing waiting for you",
+      },
     },
-    upcomingTasks: [
-      {
-        id: "t1",
-        key: `${prefix}-142`,
-        title: "Add OAuth error states to the sign-in form",
-        status: "in_progress",
-        priority: "high",
-        dueAt: new Date(now + 5 * HOUR),
-        assignee: AGENTS.atlas,
-        labels: ["auth", "ui"],
-      },
-      {
-        id: "t2",
-        key: `${prefix}-139`,
-        title: "Rate-limit the GitHub repository listing endpoint",
-        status: "pr_ready",
-        priority: "high",
-        dueAt: new Date(now + 1 * DAY),
-        assignee: AGENTS.nova,
-        labels: ["api"],
-      },
-      {
-        id: "t3",
-        key: `${prefix}-147`,
-        title: "Write end-to-end tests for workspace creation",
-        status: "open",
-        priority: "medium",
-        dueAt: new Date(now + 2 * DAY),
-        assignee: AGENTS.sage,
-        labels: ["testing"],
-      },
-      {
-        id: "t4",
-        key: `${prefix}-151`,
-        title: "Set up preview deployments for pull requests",
-        status: "open",
-        priority: "medium",
-        dueAt: new Date(now + 4 * DAY),
-        assignee: AGENTS.orion,
-        labels: ["ci"],
-      },
-      {
-        id: "t5",
-        key: `${prefix}-153`,
-        title: "Document the workspace data model",
-        status: "open",
-        priority: "low",
-        dueAt: new Date(now + 6 * DAY),
-        assignee: null,
-        labels: ["docs"],
-      },
-    ],
-    recentActivity: [
-      {
-        id: "a1",
-        kind: "pr_opened",
-        actor: { type: "agent", agent: AGENTS.nova },
-        action: "opened a pull request for",
-        target: `${prefix}-139 Rate-limit the repository listing`,
-        at: new Date(now - 18 * 60 * 1000),
-      },
-      {
-        id: "a2",
-        kind: "commits_pushed",
-        actor: { type: "agent", agent: AGENTS.atlas },
-        action: "pushed 3 commits to",
-        target: "feature/oauth-error-states",
-        at: new Date(now - 52 * 60 * 1000),
-      },
-      {
-        id: "a3",
-        kind: "review_requested",
-        actor: { type: "agent", agent: AGENTS.sage },
-        action: "requested your review on",
-        target: `${prefix}-136 Workspace switcher keeps section`,
-        at: new Date(now - 3 * HOUR),
-      },
-      {
-        id: "a4",
-        kind: "task_completed",
-        actor: { type: "agent", agent: AGENTS.orion },
-        action: "completed",
-        target: `${prefix}-131 Cache dependencies in CI`,
-        at: new Date(now - 6 * HOUR),
-      },
-      {
-        id: "a5",
-        kind: "task_assigned",
-        actor: { type: "user", name: you },
-        action: "assigned Sage to",
-        target: `${prefix}-147 End-to-end tests for workspace creation`,
-        at: new Date(now - 1 * DAY - 2 * HOUR),
-      },
-      {
-        id: "a6",
-        kind: "task_created",
-        actor: { type: "user", name: you },
-        action: "created",
-        target: `${prefix}-153 Document the workspace data model`,
-        at: new Date(now - 2 * DAY),
-      },
-    ],
+    upcomingTasks: [...open]
+      .sort(byUrgency)
+      .slice(0, UPCOMING_LIMIT)
+      .map(({ card, column }) => ({
+        id: card.id,
+        key: card.key,
+        title: card.title,
+        type: card.type,
+        status: taskStatus(card, column),
+        column,
+        priority: card.priority,
+        dueDate: card.dueDate,
+        labels: card.labels,
+        run: card.run,
+        githubIssueNumber: card.github?.number ?? null,
+      })),
+    team,
+    recentActivity: activity.items,
   };
 }

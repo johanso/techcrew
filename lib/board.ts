@@ -3,6 +3,8 @@ import "server-only";
 import { and, asc, eq, inArray, isNull, max, min } from "drizzle-orm";
 
 import { db, tasks, workspaces, type Task, type Workspace } from "@/db";
+import type { BoardCardRun } from "@/lib/agent-run-config";
+import { getLatestRuns } from "@/lib/agent-runs";
 import { getAgent, taskKeyPrefix, type AgentId } from "@/lib/agents";
 import {
   DESCRIPTION_MAX,
@@ -29,7 +31,7 @@ type BoardWorkspace = Pick<Workspace, "id" | "name">;
 /** Cards of this workspace that are still on the board. */
 const onBoard = (workspace: BoardWorkspace) => and(eq(tasks.workspaceId, workspace.id), isNull(tasks.removedAt));
 
-function toBoardCard(task: Task, workspace: BoardWorkspace): BoardCard {
+function toBoardCard(task: Task, workspace: BoardWorkspace, run: BoardCardRun | null = null): BoardCard {
   return {
     id: String(task.id),
     key: `${taskKeyPrefix(workspace.name)}-${task.number}`,
@@ -38,6 +40,7 @@ function toBoardCard(task: Task, workspace: BoardWorkspace): BoardCard {
     description: task.description,
     priority: task.priority as BoardCard["priority"],
     assignee: getAgent(task.assigneeAgentId),
+    run,
     labels: task.labels,
     dueDate: task.dueDate,
     createdAt: task.createdAt.toISOString(),
@@ -51,16 +54,15 @@ function toBoardCard(task: Task, workspace: BoardWorkspace): BoardCard {
 
 
 export async function getBoardData(workspace: BoardWorkspace): Promise<BoardData> {
-  const rows = await db
-    .select()
-    .from(tasks)
-    .where(onBoard(workspace))
-    .orderBy(asc(tasks.position), asc(tasks.id));
+  const [rows, runs] = await Promise.all([
+    db.select().from(tasks).where(onBoard(workspace)).orderBy(asc(tasks.position), asc(tasks.id)),
+    getLatestRuns(workspace.id),
+  ]);
 
   const cards: BoardData["cards"] = {};
   const columns = emptyColumns();
   for (const row of rows) {
-    const card = toBoardCard(row, workspace);
+    const card = toBoardCard(row, workspace, runs.get(row.id) ?? null);
     cards[card.id] = card;
     // Rows with an unknown status (e.g. a renamed column) fall back to Todo instead of disappearing.
     columns[isBoardColumnId(row.status) ? row.status : "todo"].push(card.id);
@@ -258,4 +260,66 @@ export async function assignTask(workspace: BoardWorkspace, taskId: number, agen
     .where(and(eq(tasks.id, taskId), onBoard(workspace)))
     .returning();
   return updated ? toBoardCard(updated, workspace) : null;
+}
+
+/** One card as the board shows it, with its latest run. Null if it's no longer on the board. */
+export async function getBoardCard(workspace: BoardWorkspace, taskId: number) {
+  const [row] = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), onBoard(workspace)));
+  if (!row) return null;
+  return toBoardCard(row, workspace, (await getLatestRuns(workspace.id)).get(taskId) ?? null);
+}
+
+/**
+ * A card the agents file themselves (e.g. the tester after a failed merge), on top of Todo. When it mirrors a
+ * GitHub issue the agent just opened, the issue fields are set so the next sync recognizes it instead of importing it.
+ */
+export async function createAgentTask(
+  workspace: BoardWorkspace,
+  input: Pick<BoardCardInput, "type" | "title" | "description" | "priority" | "labels"> & {
+    github: { id: number; number: number; url: string; updatedAt: string } | null;
+  }
+) {
+  return db.transaction(async (tx) => {
+    await tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, workspace.id)).for("update");
+    if (input.github) {
+      // A sync may have imported the issue between its creation and this insert.
+      const [synced] = await tx
+        .select({ id: tasks.id, number: tasks.number })
+        .from(tasks)
+        .where(and(eq(tasks.workspaceId, workspace.id), eq(tasks.githubIssueId, input.github.id)));
+      if (synced) return synced;
+    }
+    const [{ lastNumber }] = await tx.select({ lastNumber: max(tasks.number) }).from(tasks).where(eq(tasks.workspaceId, workspace.id));
+    const [{ top }] = await tx
+      .select({ top: min(tasks.position) })
+      .from(tasks)
+      .where(and(eq(tasks.workspaceId, workspace.id), eq(tasks.status, "todo")));
+    const [created] = await tx
+      .insert(tasks)
+      .values({
+        workspaceId: workspace.id,
+        number: (lastNumber ?? 0) + 1,
+        type: input.type,
+        title: input.title.slice(0, TITLE_MAX),
+        description: input.description.slice(0, DESCRIPTION_MAX),
+        priority: input.priority,
+        labels: cleanLabels(input.labels),
+        status: "todo",
+        position: (top ?? 1) - 1,
+        ...(input.github
+          ? {
+              githubIssueId: input.github.id,
+              githubIssueNumber: input.github.number,
+              githubIssueUrl: input.github.url,
+              githubIssueState: "open",
+              githubUpdatedAt: new Date(input.github.updatedAt),
+            }
+          : {}),
+      })
+      .returning({ id: tasks.id, number: tasks.number });
+    return created!;
+  });
 }

@@ -5,12 +5,10 @@ import Link from "next/link";
 import { APP_NAME, BrandMark } from "@/components/brand";
 import { DASHBOARD_NAV, dashboardHref } from "@/components/dashboard/nav";
 import { useDashboardSection } from "@/components/dashboard/use-dashboard-section";
-import { SidebarUserMenu, type MenuUser } from "@/components/dashboard/user-menu";
 import { WorkspaceSwitcher, type SwitcherWorkspace } from "@/components/dashboard/workspace-switcher";
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -22,15 +20,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-export function AppSidebar({
-  user,
-  workspaces,
-  currentId,
-}: {
-  user: MenuUser;
-  workspaces: SwitcherWorkspace[];
-  currentId: number;
-}) {
+export function AppSidebar({ workspaces, currentId }: { workspaces: SwitcherWorkspace[]; currentId: number }) {
   const active = useDashboardSection();
   const { isMobile, setOpenMobile } = useSidebar();
   // On mobile the sidebar is a sheet; close it once the user picks a destination.
@@ -89,9 +79,6 @@ export function AppSidebar({
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="pb-3">
-        <SidebarUserMenu user={user} workspaceId={currentId} />
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );

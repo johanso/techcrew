@@ -26,13 +26,15 @@ How the app is put together. For coding conventions and the design system, see [
 | Icons | `lucide-react` | Import `…Icon` names (`RocketIcon`). |
 | Font | **Plus Jakarta Sans** via `next/font` | Exposed as `--font-sans`. |
 | Theme | `next-themes` | Toggles the `dark` class on `<html>`; light by default, light/dark/system in the user menu. |
-| Database | **PostgreSQL** + **Drizzle ORM** (`postgres` driver) | Schema in `db/schema.ts`; applied with `drizzle-kit push`. |
-| Auth | **Hosted Better Auth** on CloudHike | Called over HTTP from `lib/auth.ts`. The `better-auth` npm package is installed but unused. |
+| Database | **PostgreSQL** + **Drizzle ORM** (`postgres` driver) | Schema in `db/schema.ts`; SQL migrations in `drizzle/` (`db:generate`, `db:migrate`). |
+| Auth | **Hosted Better Auth** on CloudHike | Called over HTTP from `lib/auth.ts` (no SDK). |
 | GitHub | OAuth App + REST API v3 (`2022-11-28`) | Plain `fetch` in `lib/github.ts`; no Octokit. |
 | File storage | AWS S3 (`@aws-sdk/client-s3`) | Private bucket for workspace logos. |
 | Background jobs | **Inngest** v3 | Durable functions served at `/api/inngest`. |
+| Background HTTP jobs | **Cloudhike Jobs** | SwitchAgent scans: a job calls `/api/switch-trust/scans/<id>` back (`lib/jobs.ts`). |
 | Drag and drop | `@dnd-kit/core` 6 + `@dnd-kit/sortable` 10 | Stable API (not the 0.x `@dnd-kit/react`). |
 | Dates | `date-fns` | |
+| Quality | **ESLint 9** (flat config, `eslint-config-next`), **Vitest 4** | `npm run check` = `tsc` + lint + unit tests. |
 
 ## Folder structure
 
@@ -44,23 +46,26 @@ app/                         Routes (App Router)
   dashboard/                 /dashboard and /dashboard/[workspaceId]/…
     [workspaceId]/
       layout.tsx             Dashboard shell: sidebar + header; owner check
+      actions.ts             getTeamStatusAction (live office), getNotificationsAction, markNotificationsReadAction
       board/actions.ts       Board server actions
   workspaces/                Workspace picker and create flow
     actions.ts               createWorkspace, disconnectGithub
   globals.css                Theme: palette, semantic tokens, elevation, surface utilities
   layout.tsx                 Root layout: font, ThemeProvider
-  page.tsx                   Landing page (starter-template marketing page)
+  page.tsx                   `/`: redirects to /dashboard (signed in) or /sign-in
 components/
   ui/                        shadcn primitives (generated; restyle via tokens)
   auth/                      Sign-in/up forms, social buttons, brand icons, FormMessage
   workspace/                 Workspace avatar, create form, icon/logo picker, repo picker, draft storage
   dashboard/                 Shell (sidebar, switcher, header, user menu) and page building blocks
-  board/                     Kanban board, cards, columns, dialog, filters, GitHub sync UI
+  board/                     Kanban board, cards, columns, dialog, filters, GitHub sync UI, agent log panel,
+                             out-of-credit notice
+  office/                    Live Agent Office: scene, agents (sprite, bubble, hover card), live team polling
   app-header.tsx, brand.tsx  Top bar for /workspaces pages; product mark + APP_NAME
 db/
   schema.ts                  Drizzle schema (all tables)
   index.ts                   Drizzle client (`db`) + re-exports of the schema
-hooks/                       Client hooks (use-field-errors, use-mobile, use-highlighted-code)
+hooks/                       Client hooks (use-field-errors, use-mobile)
 lib/                         Server logic (most files start with `import "server-only"`)
   auth.ts                    Hosted-auth client, session cookie helpers
   current-user.ts            getCurrentUser(), requireUser(returnTo)
@@ -71,15 +76,41 @@ lib/                         Server logic (most files start with `import "server
   board.ts                   Board persistence and validation
   board-config.ts            Board vocabulary shared by server and client (no server-only)
   crypto.ts                  AES-256-GCM encrypt/decrypt
+  ai-keys.ts                 Workspace AI provider keys (encrypted; env fallback), verification, masking
   storage.ts                 S3 uploads and reads
-  agents.ts                  Agent list (dummy), task key prefix
-  overview.ts                Overview data (dummy)
+  agents.ts                  Agents persistence, team view, activity/spend ledger, task key prefix
+  agent-config.ts            Agent roles, skills, models (shared client/server)
+  agent-trust.ts             Skill Trust Score rule scan (pure)
+  agent-ai.ts                Config AI (OpenAI, else Anthropic): instruction drafting, AI trust review
+  agent-run-config.ts        Pipeline stages, run statuses, report types (shared client/server)
+  agent-runs.ts              agent_runs persistence, card placement, auto-pickup query
+  agent-pipeline.ts          Stage work: prompts, stage start/turns, branch, PR, review/test recording
+  agent-loop.ts              One model turn with function tools (OpenAI Responses or Anthropic Messages)
+  agent-simulated.ts         Scripted agents for AGENTS_SIMULATED=true
+  agent-tools.ts             Agent tools on the GitHub API, gated by stage and skills
+  pull-requests.ts           Agent PRs: merge, Tester follow-up on conflicts/failing builds, refresh, list
+  openai.ts                  OpenAI client and cost accounting
+  anthropic.ts               Anthropic client, cost accounting, tool schema conversion
+  overview.ts                Overview data: stats and upcoming tasks from the board, recent work activity
+  activity.ts                Workspace activity feed (agent_activity + cards people created)
+  notifications.ts           Header bell: notify(), list, mark read
+  switch-trust.ts            Switch Trust connection + SwitchAgent scans (register, one evaluation, poll, save)
+  switch-api.ts              Switch Trust REST client
+  switch-trust-config.ts     Switch scan vocabulary and pure mapping to a TrustReport (tested)
+  switch-eval.ts             How an agent answers a Switch test (its model + instructions)
+  jobs.ts                    Cloudhike Jobs client, public app URL
+  office-scene.json          Live office seats, sizes and sprite paths (generated by npm run office:assets)
   workspace-icons.ts         Selectable workspace icons (shared client/server)
-  inngest/                   Inngest client, boilerplate functions, agent-run job
+  inngest/                   Inngest client, boilerplate functions, agent pipeline + auto pickup
   utils.ts                   cn(), initials()
 proxy.ts                     Optimistic auth guard for /dashboard and /workspaces
 drizzle.config.ts            drizzle-kit config (public schema only)
 docs/                        This documentation
+drizzle/                     SQL migrations + snapshots (generated; 0000_baseline = schema as of 2026-11)
+test/                        Test helpers (server-only stand-in); tests live next to their modules (*.test.ts)
+office/                      Office scene bundle (source for npm run office:assets; never imported)
+scripts/                     build-office-assets.mjs, db-baseline.mjs
+public/                      office-space.webp and office/ sprite sheets
 AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.md just imports AGENTS.md)
 ```
 
@@ -89,18 +120,18 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 
 | Path | Auth | What it is |
 | --- | --- | --- |
-| `/` | public | Landing page from the starter template. |
+| `/` | public | Redirects to `/dashboard` when signed in, else `/sign-in` (no landing page yet). |
 | `/sign-in`, `/sign-up` | public | Email/password forms + GitHub/Google buttons. Signed-in visitors are redirected to `next` or `/workspaces`. |
 | `/auth/callback` | public | Finishes social sign-in (reads `#token=` from the URL fragment). |
 | `/workspaces` | signed in | Workspace picker — the landing page after sign-in. Redirects to `/workspaces/new` if you have none. |
 | `/workspaces/new` | signed in | Create a workspace. |
 | `/dashboard` | signed in | Redirects to the newest workspace's dashboard, or to `/workspaces/new`. |
 | `/dashboard/[workspaceId]` | owner | Overview. |
-| `/dashboard/[workspaceId]/board` | owner | Kanban board. |
-| `/dashboard/[workspaceId]/ai-team` | owner | Empty state. |
-| `/dashboard/[workspaceId]/pull-requests` | owner | Empty state + link to the repo's PRs on GitHub. |
-| `/dashboard/[workspaceId]/activity` | owner | Empty state. |
-| `/dashboard/[workspaceId]/settings` | owner | Account (`#account`) and workspace (`#workspace`) details. |
+| `/dashboard/[workspaceId]/board` | owner | Kanban board. `?log=<card id>` opens that card's agent log. |
+| `/dashboard/[workspaceId]/ai-team` | owner | AI Team: agents, configure dialog, trust score, spending, activity. |
+| `/dashboard/[workspaceId]/pull-requests` | owner | Agent pull requests (refreshed from GitHub on load), review/test verdicts, **Merge**. |
+| `/dashboard/[workspaceId]/activity` | owner | Workspace activity timeline (`?show=` for older events). |
+| `/dashboard/[workspaceId]/settings` | owner | Account (`#account`), workspace (`#workspace`), AI providers (`#ai`), agent automation (`#agents`). |
 
 "owner" = signed in **and** owner of that workspace; anything else is a 404.
 
@@ -113,7 +144,8 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `/api/github/callback` | GET | GitHub OAuth callback: verifies state, stores the encrypted token. |
 | `/api/workspaces/[id]/logo` | GET | Streams a workspace logo from S3 to its owner. |
 | `/api/inngest` | GET/POST/PUT | Inngest `serve()` endpoint (function registry and execution). |
-| `/api/inngest/trigger` | POST | **Starter-template example** that enqueues `app/task.process`. Unauthenticated — see [security](security.md#known-gaps). |
+| `/api/switch-trust/scans/[scanId]` | POST | Cloudhike job target: advances one SwitchAgent scan (single-use bearer token). |
+| `/api/switch-trust/agents/[agentId]/v1/chat/completions` | POST | OpenAI-compatible endpoint Switch Trust evaluates an agent through (per-agent derived bearer credential; also at the base path and `/chat/completions`). |
 
 ### Server actions
 
@@ -121,7 +153,11 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | --- | --- |
 | `app/(auth)/actions.ts` | `signUp`, `signIn`, `completeSocialSignIn`, `signOut` |
 | `app/workspaces/actions.ts` | `createWorkspace`, `disconnectGithub` |
-| `app/dashboard/[workspaceId]/board/actions.ts` | `createCardAction`, `updateCardAction`, `moveCardsAction`, `removeCardAction`, `runCardAction`, `syncIssuesAction` |
+| `app/dashboard/[workspaceId]/actions.ts` | `getTeamStatusAction`, `getNotificationsAction`, `markNotificationsReadAction` |
+| `app/dashboard/[workspaceId]/board/actions.ts` | `createCardAction`, `updateCardAction`, `moveCardsAction`, `removeCardAction`, `runCardAction`, `stopCardAction`, `mergeCardAction`, `switchProviderAndRetryAction`, `getRunLogAction`, `syncIssuesAction` |
+| `app/dashboard/[workspaceId]/ai-team/actions.ts` | `saveAgentAction`, `scanAgentAction`, `generateAgentAction` |
+| `app/dashboard/[workspaceId]/pull-requests/actions.ts` | `mergePullRequestAction` |
+| `app/dashboard/[workspaceId]/settings/actions.ts` | `saveAutomationAction`, `switchProviderAction`, `saveAutoFailoverAction`, `saveProviderKeyAction`, `removeProviderKeyAction` |
 
 Server Actions are POST endpoints. Each one re-checks the session and ownership itself; never assume the page that
 rendered the form already did.
@@ -240,4 +276,4 @@ The full design system — palette table, contrast rules, typography scale, layo
 | Auth service | `lib/auth.ts` (server only) | Friendly form errors; `503` → "temporarily unavailable". |
 | GitHub | `lib/github.ts`, `lib/github-issues.ts` | `401` → "reconnect", `403/404` → "no access", others → retry later. See [github-integration.md](github-integration.md). |
 | S3 | `lib/storage.ts` | Upload errors fail workspace creation with a generic message; read errors → 404 for the logo. |
-| Inngest | `lib/inngest/*`, `/api/inngest` | `send` failure → Run shows an error and nothing is assigned. See [background-jobs.md](background-jobs.md). |
+| Inngest | `lib/inngest/*`, `/api/inngest` | `send` failure → Run shows an error, the run is marked failed and nothing moves. See [background-jobs.md](background-jobs.md). |

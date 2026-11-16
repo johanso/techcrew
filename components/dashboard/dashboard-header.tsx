@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { BellIcon, BellOffIcon } from "lucide-react";
 
 import { GitHubIcon } from "@/components/auth/brand-icons";
 import { dashboardHref } from "@/components/dashboard/nav";
+import { NotificationsMenu } from "@/components/dashboard/notifications-menu";
 import { useDashboardSection } from "@/components/dashboard/use-dashboard-section";
 import { HeaderUserMenu, type MenuUser } from "@/components/dashboard/user-menu";
 import {
@@ -16,17 +16,11 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { buttonVariants } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { NotificationList } from "@/lib/notifications";
+import { cn } from "@/lib/utils";
 
 // Round, bordered icon buttons on the right of the header.
 const ACTION_BUTTON = buttonVariants({
@@ -40,11 +34,15 @@ const ACTION_BUTTON = buttonVariants({
 export function DashboardHeader({
   user,
   workspace,
+  notifications,
 }: {
   user: MenuUser;
   workspace: { id: number; name: string; repo: string; repoUrl: string };
+  notifications: NotificationList;
 }) {
   const section = useDashboardSection();
+  // The project's name, without its owner (the tooltip has the full owner/repo).
+  const repoName = workspace.repo.split("/").pop();
 
   return (
     <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 border-b border-border/70 bg-canvas/80 px-4 backdrop-blur-md lg:px-6">
@@ -74,44 +72,22 @@ export function DashboardHeader({
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={`Open ${workspace.repo} on GitHub`}
-                className={ACTION_BUTTON}
+                // A pill with the repository name from sm up; the round icon button on phones.
+                className={cn(ACTION_BUTTON, "sm:w-auto sm:max-w-64 sm:gap-2 sm:px-3")}
               />
             }
           >
-            <GitHubIcon className="size-4" />
+            <GitHubIcon className="size-4 shrink-0" />
+            <span className="hidden min-w-0 truncate text-sm font-semibold text-foreground sm:inline">{repoName}</span>
           </TooltipTrigger>
-          <TooltipContent>{workspace.repo}</TooltipContent>
+          <TooltipContent>Open {workspace.repo} on GitHub</TooltipContent>
         </Tooltip>
 
-        <NotificationsMenu />
+        <NotificationsMenu workspaceId={workspace.id} initial={notifications} className={ACTION_BUTTON} />
 
         <Separator orientation="vertical" className="mx-1 data-vertical:h-6 data-vertical:self-center" />
         <HeaderUserMenu user={user} workspaceId={workspace.id} />
       </div>
     </header>
-  );
-}
-
-function NotificationsMenu() {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger aria-label="Notifications" className={ACTION_BUTTON}>
-        <BellIcon />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={8} className="w-80">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel className="text-sm font-semibold text-foreground">Notifications</DropdownMenuLabel>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        {/* No notification source yet: agent runs and PR reviews will post here. */}
-        <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
-          <span className="icon-tile mb-1 rounded-full text-brand-emphasis">
-            <BellOffIcon />
-          </span>
-          <p className="text-sm font-semibold">You&apos;re all caught up</p>
-          <p className="text-xs text-muted-foreground">Agent runs and pull request reviews will show up here.</p>
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }

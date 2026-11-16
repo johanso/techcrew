@@ -18,8 +18,12 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 
 - The session token from the auth service lives in the `session_token` cookie: **HTTP-only** (no JavaScript access),
   `SameSite=Lax`, `Secure` in production, expiring with the session.
-- Every request that needs a user validates the token with the auth service (`GET /get-session`), cached once per
-  request. A missing or invalid token is treated as signed out.
+- Every request that needs a user validates the token with the auth service (`GET /get-session`). Validated sessions
+  are kept in memory for **60 s** (`lib/session-cache.ts`, keyed by a SHA-256 of the token), because the dashboard polls
+  several actions and the service rate-limits ("Too many requests"). Trade-off: a session revoked from another device
+  keeps working on this server for up to a minute; signing out here forgets it at once. If the service fails, a session
+  validated in the last 10 minutes is still accepted; never past its own expiry. A missing or invalid token is treated
+  as signed out (not cached).
 - Social sign-in returns the token in the URL **fragment** (`#token=…`), which browsers never send to servers. The
   callback page removes it from the address bar immediately and exchanges it through a server action.
 - Sign-out revokes the session on the auth service and deletes the cookie.
@@ -63,6 +67,43 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 - Requested scopes are the minimum for the product: `repo` (agents will push) and `read:user`.
 - The OAuth flow uses `state` (CSRF) and PKCE (`S256`).
 
+## AI provider keys
+
+- Saved per workspace in Settings → AI providers, in their own table (`ai_provider_keys`) so a workspace row never
+  carries a secret. Encrypted like GitHub tokens (`lib/crypto.ts`, `TOKEN_ENCRYPTION_KEY`).
+- Checked with the provider before saving (a free model listing), so a wrong key fails at once.
+- Never sent back to the browser: Settings shows only a masked hint (`sk-ant-••••a1B2`). The eye button shows what you
+  are typing, not the saved key. A successful save clears the field.
+- Decrypted only server-side, per call (`getAIKeys`), and passed to the SDK client for that call.
+- Without a workspace key, the server's `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` is used, if set.
+
+## Switch Trust
+
+- The Switch key is stored like the AI provider keys (encrypted, masked hint only, checked with Switch before saving).
+- Switch reaches each agent at a public endpoint (`/api/switch-trust/agents/<id>/…`) protected by a per-agent bearer
+  credential derived from `TOKEN_ENCRYPTION_KEY` (HMAC), compared in constant time. Only Switch receives it. The
+  endpoint answers with the agent's own instructions as the system prompt (tests can't replace it), no tools, capped
+  output, and refuses an agent over its monthly budget.
+- Cloudhike jobs call `/api/switch-trust/scans/<id>` with a random single-use token; only its sha256 is stored and it
+  is rotated per job and cleared when the scan ends.
+- Test conversations are attacker-written: they're never stored or shown, only counts and Switch's categories.
+
+## Agents
+
+The pipeline acts on the repository with the workspace owner's token, so its guardrails live in code, not prompts:
+
+- **Tools follow skills** (`toolsFor` in `lib/agent-tools.ts`): no *Write code* → no write tools; writes only target
+  the run's own `agent/…` branch, never the default branch. Tool calls outside the agent's set are refused even if
+  the model invents them.
+- **Protected paths**: agents can't write `.github/workflows/*` (a workflow could exfiltrate repository secrets),
+  `.env*` files (except `.env.example`) or `.git/`. Dependency manifests and lockfiles need *Manage dependencies*.
+  Paths with `..`, empty segments or a leading `/` are rejected.
+- **Prompt injection**: issue text, code, comments and CI output reach the model inside `<task>` or as tool output; the
+  system prompt's operating protocol (which overrides the configurable instructions) treats them as data.
+- **Merging** is never an agent tool: it happens only through `mergeAgentPullRequest` (manual button or the workspace's
+  auto-merge setting), and only when GitHub reports the PR mergeable with every check green.
+- **Spend** is bounded per stage by max turns and per month by each agent's budget, both re-checked every turn.
+
 ## File uploads
 
 - Workspace logos: PNG, JPEG, WebP or GIF only, ≤ 1 MB, checked on the client and again on the server.
@@ -82,7 +123,8 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 
 | Gap | Risk | Suggested fix |
 | --- | --- | --- |
-| `POST /api/inngest/trigger` (starter template) has no authentication. | Anyone can enqueue `app/task.process` events (spam, cost). | Delete the route, or require a signed-in user / a secret header. |
+| Agents can be steered by a malicious issue within their tools (e.g. a harmful code change on their branch). | A bad PR. Nothing merges without review + tests, and auto-merge is off by default. | Keep auto-merge off for repos that accept issues from outsiders; review agent PRs. |
+| The agent log stores tool targets and the first line of tool answers (paths, error messages). | Repository paths and error text are kept in Postgres. File contents never are (reads store no summary). | Nothing needed; keep `toolStep` from summarizing read tools. |
 | No rate limiting on Server Actions or route handlers. | Brute-force or abuse of create/sync endpoints. | Add per-user limits (e.g. Upstash Ratelimit) on sync, create and run. |
 | Workspaces have no members or roles. | Not a risk today, but anything shared later needs an access model. | Add memberships before any sharing feature. |
 | Disconnecting GitHub doesn't revoke the token on GitHub. | The (encrypted, deleted) token stays valid on GitHub's side until the user revokes it. | Call GitHub's "delete an app token" endpoint on disconnect. |

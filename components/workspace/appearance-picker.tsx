@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ImageUpIcon, Trash2Icon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -14,13 +14,9 @@ const LOGO_ACCEPT = "image/png,image/jpeg,image/webp,image/gif";
 
 /** Blob URL for previewing a picked file; revoked when the file changes or on unmount. */
 export function useObjectUrl(file: File | null) {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!file) return setUrl(null);
-    const next = URL.createObjectURL(file);
-    setUrl(next);
-    return () => URL.revokeObjectURL(next);
-  }, [file]);
+  // Derived from the file instead of set in an effect, so the preview shows on the same render.
+  const url = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+  useEffect(() => () => (url ? URL.revokeObjectURL(url) : undefined), [url]);
   return url;
 }
 

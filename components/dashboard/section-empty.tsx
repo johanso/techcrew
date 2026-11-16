@@ -39,3 +39,33 @@ export function SectionEmpty({
     </Empty>
   );
 }
+
+/** Empty body for a section inside a `surface` that keeps its header (e.g. a list with nothing in it yet). */
+export function SurfaceEmpty({
+  icon: Icon,
+  title,
+  description,
+  children,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-1 p-6">
+      <div className="relative flex min-h-48 flex-1 flex-col items-center justify-center gap-3 overflow-hidden rounded-lg bg-muted/50 p-6 text-center ring-1 ring-border/70">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] bg-size-[16px_16px] mask-[radial-gradient(ellipse_60%_70%_at_50%_50%,black,transparent)]"
+        />
+        <span className="icon-tile relative text-brand-emphasis">
+          <Icon />
+        </span>
+        <p className="relative text-sm font-semibold">{title}</p>
+        <p className="relative max-w-72 text-xs text-muted-foreground">{description}</p>
+        {children && <div className="relative">{children}</div>}
+      </div>
+    </div>
+  );
+}

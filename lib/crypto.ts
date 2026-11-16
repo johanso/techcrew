@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 
 /**
  * AES-256-GCM for secrets at rest (GitHub access tokens).
@@ -30,4 +30,12 @@ export function decrypt(payload: string) {
   const decipher = createDecipheriv("aes-256-gcm", key(), Buffer.from(iv, "base64url"));
   decipher.setAuthTag(Buffer.from(tag, "base64url"));
   return Buffer.concat([decipher.update(Buffer.from(ciphertext, "base64url")), decipher.final()]).toString("utf8");
+}
+
+/**
+ * A stable secret for `label` (e.g. the credential an outside service uses to call one agent's endpoint), derived
+ * from TOKEN_ENCRYPTION_KEY so nothing extra is stored. Rotating the key changes every derived secret.
+ */
+export function deriveSecret(label: string) {
+  return createHmac("sha256", key()).update(label).digest("base64url");
 }

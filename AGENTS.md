@@ -14,7 +14,8 @@ Read this file before changing anything. It sets the design system, typography, 
 conventions and folder structure every agent and contributor must follow.
 
 Human-oriented documentation lives in [`README.md`](README.md) and [`docs/`](docs): setup, architecture, data model,
-features, GitHub integration, background jobs, security and project status. Keep it current when behavior changes.
+features, GitHub integration, background jobs, security, project status and **agent testing**
+([`docs/testing.md`](docs/testing.md): what's verified, what isn't, how to test without spending). Keep it current when behavior changes.
 
 ## 1. What the app does
 
@@ -42,23 +43,30 @@ sign-in / sign-up ─▶ /workspaces ──(no workspaces)──▶ /workspaces/
 | Styling | Tailwind CSS v4 (CSS-first config) | All theme tokens live in `app/globals.css`. There is no `tailwind.config`. |
 | Components | shadcn/ui, **base-nova** style, on `@base-ui/react` | Not Radix. Compose with the `render` prop, not `asChild`. |
 | Icons | `lucide-react` | Import the `…Icon` suffixed names (`RocketIcon`). |
-| Database | PostgreSQL + Drizzle ORM | Schema in `db/schema.ts`; apply with `npm run db:push`. |
+| Database | PostgreSQL + Drizzle ORM | Schema in `db/schema.ts`; SQL migrations in `drizzle/` (`db:generate` → `db:migrate`). |
 | Auth | Hosted Better Auth (CloudHike) | Token in an HTTP-only cookie; see `lib/auth.ts`. |
 | GitHub | OAuth App (`repo read:user`) | Separate from social sign-in; tokens are AES-256-GCM encrypted. |
 | File storage | Private S3 bucket | Never public; served through ownership-checked routes. |
 | Jobs | Inngest | `lib/inngest/*`, `app/api/inngest`. |
+| AI | OpenAI (`openai` SDK, Responses API) and Anthropic (`@anthropic-ai/sdk`, Messages API) | `lib/openai.ts`, `lib/anthropic.ts`; each agent's model picks the provider. Optional — features degrade without keys. |
+| Quality | ESLint 9 (flat config, `eslint-config-next`) + Vitest 4 | `npm run check` = typegen + tsc + lint + unit tests. CI: `.github/workflows/ci.yml`. |
 
 ## 3. Commands
 
 ```bash
 npm run dev          # dev server on http://localhost:3000
 npm run build        # production build — must pass before you finish
-npx tsc --noEmit     # type check
-npm run db:push      # apply db/schema.ts to the database
+npm run check        # next typegen + tsc + eslint + vitest — must pass before you finish (CI runs it + build)
+npm test             # unit tests (Vitest); npm run test:watch while working
+npm run lint         # ESLint
+npm run db:generate  # after changing db/schema.ts: write the SQL migration into drizzle/ (read it, commit it)
+npm run db:migrate   # apply pending migrations
+npm run db:baseline  # once, for a database created with db:push before migrations: mark them applied
 npm run db:studio    # inspect data
-npm run inngest:dev  # local Inngest Dev Server — required for the board's Run action (agent jobs)
+npm run inngest:dev  # local Inngest Dev Server — required for the agent pipeline (Run, auto pickup, auto-merge)
 npx next typegen     # regenerate PageProps / RouteContext types after adding routes
 npx shadcn add <c>   # add a shadcn component into components/ui
+npm run office:assets # rebuild the live office sprite sheets + lib/office-scene.json from office/*.json
 ```
 
 ## 4. Folder structure
@@ -71,7 +79,10 @@ app/
     github/connect/           Starts GitHub OAuth for repository access (state + PKCE).
     github/callback/          Finishes it; stores the encrypted token.
     workspaces/[id]/logo/     Streams a workspace logo from S3 to its owner.
-    inngest/                  Inngest handler + trigger.
+    inngest/                  Inngest handler (serves the agent pipeline and auto pickup).
+    switch-trust/scans/[scanId]/  Cloudhike job target: advances one SwitchAgent scan (single-use bearer token).
+    switch-trust/agents/[agentId]/  OpenAI-compatible endpoint Switch evaluates an agent through (+ v1/chat/completions,
+                              chat/completions aliases); derived per-agent bearer credential.
   workspaces/
     page.tsx              Workspace picker (post-sign-in landing). Redirects to /new if empty.
     new/page.tsx          Create-workspace page.
@@ -81,12 +92,21 @@ app/
     [workspaceId]/
       layout.tsx          Dashboard shell: sidebar + header. Owner check via getDashboardContext().
       page.tsx            Overview.
+      actions.ts          Workspace-wide reads: getTeamStatusAction (live team), getNotificationsAction,
+                          markNotificationsReadAction.
       board/ ai-team/ pull-requests/ activity/   One page.tsx per sidebar section.
+      ai-team/actions.ts  saveAgentAction, scanAgentAction, switchScanAgentAction (SwitchAgent Scan), generateAgentAction
+                          (auth + validation).
       board/actions.ts    createCardAction, updateCardAction, moveCardsAction, removeCardAction, runCardAction,
-                          syncIssuesAction (auth + validation).
-      settings/           Account (#account) and workspace (#workspace) settings.
+                          answerCardAction (answer the analyst + run again), stopCardAction, mergeCardAction, switchProviderAndRetryAction (out of credit), getRunLogAction
+                          (agent log), syncIssuesAction (also refreshes agent PRs) (auth + validation).
+      pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
+      settings/           Account (#account), workspace (#workspace), AI providers (#ai: keys + provider switch), Switch
+                          Trust (#switch) and agent automation (#agents). actions.ts: automation, provider switch, auto
+                          failover toggle, save/remove provider key, connect/disconnect Switch.
   globals.css             THE theme: palette, semantic tokens, Tailwind mapping.
   layout.tsx              Root layout; loads Plus Jakarta Sans, ThemeProvider.
+  page.tsx                `/`: redirects to /dashboard (signed in) or /sign-in. No landing page yet.
 components/
   ui/                     shadcn primitives. Generated — do not hand-edit; restyle via tokens.
   auth/                   Auth-only UI (forms, social buttons, brand icons, FormMessage).
@@ -94,33 +114,110 @@ components/
   board/                  Kanban: kanban-board (state + DndContext), board-column, board-card, card-dialog (create + edit),
                           board-toolbar (search + type tabs), board-filters (pure matching logic),
                           use-github-sync (polling hook), github-sync-controls (Refresh button, sync notice),
-                          issue-meta (type/priority/column colors + PriorityBadge, IssueTypePill — reuse everywhere).
-  dashboard/              Overview sections: stat-tile, upcoming-tasks, agent-office-placeholder, recent-activity,
-                          agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS).
-                          Dashboard shell: app-sidebar, workspace-switcher, user-menu, dashboard-header,
+                          issue-meta (type/priority/column colors + PriorityBadge, IssueTypePill, DueDate — reuse everywhere),
+                          agent-run-status (the run line on a card: stage, needs info, stopped, out of credit, ready to
+                          merge), run-log-sheet (agent log panel), credit-notice (out of credit: switch and retry),
+                          answer-dialog (answer the analyst's question).
+  pull-requests/          pull-requests-view (PR list, verdict chips), merge-button.
+  office/                 Live Agent Office (AI Team page): agent-office (scene + Live chip), office-agent
+                          (sprite, status bubble, hover card), live-team (LiveTeamProvider + useLiveTeam: one poll of
+                          getTeamStatusAction; also keeps the Overview's AI team card live), office-scene (seats ↔ agents, %).
+  activity/               activity-timeline (Activity page: events grouped by day, Show older).
+  settings/               agent-automation-form (task pickup + merge mode), provider-switch-form, auto-failover-toggle,
+                          provider-key-form
+                          (masked key + show/hide), switch-connection-form (Switch Trust account), switch-weekly-toggle,
+                          option-cards (radio
+                          cards shared by the settings forms).
+  ai-team/                AI Team: ai-team-view (page markup), agent-roster (cards + open overlay state), agent-card,
+                          agent-config-dialog (form + SkillPicker + Draft with AI), trust-panel, spending-panel,
+                          agent-activity-sheet, agent-visuals (AgentPortrait, AgentStatusBadge, BudgetMeter, TrustRing),
+                          trust-scan-watcher (refreshes the page while a SwitchAgent scan is pending).
+  dashboard/              Overview sections: stat-tile, upcoming-tasks, team-status (AI team card, live), recent-activity,
+                          agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS), activity-kind (ACTIVITY_KIND,
+                          ActivityAvatar).
+                          Dashboard shell: app-sidebar, workspace-switcher, user-menu (header avatar only), dashboard-header,
+                          notifications-menu (the bell),
                           nav.ts (sidebar sections — server-safe), use-dashboard-section.ts (client hook),
-                          page-header (PageHeader, SurfaceHeader, DetailGrid), stat-tile, section-empty,
+                          page-header (PageHeader, SurfaceHeader, DetailGrid), stat-tile, section-empty (SectionEmpty, SurfaceEmpty),
                           overview-view (Overview markup; the page only loads data).
   app-header.tsx          Signed-in top bar.
   brand.tsx               Product mark.
-hooks/                    Client hooks (use-field-errors, use-mobile …).
+hooks/                    Client hooks (use-field-errors, use-mobile).
 lib/                      Server logic. Files that touch secrets/DB start with `import "server-only"`.
-  auth.ts                 Hosted-auth client, session cookie.
+  auth.ts                 Hosted-auth client, session cookie; getSession reuses sessions validated in the last 60 s
+                          (session-cache.ts: the auth service rate-limits the dashboard's polls).
   current-user.ts         getCurrentUser() / requireUser(returnTo).
   github.ts               GitHub OAuth + REST + connection persistence.
   crypto.ts               encrypt / decrypt for secrets at rest.
+  ai-keys.ts              Workspace AI provider keys: getAIKeys (workspace key, else env), getProviderKeyViews (masked),
+                          verifyProviderKey, saveProviderKey / removeProviderKey (encrypted).
   storage.ts              S3 uploads/reads, logo limits.
   workspaces.ts           Workspace queries (always scoped by owner) + getDashboardContext().
-  overview.ts             Overview data contract + getOverviewData(). ⚠️ Returns DUMMY data for now.
-  agents.ts               Agent type, listAgents(), getAgent(), RUN_AGENT_ID (the analyst), taskKeyPrefix(). ⚠️ DUMMY agents for now.
+  overview.ts             getOverviewData(): stats + upcoming tasks from getBoardData, recent work activity.
+  activity.ts             getActivityFeed(): agent_activity + cards people created + task_events, newest first;
+                          WORK_ACTIVITY_KINDS.
+  agent-config.ts         AI Team vocabulary shared by server + client: roles + defaults (models per provider), SKILLS,
+                          AGENT_MODELS (provider + pricing), PROVIDERS, EQUIVALENT_MODEL, agentModelFor, limits.
+  agent-trust.ts          Skill Trust Score: scanAgentRules() (deterministic), trustGrade(). Pure.
+  switch-trust.ts         Switch Trust: connection (encrypted key, connectSwitch/disconnectSwitch), SwitchAgent scans
+                          (requestSwitchScans → Cloudhike job → advanceTrustScan: register, 1 evaluation, poll, save),
+                          getLatestTrustScans, agent endpoint credential. See docs/switch-trust.md.
+  switch-api.ts           Switch Trust REST client (identity, register agent, endpoint, assignment, trigger, run, summary).
+  switch-trust-config.ts  Pure: scan statuses, pickFastEvaluation, runPhase, buildSwitchReport, parseEvalMessages.
+  switch-eval.ts          answerEvaluation(): an agent answers one Switch test with its model + instructions, cost logged.
+  jobs.ts                 Cloudhike Jobs: enqueueJob, getJobRun, publicAppUrl (null for local addresses).
+  agent-ai.ts             Config AI (OpenAI if configured, else Anthropic): generateAgentConfig() (repo-aware instructions),
+                          scanAgentWithAI(), isConfigAIAvailable().
+  openai.ts               OpenAI client (null without a key), responseCostMicros().
+  anthropic.ts            Anthropic client (null without a key), messageCostMicros(), toClaudeSchema().
+  agents.ts               Agents persistence: ensureDefaultAgents(), getAgentTeam(), getTeamOverview() (read-only, Overview),
+                          updateAgentConfig(), saveTrustScan(),
+                          checkAgentCanRun(), logAgentActivity(), stage activity rows, agentMaxTurns(); getAgent(),
+                          RUN_AGENT_ID (the analyst), taskKeyPrefix().
+  agent-run-config.ts     Pipeline vocabulary shared by server + client: RUN_STAGES/STAGE_META (agent + column per stage),
+                          RUN_STATUSES, MAX_REWORK_ROUNDS, max-turn limits, ANSWER_MAX + parseAnswer, brief/review/test
+                          report types, BoardCardRun.
+  agent-runs.ts           agent_runs persistence: createRun, finishRun, getActiveRun, getLatestRuns, placeTask (moves +
+                          assigns a card for the pipeline), releaseTask, replaceWaitingRuns (rerun), findAutoPickupCandidates;
+                          agent log: saveRunSteps, saveStageEnd, getTaskRunLog.
+  agent-pipeline.ts       Stage work: prompts, beginStage / runStageTurn (pause, budget, skills checked every turn),
+                          branch, PR, review/test recording (+ deterministic pre-checks), needs-info + answerAnalyst
+                          (earlier questions and answers go into later runs' prompts), readyToMerge,
+                          pipelineModelProblem (Run pre-check: every agent's model has a key), out-of-credit handling
+                          (stop with `failure`, or auto failover + stage restart), stopRun (log + notify).
+  agent-simulated.ts      AGENTS_SIMULATED=true: scripted stand-in for the model (one real tool call, then a passing result).
+  agent-loop.ts           One model turn with function tools, per provider: OpenAI Responses (previous_response_id, forced
+                          finish tool) or Anthropic Messages (history in agent_run_messages, last-turn system message);
+                          modelUnavailableReason(), initialLoopState().
+  agent-tools.ts          Agent tools on the GitHub API, filtered by stage + skills; protected paths, manifest gate;
+                          toolStep() (a call → agent log step; never stores file contents).
+  pull-requests.ts        Agent PRs: mergeAgentPullRequest (mergeable + CI green, else Tester follow-up card),
+                          mergeManually (user merge: card or PR page), refreshOpenPullRequests, getRerunPullRequest +
+                          adoptPullRequest (rerun on the same PR), listPullRequests.
   board-config.ts         Board vocabulary shared by server + client: columns, issue types, priorities, BoardCard.
-  board.ts                Board persistence (tasks table): getBoardData, createTask, updateTask, reorderTasks,
-                          removeTask, assignTask, parseCardInput / parseBoardInput (server-side validation).
-  inngest/agent-run.ts    agentTaskRun: the job Run queues (`agent/task.run`). ⚠️ PLACEHOLDER until agents exist.
+  board.ts                Board persistence (tasks table): getBoardData (with latest runs), getBoardCard, createTask,
+                          updateTask, reorderTasks, removeTask, assignTask, createAgentTask (agent-filed cards),
+                          parseCardInput / parseBoardInput (server-side validation).
+  inngest/agent-run.ts    agentTaskRun: the agent pipeline (`agent/task.run`, cancel: `agent/task.cancel`). One step per
+                          model turn; stages, rework rounds and merge.
+  inngest/agent-pickup.ts agentAutoPickup: cron every 2 min, starts runs on never-run Todo cards (auto pickup on).
+  inngest/switch-weekly.ts switchWeeklyScans: Mondays 06:00 UTC, queues SwitchAgent scans (Scan every week on).
+  task-events.ts          People's card moves/edits/removals for Activity: taskSnapshots (before a change),
+                          logCardEdited / logCardsMoved / logCardRemoved (never throw), describeCardChanges.
   github-issues.ts        syncWorkspaceIssues(): pulls the repo's GitHub issues onto the board (see "GitHub issues").
+  notifications.ts        Header bell: notify() (never throws), listNotifications, markNotificationsRead, agentLogHref.
   workspace-icons.ts      Selectable icon set (shared client/server).
   utils.ts                cn(), initials().
 db/                       Drizzle client (index.ts) and schema (schema.ts).
+drizzle/                  Generated SQL migrations + snapshots. 0000_baseline = the whole schema as of 2026-11. Never hand-edit
+                          a migration that has been applied anywhere; add a new one.
+test/                     server-only.ts (stand-in for unit tests). Tests live next to their module as *.test.ts.
+office/                   office_1_data.json: the office scene bundle (seats + embedded character frames, ≈10 MB), and
+                          characters/: frames of the editor's built-in characters the bundle only references.
+                          Source only — never imported; `npm run office:assets` turns it into public/office/*.webp
+                          sprite sheets and lib/office-scene.json.
+public/                   office-space.webp (the office picture), office/ (generated sprite sheets).
+scripts/                  build-office-assets.mjs (sharp), db-baseline.mjs (mark migrations applied on a pushed DB).
 proxy.ts                  Optimistic cookie guard for /dashboard and /workspaces.
 ```
 
@@ -163,13 +260,25 @@ Where new code goes:
 
 **Secrets & external services**
 - GitHub tokens are stored only via `saveGithubConnection` (encrypted) and read only via `getGithubToken`. Never send a token, ciphertext or S3 key to the client.
+- AI provider keys are stored only via `saveProviderKey` (verified with the provider, encrypted) and read only via
+  `getAIKeys`. The client only ever gets `ProviderKeyView` (source + masked hint); the show/hide eye applies to what the
+  user is typing, never to a saved key. Model calls take the key as an argument (`openAIClient(key)`, `anthropicClient(key)`).
 - Uploaded files go to private S3 via `lib/storage.ts`. Allowed logo types: PNG, JPEG, WebP, GIF, ≤ 1 MB. No SVG (script risk).
 - Handle a GitHub `401` as "connection expired": prompt the user to reconnect.
 - New env vars must be added to `.env.example` with a placeholder and a comment. Never put real credentials in `.env.example`.
 
 **Database**
-- Change `db/schema.ts`, then `npm run db:push`. Never touch the `auth` schema (owned by the hosted auth service).
+- Change `db/schema.ts`, then `npm run db:generate`, read the SQL, `npm run db:migrate`, and commit schema + migration +
+  code together. `db:push` is for throwaway local databases only. Never touch the `auth` schema (owned by the hosted
+  auth service).
 - Tables are `snake_case` plural; columns `snake_case` in SQL, `camelCase` in TS. Foreign keys to `users.id` use `onDelete: "cascade"`.
+
+**Tests & lint**
+- `npm run check` must pass (tsc, ESLint, Vitest). Don't silence a lint rule to get there; fix the code, or explain the
+  disable in a comment on that line.
+- Pure logic gets a unit test next to it (`foo.ts` → `foo.test.ts`): parsers, mappings, cost math, classifiers.
+  `server-only` modules import fine in tests; never hit the database or a real API from a unit test.
+- Prefix a deliberately unused binding with `_` (e.g. dropping a field with a rest destructure).
 
 ## 6. Design system
 
@@ -282,17 +391,34 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   start with `<PageHeader eyebrow title description actions? />`, then sections separated by `gap-8`.
   Every sidebar item needs a `tooltip` (icon-only mode).
 - **Overview layout** (`OverviewView`): welcome header → 3 `StatTile`s (Open tasks, In progress, PR ready) →
-  `grid lg:grid-cols-5` with `UpcomingTasks` (`lg:col-span-3`) and `AgentOfficePlaceholder` (`lg:col-span-2`) →
-  `RecentActivity` list. Status/kind → icon + tone maps live next to each component (`TASK_STATUS`, `KIND`).
-- **Board** (`/dashboard/[id]/board`): five columns — Todo, In Development, In Review, Testing, Done —
-  each with a light tint from `COLUMN_STYLE` (slate, sky, amber, orange, green). Cards show type pill, key
+  `grid lg:grid-cols-5` with `UpcomingTasks` (`lg:col-span-3`) and `TeamStatus` (`lg:col-span-2`, agents from the
+  read-only `getTeamOverview`, live through a `LiveTeamProvider`) → `RecentActivity` list. The office is only on the
+  AI Team page. Status → icon + tone maps live next to each component (`TASK_STATUS`); activity kinds in `ACTIVITY_KIND`.
+- **Board** (`/dashboard/[id]/board`): six columns — Todo, Analysis, In Development, In Review, Testing, Done —
+  each with a light tint from `COLUMN_STYLE` (slate, brand, sky, amber, orange, green). Cards show type pill, key
   (`PREFIX-<number>`, always — GitHub cards add `#<issue>` in the footer), title, labels, priority, due date and the
   assigned agent. "New" (Feature / Bug / Issue) and each column's "+" open `CardDialog` in create mode preset to that
   type/column; clicking a card (or Enter on a focused card) opens the same dialog in edit mode.
-  Each card has a ▶ **Run** button and a **⋯** menu (Run, Remove task). They render as siblings of the card inside
+  Each card has a ▶ **Run** button and a **⋯** menu (Run or Stop agents, Remove task). In Done, ▶ is a static check
+  (rerun stays in the menu). While its PR waits for a manual
+  merge, ▶ becomes **Merge** (`mergeCardAction` → `mergeManually`, the same checks as the Pull Requests page) and the menu
+  adds Merge and View PR on GitHub; the board reloads afterwards (card to Done, or the Tester's follow-up card).
+  When the analyst asked a question (`needs_info`), ▶ becomes **Answer** (also in the ⋯ menu and the agent log):
+  `AnswerDialog` → `answerCardAction` saves the answer on that run (`agent_runs.answer`, posted under the question on
+  the GitHub issue when the question was posted there) and runs the card again. Every later run of the card gets the
+  last questions and answers in its analysis and development prompts (`earlierQuestionsBlock`).
+  Running a card again while it has an open PR continues on that branch and PR (`adoptPullRequest`, verdicts reset;
+  earlier runs waiting on it end as replaced, `replaceWaitingRuns`); the developer's brief says so (`rerunBlock`).
+  The PR is re-checked on GitHub first (`getRerunPullRequest`), and every board sync applies merges/closes done on
+  GitHub (`refreshOpenPullRequests` in `syncIssuesAction`), so cards never offer Merge on a closed PR. They render as siblings of the card inside
   the sortable wrapper (the card is only the drag *activator*), so they never start a drag or open the dialog.
-  - **Run** (`runCardAction`) queues `agent/task.run` in Inngest, then assigns the card to the analyst
-    (`assignee_agent_id`); if queuing fails nothing is assigned. Run locally with `npm run inngest:dev`.
+  - **Run** (`runCardAction`) creates an `agent_runs` row, queues `agent/task.run` with its `runId`, then moves the card
+    to Analysis assigned to the analyst; if queuing fails the run is marked failed and nothing moves. Refused while a
+    run is active, when an agent's model has no provider key (`pipelineModelProblem`), or when the analyst is paused/over budget. Locally: `npm run inngest:dev`.
+  - **Stop agents** (`stopCardAction`) marks the run cancelled, sends `agent/task.cancel` and unassigns the card.
+  - Cards show their latest run with `AgentRunStatus`; ▶ is disabled while it is queued/running, and the board re-reads
+    itself every 10 s while any card has an active run (`useGithubSync({ live })` → `getBoardAction`, database only;
+    GitHub stays on the 60 s sync).
   - **Remove task** (`removeCardAction`, after an `AlertDialog` confirm) sets `removed_at`. Rows are never deleted:
     keys aren't reused, and a removed GitHub card is never imported again (the issue stays open on GitHub).
     Every board query goes through `onBoard()` in `lib/board.ts`, which skips removed rows. The board opts out of the page max width with
@@ -332,9 +458,89 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   tints). The Overview's upcoming tasks use the same `PriorityBadge`. Never redefine these maps locally.
 - **Base UI Select:** pass `items` to `<Select>` so `<SelectValue />` shows labels, and size triggers with
   `data-[size=default]:h-10` (a plain `h-10` loses to the primitive's attribute selector).
-- **Dummy data:** until tasks/agents/activity tables exist, `lib/overview.ts` returns fixture data shaped by its
-  exported types (timestamps relative to "now"). To go live, replace only the body of `getOverviewData` — keep
-  the types and the UI untouched. Mark any new fixture source the same way (a `⚠️ DUMMY DATA` doc comment).
+- **AI Team** (`/dashboard/[id]/ai-team`): header → 3 `StatTile`s (Active agents, Skill Trust Score, Monthly spending) →
+  4 `AgentCard`s (`sm:grid-cols-2 xl:grid-cols-4`) → `AgentOffice` ("Live Agent Office Workspace", in its own `LiveTeamProvider`).
+  Agents are rows in `agents`, one per role key, created on first use by `ensureDefaultAgents` (Run and the page both
+  call it). Identity (name, role, tone, icon) is fixed per key in `AGENT_ROLES`; users configure description,
+  instructions, model, skills, budget and active/paused. Rules:
+  - **Spend** lives in `agent_activity.cost_micros` (micro-dollars). Monthly = calendar month in **UTC**; format
+    reset dates in UTC. Every model call logs its real cost (`responseCostMicros` / `messageCostMicros`) even if the result isn't saved.
+  - **Trust score** (`lib/agent-trust.ts`): inherent risk per skill + penalties for failed checks. Saving a change to
+    instructions, skills or budget re-runs the rule scan, so the stored score always matches the saved config.
+    **Scan again** scores the saved config (disabled while the dialog is dirty) and adds an AI review when a provider is configured.
+  - **Run** refuses when the analyst is paused or over budget (`checkAgentCanRun`) and logs `task_assigned`.
+  - **SwitchAgent scans** (`lib/switch-trust.ts`, [`docs/switch-trust.md`](docs/switch-trust.md)): with a Switch account
+    connected (Settings → `#switch`), the score comes from Switch. Connecting (and saving a provider key) scans all four
+    agents; **SwitchAgent Scan** in the dialog scans one, on demand. Always **one** evaluation per agent (the fastest
+    built-in, saved on the connection), never the catalog. Work runs on Cloudhike jobs, never in the user's request;
+    the page polls with `TrustScanWatcher` while a scan is pending. Weekly re-scans (`switch-weekly-scans`, toggle in
+    Settings) and the agent's budget as its Switch cost cap (set on register/scan and on budget change; best effort). Saving a config keeps a Switch report (flagged as
+    older than the change) instead of overwriting it with the rule scan. Never copy test conversations: they're
+    attacker-written.
+  - **Max turns** (`agents.max_turns`, null = role default from `AGENT_ROLES`) caps model turns per pipeline stage.
+  - **Working** status = a `running` run is at that agent's stage (`STAGE_META`), not "has assigned cards".
+  - Server actions call `revalidatePath` so cards, stats and open overlays show fresh data; dialog form state survives.
+- **Live Agent Office** (`components/office/`): the office picture keeps its aspect ratio (1264×843) and every agent,
+  bubble and hover anchor is placed in **percent of the picture** from `lib/office-scene.json` (top-left `x`/`y` and
+  `width` from the bundle; height from the character's aspect), so positions hold at any width. Rules:
+  - Never import `office/*.json` in app code (10 MB of data URIs). Change the bundle, then run `npm run office:assets`
+    and commit the new `public/office/*.webp` (file names carry a content hash) and `lib/office-scene.json`.
+  - Which agent sits where is `AGENT_SEAT` in `components/office/office-scene.ts`.
+  - Typing = CSS `office-typing` (steps through the sheet, `steps(N, jump-none)`, 8 fps), only while the agent is
+    `working`; reduced motion stops it. Paused / over budget agents are greyed out.
+  - The status bubble is decorative (`aria-hidden`); the agent's button carries the same text as its `aria-label`.
+    The hover card is a Base UI `Popover` with `openOnHover` (tap on touch screens).
+  - Live status: `LiveTeamProvider` polls `getTeamStatusAction` (`app/dashboard/[workspaceId]/actions.ts`) every 5 s
+    while someone works, 15 s otherwise, only while the tab is visible. It reads `getTeamOverview`, which never writes.
+  - Characters built into the editor are exported as paths, not images (Desk 3 / Reviewer:
+    `/characters/rightfacing/typing/frame_00N.png`). Their frames are downloaded from the editor
+    (https://agent-office-editor.vercel.app + the path) into `office/` at the same path; the script fails if one is missing.
+- **Agent pipeline** (`lib/inngest/agent-run.ts` + `lib/agent-pipeline.ts`): Analyst (Analysis) → Developer (In
+  Development, branch `agent/<key>-<slug>`, PR) → Reviewer (In Review) → Tester (Testing) → merge (Done). Rules:
+  - Each stage is a tool loop of at most the agent's max turns, **one Inngest step per turn**; the last turn forces the
+    stage's finish tool (strict JSON schema). Step bodies reload state from the DB — never keep state in closures.
+  - **Skills are enforced as tools** (`toolsFor` in `lib/agent-tools.ts`). Adding a capability = a tool gated by a
+    skill there, not a prompt instruction. Agents never write `.github/workflows/`, `.env*` (except `.env.example`) or
+    `.git/`; manifests need `deps.manage`. Tool output is untrusted data — the stage protocol in `systemPrompt` says so.
+  - **One company per workspace, one model per agent** (Settings → `#ai`, `workspaces.ai_provider`). The configure
+    dialog lists only that provider's models (`modelsFor`), and `saveAgentAction` rejects a model from the other one.
+    `agents.model` is the active model; `agents.provider_models` remembers the agent's model on each provider, so
+    `switchAgentsToProvider` restores earlier choices (first time: `EQUIVALENT_MODEL`, via `agentModelFor`). Read the
+    active model with `activeAgentModel(row, provider)`. Role defaults are per provider (`defaults.models`: Sol/Sonnet,
+    Tester Luna/Haiku). Config AI (drafting, trust reviews) uses the workspace provider, or the other one if only it has
+    a key (`configAI`). Run refuses up front when any agent's model has no key (`pipelineModelProblem`).
+  - **Models and providers**: `AGENT_MODELS` (`lib/agent-config.ts`) lists OpenAI and Claude models with their `provider`
+    and prices. The model is pinned per stage in `LoopState` (a change on the AI Team page applies from the next stage).
+    Claude's conversation is stored in `agent_run_messages` (append-only, written at fixed positions so a retried step
+    overwrites itself); thinking blocks go back unchanged. Claude 5.5 models reject forced tool choice, so the last turn
+    is a mid-conversation system message instead. Opus/Sonnet 5.5 use refusal `fallbacks: "default"`.
+  - Pause and budget are re-checked every turn; each turn adds its cost to the stage's `task_run` activity row and to
+    `agent_runs.cost_micros`.
+  - Review `request_changes` or test `fail` → back to the Developer on the same branch/PR, at most `MAX_REWORK_ROUNDS`.
+  - Merge mode and pickup mode come from `workspaces.agent_auto_merge` / `agent_auto_pickup` (Settings → `#agents`).
+    `mergeAgentPullRequest` is the only merge path (auto and manual): mergeable + CI green, otherwise the Tester files
+    one follow-up card per PR (`createAgentTask`, plus a GitHub issue with `issues.create`).
+  - **Agent log**: every turn's tool calls go to `agent_run_steps` (`saveRunSteps`) and every stage's end too
+    (`saveStageEnd`: result, or the stop reason via `stopRun`). Positions are fixed (stage, round, turn, seq), so retries
+    rewrite instead of duplicating. Never log tool *content* (file reads, diffs): only targets and short confirmations
+    or errors (`toolStep`).
+  - **Out of credit** (`isOpenAIOutOfCredit` / `isAnthropicOutOfCredit`) is not a generic failure: the run stops with
+    `agent_runs.failure = { kind: "out_of_credit", provider }` and the board offers switch-and-retry
+    (`switchProviderAndRetryAction`). With `workspaces.ai_auto_failover` and the other company's key, `runStageTurn`
+    switches the team and returns `restart` instead: the stage starts over, at most once per stage.
+  - **Notifications**: `notify()` at the moments that need the owner (PR ready, merged, merge blocked, needs info, run
+    failed, out of credit, provider switched). A new failure path goes through `stopRun` so it gets logged and notified.
+  - The pipeline moves cards with `placeTask` (top of the column, bottom for Done). It owns column + assignee while a
+    run is active; users can still drag, and the next stage moves the card again.
+- **Pull Requests** (`/dashboard/[id]/pull-requests`): the page calls `refreshOpenPullRequests` (picks up merges/closes
+  made on GitHub), then renders `PullRequestsView`. **Merge** only for PRs with review approved and tests passed.
+- **Activity feed** (`lib/activity.ts`): `agent_activity` rows, cards people created (`tasks.created_by_id`) and
+  people's card moves, edits and removals (`task_events`, logged by the board actions after the change is saved),
+  merged newest first. The Activity page shows every kind (`?show=` grows the list in steps of 50, up to 500); the
+  Overview shows only `WORK_ACTIVITY_KINDS`. Icons per kind live in `ACTIVITY_KIND` (`components/dashboard/activity-kind.tsx`),
+  shared with the agent activity drawer. A new activity kind needs an entry there.
+- **Empty states:** every list on the Overview and the Activity page has one (`SurfaceEmpty` inside a surface that keeps
+  its header, `SectionEmpty` for a whole page). Never ship fixture data; mark a placeholder with `⚠️ PLACEHOLDER`.
 - **Horizontal scroll areas must be `relative`.** Absolutely positioned descendants (every `sr-only` label) are only
   clipped by an `overflow` container that is positioned; otherwise they escape and widen the page on mobile.
   `SidebarInset` also carries `min-w-0` so wide content can't stretch the panel.
@@ -345,7 +551,9 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   component that takes plain props (see `OverviewView`); the page only loads data. This keeps pages previewable.
 - **Other signed-in pages** (`/workspaces*`): `min-h-svh bg-canvas` → `<AppHeader user={user} />` →
   `<main className="mx-auto max-w-2xl px-6 py-10">`, content in `surface` cards.
-- **Header actions:** round bordered icon buttons (`size-9 rounded-full border bg-card`), hover tints the border.
+- **Header actions:** round bordered icon buttons (`size-9 rounded-full border bg-card`), hover tints the border. The
+  GitHub button widens into a pill with the repository name from `sm` up. The account menu lives only in the header
+  avatar (`HeaderUserMenu`); the sidebar has no footer menu.
 - **Menus:** `DropdownMenu*` from `components/ui/dropdown-menu` (Base UI). Navigation items use
   `<DropdownMenuItem render={<Link href=… />}>`; `DropdownMenuLabel` must sit inside a `DropdownMenuGroup`.
   Triggers styled as other components use `render` (`<DropdownMenuTrigger render={<SidebarMenuButton />}>`).
@@ -376,5 +584,10 @@ See `.env.example` for the full list with comments. Feature-specific:
 | Variable | Needed for |
 | --- | --- |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Connecting GitHub on `/workspaces/new`. OAuth App callback: `<NEXT_PUBLIC_APP_URL>/api/github/callback`. |
-| `TOKEN_ENCRYPTION_KEY` | Encrypting GitHub tokens (`openssl rand -base64 32`). Rotating it forces every user to reconnect. |
+| `TOKEN_ENCRYPTION_KEY` | Encrypting GitHub tokens and AI provider keys (`openssl rand -base64 32`). Rotating it forces every user to reconnect GitHub and re-enter their AI keys. |
 | `S3_*` | Workspace logo uploads. Without them the upload button is disabled; icons still work. |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Optional server-wide fallback for workspaces that haven't saved their own key in Settings → AI providers. |
+| `JOBS_API_URL`, `JOBS_API_KEY` | Cloudhike Jobs: runs SwitchAgent scans in the background. |
+| `PUBLIC_APP_URL` | The app's internet-reachable URL for callbacks (jobs, Switch evaluations); defaults to `NEXT_PUBLIC_APP_URL`. A tunnel in local dev. |
+| `SWITCH_AGENT_AI_API_KEY` | Optional server-wide Switch Trust key (Editor role) for workspaces that connect without their own. |
+| `AGENTS_SIMULATED` | Local testing: `true` runs the pipeline with scripted agents (`lib/agent-simulated.ts`) — no model calls or spend, but real GitHub work (branch, `agent-simulations/<branch>.md`, PR). |

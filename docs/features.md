@@ -9,7 +9,9 @@ What each part of the product does, from the user's point of view, with pointers
 - [Board](#board)
 - [GitHub issues on the board](#github-issues-on-the-board)
 - [Card actions: Run and Remove](#card-actions-run-and-remove)
-- [AI Team, Pull Requests, Activity](#ai-team-pull-requests-activity)
+- [Agent pipeline](#agent-pipeline)
+- [AI Team](#ai-team)
+- [Pull Requests, Activity](#pull-requests-activity)
 - [Settings](#settings)
 - [Theme](#theme)
 - [Accessibility](#accessibility)
@@ -29,7 +31,7 @@ Pages: `/sign-up`, `/sign-in` (`app/(auth)/`). Layout: form on the left, product
   email already registered (422).
 - **Redirects.** Both pages accept `?next=/some/path`. After signing in you go there (only same-origin paths are
   accepted), otherwise to `/workspaces`. Visiting these pages while signed in redirects right away.
-- **Sign out** is in the user menu (sidebar footer or header avatar). It revokes the session and clears the cookie.
+- **Sign out** is in the user menu (header avatar). It revokes the session and clears the cookie.
 
 Code: `app/(auth)/actions.ts`, `components/auth/*`, `lib/auth.ts`. Flow details: [architecture.md](architecture.md#authentication-and-sessions).
 
@@ -76,8 +78,6 @@ Every `/dashboard/[workspaceId]/*` page shares one layout (`app/dashboard/[works
   current one), **Create new workspace** and **All workspaces**. Switching keeps you on the same section (Board →
   the other workspace's Board).
 - **Navigation**: Overview, Board, AI Team, Pull Requests, Activity. The current page is highlighted.
-- **User footer** — your avatar, name and email; opens the user menu: Account settings, Workspace settings, Theme
-  (Light / Dark / System), Sign out.
 - **Collapsible to icons only.** Toggle with the header button, the sidebar edge (rail), or **⌘B / Ctrl+B**. The
   state is remembered in the `sidebar_state` cookie, so it renders correctly on the next load. In icon mode every
   item shows a tooltip.
@@ -85,7 +85,28 @@ Every `/dashboard/[workspaceId]/*` page shares one layout (`app/dashboard/[works
 
 **Header** (`components/dashboard/dashboard-header.tsx`)
 - Sidebar toggle, breadcrumb (`Workspace › Section`).
-- GitHub button (opens the linked repository), notifications (empty state for now), avatar with the same user menu.
+- GitHub button with the repository's name (the project being worked on; the tooltip adds the owner, phones show just
+  the icon), opens the repository; the notifications bell (see [Notifications](#notifications)); your avatar, which
+  opens the user menu (Account settings, Workspace settings, AI providers, Theme, Sign out). The sidebar has no user
+  menu.
+
+### Notifications
+
+The header bell shows a count of unread notifications (9+ above nine) and opens a list, newest first (30 kept):
+
+| Kind | When | Opens |
+| --- | --- | --- |
+| PR ready to merge | Review and tests passed with manual merge, or auto merge gave up waiting on checks | Pull Requests |
+| Merged | Auto merge went through | Pull Requests |
+| Merge blocked | A conflict or failing build; says which follow-up card the Tester filed | Pull Requests |
+| Analyst needs info | The analyst asked a question instead of starting | The card's agent log (Answer the analyst) |
+| Agents stopped | A run failed (paused agent, budget, missing skill, GitHub, out of turns, error) | The card's agent log |
+| Out of credit | The provider refused for lack of credit and the run stopped | The board (switch and retry) |
+| Switched provider | Auto failover moved the team to the other company | Settings → AI providers |
+
+Unread items are bold with a dot; opening one marks it read, and **Mark all as read** clears the count. The bell
+refreshes every 30 s while the tab is visible and whenever it opens. Notifications go to the workspace's owner only;
+there's no email yet.
 
 **Content panel** — a rounded panel with its own scroll; the header stays pinned inside it. Pages use
 `max-w-6xl`; the board opts out to use the full width.
@@ -95,23 +116,31 @@ own is a 404.
 
 ## Overview
 
-`/dashboard/[workspaceId]` — ⚠️ **dummy data** (`lib/overview.ts`):
+`/dashboard/[workspaceId]` — real data from the board, the agents and the activity feed (`lib/overview.ts`):
 
 - Welcome header with your first name.
-- Three stat cards: **Open tasks**, **In progress**, **PR ready** (fixed numbers).
-- **Upcoming tasks** (left) — five sample tasks with status icon, key, priority, labels, due date and agent;
-  **View board** link.
-- **AI Agent Office Space** (right) — placeholder ("The office is being built").
-- **Recent activity** — six sample events (PR opened, commits pushed, review requested, …) with relative times;
-  **View all** link.
-
-The board has real data now; wiring the Overview to it is a suggested next step ([status.md](status.md)).
+- Three stat cards:
+  - **Open tasks** — cards not in Done. Hint: how many are overdue, else due in the next 7 days.
+  - **In progress** — cards in Analysis, In Development, In Review or Testing. Hint: how many agents they're assigned to.
+  - **PR ready** — cards whose pull request waits for you to merge (manual merge mode).
+- **Upcoming tasks** (left) — up to five open cards, soonest due date first (undated last), then priority, then board
+  order. Each row: status icon (Open = Todo, In progress, PR ready), title, key, type, priority, GitHub issue number,
+  first label (+N for the rest); on the right, where the card is (its agent run — "Reviewing…", "PR #5 ready to
+  merge", "Analyst needs info", "Agents stopped" — else its column) and the due date (red when overdue, or "No due
+  date"). On phones that column moves under the title. **View board** link. Empty state: "No open tasks".
+- **AI team** (right) — the four agents with their portrait, status dot and badge (Ready, Working, Paused, Over
+  budget), and what each is doing: the running stage ("Reviewing ACM-142") or "Active 1 hour ago" (last work on a
+  card; "No work yet" otherwise). Header: how many are working. Footer: the team's spend against its combined monthly
+  budget. **View team** link. Read-only (`getTeamOverview`): it never creates agents; roles without a row show their
+  defaults.
+- **Recent activity** — the six latest *work* events (cards created, Run, stages, pull requests, merges, follow-up
+  issues), leaving out team setup; **View all** link. Empty state: "No activity yet".
 
 ## Board
 
 `/dashboard/[workspaceId]/board` — the Kanban board, persisted in the `tasks` table.
 
-**Columns** — Todo, In Development, In Review, Testing, Done. Each has a light tint (slate, sky, amber, orange,
+**Columns** — Todo, Analysis, In Development, In Review, Testing, Done. Each has a light tint (slate, brand blue, sky, amber, orange,
 green), a count, and a **+** button that opens the create dialog preset to that column. Empty columns say what
 belongs there ("Ready to be picked up. Drop a card here.").
 
@@ -148,7 +177,7 @@ to the end of that column. For GitHub cards, title, description and labels are r
 - While filtering, column badges show `visible/total`, empty columns say "No matching cards.", and "Showing X of Y
   cards · Clear filters" appears. Filters only **hide** cards: dragging while filtered keeps the hidden cards' order.
 
-**Layout** — the board scrolls horizontally when the five columns don't fit (snapping to columns on mobile).
+**Layout** — the board scrolls horizontally when the six columns don't fit (snapping to columns on mobile).
 
 Code: `components/board/*`, `lib/board.ts`, `lib/board-config.ts`, `app/dashboard/[workspaceId]/board/actions.ts`.
 
@@ -172,34 +201,193 @@ Open issues from the workspace's repository become cards automatically.
 
 Full rules and limits: [github-integration.md](github-integration.md#issue-sync).
 
-## Card actions: Run and Remove
+## Card actions: Run, Merge, agent log and Remove
 
-Each card has a **▶** button and a **⋯** menu with **Run** and **Remove task**. They sit beside the card's drag area,
-so using them never starts a drag or opens the dialog.
+Each card has a **▶** button and a **⋯** menu (**Run** or **Stop agents**, **View agent log** once it has run, and
+**Remove task**). In **Done**, ▶ is replaced by a green check (a
+status, not a button); **Run again** stays in the ⋯ menu. When the card's pull
+request is ready for a manual merge ("PR #n ready to merge"), ▶ becomes a green **Merge** button and the menu adds
+**Merge PR #n** and **View PR on GitHub**. Merging runs the same checks as the Pull Requests page; the board then
+reloads: the card moves to Done, or, if GitHub reports a conflict or failing build, the Tester's follow-up card appears
+in Todo and the reason shows above the board.
 
-- **Run** hands the card to the **Analyst** agent: the server queues an `agent/task.run` job in Inngest and, only if
-  that succeeds, assigns the card (its avatar appears on the card). While starting, ▶ shows a spinner and is
-  disabled. Running an assigned card again re-queues it ("Run again with Analyst"). ⚠️ The job is a placeholder: it
-  checks the card still exists and logs — see [background-jobs.md](background-jobs.md#agent-task-run).
+Running a card again starts over from Analysis. If the card already has an open pull request, the new run continues on
+that branch and PR ("Run again on PR #n" in the menu) instead of opening another; the Developer is told to build on
+the existing commits, and review and tests start over. They sit beside the
+card's drag area, so using them never starts a drag or opens the dialog.
+
+- **Run** starts the agent pipeline (see [Agent pipeline](#agent-pipeline)): the card moves to **Analysis**, the
+  Analyst's avatar appears and the card shows "Queued for the agents". ▶ stays disabled (spinner) while the agents
+  work. Run is refused when the agents are already on the card, when an agent's model has no provider key (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`; `AGENTS_SIMULATED=true` runs scripted agents instead), or while the Analyst is
+  paused or over budget.
+- **Stop agents** (while a run is active) cancels it between steps. The card is unassigned and stays in its column
+  (back to Todo if it was still in Analysis); the branch and pull request, if any, are kept.
 - **Remove task** asks for confirmation, then takes the card off the board. For GitHub cards the issue stays open
   on GitHub and won't be synced back. The row is kept as a tombstone so the key isn't reused.
 
+- **View agent log** opens a side panel with the card's latest run: its status, when it started, how long it took and
+  its model spend, then one block per stage (and per rework round): the agent and model, turns, cost, how the stage
+  ended (its result in green, or why it stopped in red), the **files changed**, and the list of tool calls (read,
+  listed, searched, wrote, edited, deleted, checked the diff, checked CI), with failed calls and their error in red.
+  It follows a running card every 5 s. Notifications link straight to it (`/board?log=<card>`). Runs from before the
+  log existed show "Nothing logged".
+
 Locally, Run needs the Inngest Dev Server (`npm run inngest:dev`); otherwise it shows an error saying so.
 
-## AI Team, Pull Requests, Activity
+### Out of credit
 
-Pages exist with headers and empty states only:
-- **AI Team** — "No agents yet".
-- **Pull Requests** — "No agent pull requests yet" + **View pull requests on GitHub** (opens the repo's `/pulls`).
-- **Activity** — "No activity yet".
+When OpenAI or Anthropic refuses a request because the account has no credit, the run stops with that reason (not a
+generic failure):
+- The card says **Out of OpenAI credit** (wallet icon), the office shows it in its header chip, and the AI team card on
+  the Overview too.
+- A notice above the board lists the stopped cards with **Add credit** (the provider's billing page) and **Switch to
+  Anthropic and retry**: it moves the team to the other company (like Settings → AI providers) and runs each card
+  again; reruns continue on their open pull requests. Without a key for the other company it offers **Add an … key**
+  instead. If the team already switched, the button says **Retry on …**.
+- **Automatic switch** (Settings → AI providers, off by default): the team moves to the other company on its own and
+  the current stage starts over there (once per stage); you get a "Switched the team to …" notification.
+
+## Agent pipeline
+
+A run takes a card through the board's columns, one agent per stage:
+
+| Column | Agent | What happens |
+| --- | --- | --- |
+| Analysis | Analyst | Reads the card and the code (read-only). Hands it to the Developer with acceptance criteria, a plan, relevant files and notes, or asks one question (**needs info**: comment on the GitHub issue with *Comment on issues*, card back to Todo). |
+| In Development | Developer | Creates `agent/<key>-<slug>` from the default branch and commits to it through the GitHub API (write, edit, delete files). Then a pull request is opened (`Closes #<issue>` for GitHub cards). |
+| In Review | Reviewer | Reads the diff against the acceptance criteria. Approves, or requests changes with file-level findings (posted on the PR with *Review pull requests*). Only for what the developer can fix in code: checks that need a browser or device are listed as manual checks and never block. A re-review gets its earlier findings and checks those. |
+| Testing | Tester | Verifies statically (no test runner): automated pre-checks (branch exists and has commits, reported files are in the diff, no conflict markers, PR open) plus its own review and CI results. |
+| Done | — | After the merge. |
+
+- Requested changes or failed verification send the work back to the Developer (same branch and PR) — at most
+  **2 rework rounds**, then the run stops and the PR waits for a human.
+- **Merging** follows **Settings → Agents**: *Manual* leaves the card in Testing with "PR #n ready to merge" and a
+  **Merge** button on the Pull Requests page; *Automatic* merges as soon as GitHub says the PR is mergeable and CI is
+  green (it waits up to 10 minutes for checks). A **conflict or failing build** makes the Tester file a follow-up bug
+  card on top of Todo (and a GitHub issue with *File issues*); the original run ends with the reason.
+- **Task pickup** (Settings → Agents): *Manual* = Run; *Automatic* = every 2 minutes the Analyst takes the top Todo
+  card that was never run, one card at a time per workspace.
+- **Max turns** (per agent, AI Team → Configure): model calls allowed per stage. The last turn forces the agent to
+  submit its result. Pausing an agent or reaching its budget stops the run at its next turn.
+- **Skills are enforced**: an agent only gets the tools its skills allow (*Read repository* → list/read/search files;
+  *Write code* → write/edit/delete on the run's branch; *Read CI results* → checks). Dependency manifests need
+  *Manage dependencies*; CI workflows, `.env*` files (except `.env.example`) and `.git/` can never be written.
+- Each card shows its run: stage in progress, "Analyst needs info" + the question, "Agents stopped" + the reason,
+  "PR #n ready to merge" or "Merged PR #n". The board re-reads itself every 10 s while any run is active (database only; GitHub is synced every minute).
+- **Answering the analyst**: while a card waits on a question, ▶ becomes **Answer** (also in the ⋯ menu and the agent
+  log). The answer is saved with the question, posted under it on the GitHub issue when the question is there, and the
+  card runs again right away. The agents keep the last three questions and answers for every later run of the card,
+  so the analyst doesn't explore blind or ask the same thing twice. Editing the description and pressing Run works
+  too (the question then goes in unanswered).
+
+## AI Team
+
+`/dashboard/[workspaceId]/ai-team`. Every workspace gets four agents on first use: **Analyst** (requirements &
+planning), **Developer** (implementation), **Reviewer** (code review) and **Tester** (quality assurance), each with
+written instructions, default skills, a model and a monthly budget.
+
+- **Stats** — Active agents (active/total, how many are working on cards or paused), Skill Trust Score (team average,
+  grade, lowest agent), Monthly spending (all agents, against the sum of their budgets).
+- **Agent cards** — role avatar with a status dot, status (Ready, Working = a run is at this agent's stage, Paused,
+  Over budget), description, model, skill count, trust score, open cards and a budget bar (turns warning at 75 %,
+  error at 100 %). Buttons: **Configure** and **View activity**.
+- **Configure** (dialog) — Active/Paused switch, description, instructions (**Reset to default**; **Draft with AI**
+  asks the AI (OpenAI, else Claude) for a description and instructions tailored to the repository's description, languages, topics and
+  README, the selected skills and budget, plus an optional focus; **Undo** restores the previous text; nothing is
+  saved until **Save changes**), skills by category with risk level and *Default* tags (**Reset to defaults**), model
+  (only the workspace's company — OpenAI or Anthropic — with prices, and a *change company* link to Settings; a warning
+  shows when that company has no key) and monthly budget (presets $25/$50/$100/$250). The side panel shows the **Skill Trust Score** (ring,
+  grade — Trusted ≥ 85, Needs review ≥ 70, At risk — summary, checks passed, findings, **Scan again**) and
+  **Spending** for the month (spent, budget bar, remaining, projection, reset date, breakdown: task runs, AI drafting,
+  trust scans). Saving logs exactly what changed and re-scores the agent. With **Switch Trust** connected the panel
+  becomes the **Switch Trust Score**: **SwitchAgent Scan** queues one Switch evaluation of the agent in the background
+  (the card and panel say "Scanning…" and the page refreshes itself until the score lands), shows tests held, OWASP
+  coverage, findings, a failed scan's reason, and a note when the configuration changed after the scan. See
+  [switch-trust.md](switch-trust.md).
+- **View activity** (drawer) — this month's event count and spend, open cards, then events grouped by day: joined,
+  configuration changes, pauses, AI drafts and scans (with their cost), cards assigned by Run, each pipeline stage
+  (with its cost and turn count), pull requests opened/merged and follow-up issues filed.
+- **Live Agent Office Workspace** — the live office (see [Live Agent Office](#live-agent-office)).
+
+## Live Agent Office
+
+On the AI Team page: an illustrated office where each agent sits at its own desk.
+
+- **Who sits where**: Developer at the back desk, Reviewer at the left desk, Tester at the right desk, Analyst at the
+  front desk (matched to what their monitors show).
+- **Typing**: an agent types (its animation frames from the scene bundle, 8 fps) only while one of its stages is
+  running; otherwise it sits still. Paused or over-budget agents are greyed out. Reduced motion turns the animation off.
+- **Status bubble** above each head: "Implementing ACM-142 •••" while working, else Ready / Paused / Over budget. In
+  a narrow office (phones) it shrinks and shows just the card key or the status.
+- **Hover card** (hover, keyboard focus or tap): portrait, role, status; the card it's working on with when the run
+  started, or its last work; its model; this month's spend against its budget; a link to the board or to configure it.
+- **Live**: the header chip says "Live · N working". Status refreshes on its own (every 5 s while someone works, 15 s
+  otherwise, only while the tab is visible). The Overview's AI team card uses the same live refresh. If a
+  refresh fails the chip says "Reconnecting…".
+- Positions are percentages of the picture, so characters stay on their chairs at any screen size.
+- **Assets**: designed in the office editor (https://agent-office-editor.vercel.app) and exported as a scene bundle
+  (`office/office_1_data.json`: seats, positions, character frames). `npm run office:assets` turns it into one WebP
+  sprite sheet per desk (`public/office/`, ≈650 KB in total) and `lib/office-scene.json`. Characters built into the
+  editor are exported as paths only; their frames are downloaded from the editor into `office/characters/`.
+
+Without `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` the page shows "No AI provider connected", **Draft with AI** is disabled and scans are rule-based.
+
+**Skills vs. what the runtime does.** The pipeline enforces skills as tools:
+
+| Skill | Platform support today |
+| --- | --- |
+| Read repository, Read board & issues | ✅ list/read/search files (GitHub API); the card is in the agent's brief. |
+| Write code on branches, Open pull requests | ✅ Developer commits through the GitHub contents API; the pipeline opens the PR. |
+| Review pull requests, Comment on issues, File issues, Read CI results | ✅ Reviews and test reports posted on the PR, needs-info comments, merge follow-up issues, check runs/statuses. |
+| Manage dependencies | ✅ Gate only: without it, manifests and lockfiles can't be written. |
+| Merge pull requests | 🟡 Not an agent tool: merging is controlled by Settings → Agents (manual or automatic). |
+| Write tests, Run tests in a sandbox | 🟡 / ❌ Tests can be written as files; nothing executes them (needs a sandbox service). |
+| Web research | ❌ Needs a search tool (e.g. OpenAI's web search tool in the Responses API). |
+| Read environment secrets | ❌ No per-workspace secrets store. |
+
+## Pull Requests, Activity
+
+- **Pull Requests** — every pull request the agents opened: title, number, branch → base, card key, Review and Tests
+  verdicts, merge error if the last merge was blocked, and **Merge** once review and tests passed (manual mode; same
+  checks and follow-up rules as auto-merge). Opening the page picks up merges and closes done directly on GitHub
+  (cards move to Done). Empty state: "No agent pull requests yet". **View on GitHub** opens the repo's `/pulls`.
+- **Activity** — the workspace timeline, newest first, grouped by day: everything the agents logged (assignments,
+  each pipeline stage with its result and cost, pull requests opened and merged, follow-up issues, configuration,
+  pauses, trust scans, provider switches) plus what people did on the board ("You" for your own): cards created, moved to
+  another column (drag and drop or the dialog), edited (which fields) and removed. Each event: title
+  with its cost in a small grey badge on the right (what the agent spent on models for that step; agent stages always
+  show it, $0.00 included),
+  then who and when (time, plus "5 minutes ago" for today), then the detail. Each day's header shows that day's total
+  spend. Rows alternate white and a barely-grey tint (zebra) so long days stay easy to scan. 50 events at a
+  time, **Show older activity** adds 50 more (up to 500). Empty state: "No activity yet" with **Open the board**.
+  Reordering within a column and GitHub syncs aren't logged. The Overview's recent activity shows created and moved
+  cards next to the agents' work.
 
 ## Settings
 
-`/dashboard/[workspaceId]/settings` (also reachable from the user menu, which jumps to `#account` or `#workspace`):
+`/dashboard/[workspaceId]/settings` (also reachable from the user menu, which jumps to `#account`, `#workspace` or `#ai`):
 - **Account** — avatar, name, verified-email badge, email, member since, last sign-in, account id.
 - **Workspace** — avatar, name, repository, default branch, visibility, creation date, **Open repository**.
+- **AI providers** (`#ai`) — **Agents work on** OpenAI or Anthropic: each agent then picks its model from that company on
+  the AI Team page and remembers one per company, so switching back restores those choices. The first time, each agent
+  gets the closest model (GPT-6.1 Sol ↔ Claude Sonnet 5.5, GPT-6 Astra ↔ Claude Opus 5.5, GPT-6 Luna ↔ Claude Haiku 5.5;
+  Terra → Sonnet). Every change is logged on the agent; a company without a key can't be chosen. Below, one key field per
+  provider: status (Connected with the masked key, Using the server's key, or Not connected), a password field with a
+  show/hide eye, **Save key** / **Replace key** (checked with the provider first; errors stay next to the field) and
+  **Remove** (confirmation dialog). The AI Team's "No AI provider connected" chip links here.
+- **Switch automatically when out of credit** (`#ai`, toggle, off by default) — see [Out of credit](#out-of-credit).
+  Needs a key for both companies to do anything.
+- **Switch Trust** (`#switch`) — connect the workspace's Switch account: API key (masked, show/hide), instance URL,
+  tenant and workspace IDs (detected from the key), **Connect securely**. Connecting checks the key with Switch and
+  starts a SwitchAgent scan of all four agents; the status line shows the masked key and the evaluation each agent
+  runs; **Disconnect** asks first. A warning explains when this server can't run scans (no jobs config or a local URL).
+  **Scan every week** (toggle, on by default) re-scans every agent each Monday.
+- **Agent automation** (`#agents`) — **Task pickup** (Manual: Run on each card / Automatic: the Analyst picks the top
+  never-run Todo card every 2 minutes) and **Merging pull requests** (Manual: from the Pull Requests page / Automatic:
+  once review, tests and CI pass). Both default to Manual. A note explains that a blocked merge makes the Tester file a
+  follow-up card.
 
-Read-only for now.
+Account and workspace details are read-only.
 
 ## Theme
 

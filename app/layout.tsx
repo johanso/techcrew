@@ -3,15 +3,17 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 
+import { APP_NAME } from "@/components/brand";
+
 // Brand typeface (see AGENTS.md → Typography). Exposed as --font-sans for Tailwind's font-sans / font-heading.
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: {
-    default: "Next.js Premium Startup Boilerplate",
-    template: "%s · FastNextJS",
+    default: APP_NAME,
+    template: `%s · ${APP_NAME}`,
   },
-  description: "Created using the ultimate interactive Next.js stack generator CLI.",
+  description: "An AI team (analyst, developer, reviewer, tester) that works your GitHub issues into reviewed, tested pull requests.",
 };
 
 export default function RootLayout({
@@ -22,7 +24,7 @@ export default function RootLayout({
   return (
     // next-themes toggles the `dark` class on <html> before hydration.
     <html lang="en" className={jakarta.variable} suppressHydrationWarning>
-      <body style={{ margin: 0, padding: 0 }} className="antialiased">
+      <body className="antialiased">
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
           {children}
         </ThemeProvider>

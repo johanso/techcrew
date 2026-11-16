@@ -24,14 +24,21 @@ import {
   createCardAction,
   moveCardsAction,
   removeCardAction,
+  answerCardAction,
+  mergeCardAction,
   runCardAction,
+  stopCardAction,
   updateCardAction,
+  switchProviderAndRetryAction,
 } from "@/app/dashboard/[workspaceId]/board/actions";
 import { BoardCardView } from "@/components/board/board-card";
 import { BoardColumn } from "@/components/board/board-column";
 import { isFiltering, matchesFilters, matchesQuery, NO_FILTERS, type BoardFilters, type TypeFilter } from "@/components/board/board-filters";
 import { BoardToolbar } from "@/components/board/board-toolbar";
+import { AnswerDialog, type AnswerSubmit } from "@/components/board/answer-dialog";
 import { CardDialog, type CardDialogMode, type CardDialogSubmit } from "@/components/board/card-dialog";
+import { CreditNotice } from "@/components/board/credit-notice";
+import { RunLogSheet } from "@/components/board/run-log-sheet";
 import { GithubSyncButton, GithubSyncNotice } from "@/components/board/github-sync-controls";
 import { useGithubSync } from "@/components/board/use-github-sync";
 import { ISSUE_TYPE_META } from "@/components/board/issue-meta";
@@ -65,6 +72,8 @@ import {
   type BoardColumns,
   type BoardData,
 } from "@/lib/board-config";
+import type { AgentProvider, ProviderStatus } from "@/lib/agent-config";
+import { isActiveRun } from "@/lib/agent-run-config";
 import { cn } from "@/lib/utils";
 
 const COLUMN_TITLE = Object.fromEntries(BOARD_COLUMNS.map((c) => [c.id, c.title])) as Record<BoardColumnId, string>;
@@ -74,10 +83,16 @@ export function KanbanBoard({
   initial,
   repo,
   lastSyncedAt,
+  ai,
+  openLogFor,
 }: {
   workspaceId: number;
   initial: BoardData;
   repo: string;
+  /** The team's provider and which companies have a key, for the out-of-credit notice. */
+  ai: { provider: AgentProvider; connected: ProviderStatus };
+  /** Card id whose agent log opens on load (?log=<id>, e.g. from a notification). */
+  openLogFor: string | null;
   /** Last GitHub issue sync (ISO), or null if this workspace never synced. */
   lastSyncedAt: string | null;
 }) {
@@ -96,6 +111,10 @@ export function KanbanBoard({
   });
   const [boardError, setBoardError] = useState<string | null>(null);
   const [runningIds, setRunningIds] = useState<ReadonlySet<string>>(new Set());
+  const [mergingIds, setMergingIds] = useState<ReadonlySet<string>>(new Set());
+  const [retryingCredit, setRetryingCredit] = useState(false);
+  const [logCardId, setLogCardId] = useState<string | null>(openLogFor);
+  const [answerCardId, setAnswerCardId] = useState<string | null>(null);
   // The card the remove confirmation is about; kept while the dialog animates out.
   const [removal, setRemoval] = useState<{ open: boolean; card: BoardCard | null; pending: boolean }>({
     open: false,
@@ -117,9 +136,12 @@ export function KanbanBoard({
   // A synced board must not land mid-drag or before a move/removal is saved: it would undo it on screen.
   const dragging = useRef(false);
   const pendingWrites = useRef(0);
+  // While agents work on any card, poll faster and always take the fresh board, so stages move on screen.
+  const agentsWorking = Object.values(cards).some((card) => card.run !== null && isActiveRun(card.run.status));
   const github = useGithubSync({
     workspaceId,
     initialSyncedAt: lastSyncedAt,
+    live: agentsWorking,
     isBusy: () => dragging.current || pendingWrites.current > 0,
     onBoard: (board) => {
       setCards(board.cards);
@@ -186,7 +208,8 @@ export function KanbanBoard({
     const result = await updateCardAction(workspaceId, dialog.mode.card.id, input);
     if (!result.ok) return result.error;
     const { card } = result;
-    setCards((prev) => ({ ...prev, [card.id]: card }));
+    // The edit response doesn't carry the agent run; keep the one the board already shows.
+    setCards((prev) => ({ ...prev, [card.id]: { ...card, run: prev[card.id]?.run ?? card.run } }));
     // A status change from the form appends the card to its new column (same as the server).
     setColumns((prev) => {
       const from = BOARD_COLUMNS.find((c) => prev[c.id].includes(card.id))?.id;
@@ -195,14 +218,23 @@ export function KanbanBoard({
     });
   };
 
-  // Run: the server queues the analyst, then returns the card assigned to it.
+  // Run: the server starts the agent pipeline, then returns the card assigned to the analyst.
+  // A run started: the analyst takes the card, and the server put it on top of Analysis.
+  const showRunStarted = (card: BoardCard) => {
+    setCards((prev) => (prev[card.id] ? { ...prev, [card.id]: card } : prev));
+    setColumns((prev) => {
+      const without = Object.fromEntries(BOARD_COLUMNS.map((c) => [c.id, prev[c.id].filter((id) => id !== card.id)])) as BoardColumns;
+      return { ...without, analysis: [card.id, ...without.analysis] };
+    });
+  };
+
   const runCard = async (card: BoardCard) => {
     if (runningIds.has(card.id)) return;
     setRunningIds((prev) => new Set(prev).add(card.id));
     try {
       const result = await runCardAction(workspaceId, card.id);
-      if (result.ok) setCards((prev) => (prev[card.id] ? { ...prev, [card.id]: result.card } : prev));
-      else setBoardError(result.error);
+      if (!result.ok) return setBoardError(result.error);
+      showRunStarted(result.card);
     } catch {
       setBoardError(`We couldn't start the analyst on ${card.key}. Please try again.`);
     } finally {
@@ -211,6 +243,99 @@ export function KanbanBoard({
         next.delete(card.id);
         return next;
       });
+    }
+  };
+
+  const closeLog = () => {
+    setLogCardId(null);
+    // Drop ?log= so a reload doesn't reopen it.
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("log")) {
+      url.searchParams.delete("log");
+      window.history.replaceState(null, "", url);
+    }
+  };
+
+  // Answer: the server saves the answer and runs the card again; like Run, the analyst takes it into Analysis.
+  const answerCard: AnswerSubmit = async (card, answer) => {
+    setRunningIds((prev) => new Set(prev).add(card.id));
+    try {
+      const result = await answerCardAction(workspaceId, card.id, answer);
+      if (!result.ok) return result.error;
+      showRunStarted(result.card);
+    } catch {
+      return `We couldn't send your answer on ${card.key}. Please try again.`;
+    } finally {
+      setRunningIds((prev) => {
+        const next = new Set(prev);
+        next.delete(card.id);
+        return next;
+      });
+    }
+  };
+
+  const stopCard = async (card: BoardCard) => {
+    pendingWrites.current++;
+    try {
+      const result = await stopCardAction(workspaceId, card.id);
+      if (!result.ok) return setBoardError(result.error);
+      setCards((prev) => (prev[card.id] ? { ...prev, [card.id]: result.card } : prev));
+      // A card stopped during analysis goes back to Todo on the server; mirror it.
+      setColumns((prev) => {
+        const from = BOARD_COLUMNS.find((c) => prev[c.id].includes(card.id))?.id;
+        if (from !== "analysis") return prev;
+        return { ...prev, analysis: prev.analysis.filter((id) => id !== card.id), todo: [card.id, ...prev.todo] };
+      });
+    } catch {
+      setBoardError(`We couldn't stop the agents on ${card.key}. Please try again.`);
+    } finally {
+      pendingWrites.current--;
+      settle();
+    }
+  };
+
+  // Merge: the server merges the card's PR (or the Tester files a follow-up when it can't), then the fresh board
+  // shows the result — the card in Done, or the follow-up card in Todo.
+  const mergeCard = async (card: BoardCard) => {
+    if (mergingIds.has(card.id)) return;
+    setMergingIds((prev) => new Set(prev).add(card.id));
+    pendingWrites.current++;
+    try {
+      const result = await mergeCardAction(workspaceId, card.id);
+      if (!result.ok) setBoardError(`${card.key}: ${result.error}`);
+    } catch {
+      setBoardError(`We couldn't merge ${card.key}'s pull request. Please try again.`);
+    } finally {
+      setMergingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(card.id);
+        return next;
+      });
+      pendingWrites.current--;
+      settle();
+      void github.sync({ includeBoard: true });
+    }
+  };
+
+  // Cards stopped because the provider ran out of credit (latest run), for the notice above the board.
+  const outOfCredit = Object.values(cards).filter((card) => card.run?.status === "failed" && card.run.failure?.kind === "out_of_credit");
+
+  // One by one: the first switches the team (when needed), the rest just run on the new provider.
+  const retryOutOfCredit = async () => {
+    setRetryingCredit(true);
+    try {
+      for (const card of outOfCredit) {
+        const result = await switchProviderAndRetryAction(workspaceId, card.id);
+        if (!result.ok) {
+          setBoardError(`${card.key}: ${result.error}`);
+          break;
+        }
+        showRunStarted(result.card);
+      }
+    } catch {
+      setBoardError("We couldn't restart the stopped cards. Please try again.");
+    } finally {
+      setRetryingCredit(false);
     }
   };
 
@@ -374,6 +499,15 @@ export function KanbanBoard({
 
       <GithubSyncNotice state={github.state} repo={repo} connectHref={connectHref} onRetry={() => void github.sync({ manual: true })} />
 
+      <CreditNotice
+        cards={outOfCredit}
+        provider={ai.provider}
+        connected={ai.connected}
+        settingsHref={`/dashboard/${workspaceId}/settings#ai`}
+        retrying={retryingCredit}
+        onRetry={() => void retryOutOfCredit()}
+      />
+
       {boardError && (
         <div
           role="alert"
@@ -430,9 +564,14 @@ export function KanbanBoard({
               filtering={filtering}
               highlightId={highlightId}
               runningIds={runningIds}
+              mergingIds={mergingIds}
               onAdd={() => openCreate({ status: column.id })}
               onOpenCard={openCard}
               onRunCard={(card) => void runCard(card)}
+              onStopCard={(card) => void stopCard(card)}
+              onMergeCard={(card) => void mergeCard(card)}
+              onAnswerCard={(card) => setAnswerCardId(card.id)}
+              onViewLog={(card) => setLogCardId(card.id)}
               onRemoveCard={(card) => setRemoval({ open: true, card, pending: false })}
             />
           ))}
@@ -455,6 +594,23 @@ export function KanbanBoard({
         onOpenChange={(open) => setDialog((d) => ({ ...d, open }))}
         mode={dialog.mode}
         onSubmit={submitCard}
+      />
+
+      <AnswerDialog
+        card={answerCardId ? (cards[answerCardId] ?? null) : null}
+        onOpenChange={(open) => !open && setAnswerCardId(null)}
+        onSubmit={answerCard}
+      />
+
+      <RunLogSheet
+        workspaceId={workspaceId}
+        card={logCardId ? (cards[logCardId] ?? null) : null}
+        // One modal at a time: the log closes, then the answer dialog opens.
+        onAnswer={(card) => {
+          closeLog();
+          setAnswerCardId(card.id);
+        }}
+        onOpenChange={(open) => !open && closeLog()}
       />
 
       <AlertDialog open={removal.open} onOpenChange={(open) => !removal.pending && setRemoval((r) => ({ ...r, open }))}>

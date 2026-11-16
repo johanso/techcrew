@@ -1,0 +1,85 @@
+"use client";
+
+import { useState } from "react";
+
+import { AgentActivitySheet } from "@/components/ai-team/agent-activity-sheet";
+import { AgentCard } from "@/components/ai-team/agent-card";
+import { AgentConfigDialog } from "@/components/ai-team/agent-config-dialog";
+import type { AgentKey, AgentProvider, ProviderStatus } from "@/lib/agent-config";
+import type { AgentView } from "@/lib/agents";
+import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
+
+/**
+ * The agent cards plus the configure dialog and activity drawer they open. Both overlays read the agent from
+ * `agents`, so after a server action re-renders the page they show fresh data (score, spend, activity).
+ */
+export function AgentRoster({
+  agents,
+  workspaceId,
+  repoFullName,
+  aiEnabled,
+  providers,
+  provider,
+  switchTrust,
+}: {
+  agents: AgentView[];
+  workspaceId: number;
+  repoFullName: string;
+  aiEnabled: boolean;
+  providers: ProviderStatus;
+  provider: AgentProvider;
+  switchTrust: SwitchTrustStatus;
+}) {
+  const [configuring, setConfiguring] = useState<AgentKey | null>(null);
+  const [viewing, setViewing] = useState<AgentKey | null>(null);
+  // Keep the last agent while the overlay animates out, so it doesn't go blank mid-transition.
+  const [lastConfigured, setLastConfigured] = useState<AgentKey | null>(null);
+  const [lastViewed, setLastViewed] = useState<AgentKey | null>(null);
+
+  const configAgent = agents.find((a) => a.id === (configuring ?? lastConfigured));
+  const activityAgent = agents.find((a) => a.id === (viewing ?? lastViewed));
+
+  return (
+    <>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Agents">
+        {agents.map((agent) => (
+          <AgentCard
+            key={agent.id}
+            agent={agent}
+            onConfigure={() => {
+              setConfiguring(agent.id);
+              setLastConfigured(agent.id);
+            }}
+            onViewActivity={() => {
+              setViewing(agent.id);
+              setLastViewed(agent.id);
+            }}
+          />
+        ))}
+      </section>
+
+      {configAgent && (
+        <AgentConfigDialog
+          // Remount per agent so the form starts from that agent's saved configuration.
+          key={configAgent.id}
+          open={configuring !== null}
+          onOpenChange={(open) => !open && setConfiguring(null)}
+          agent={configAgent}
+          workspaceId={workspaceId}
+          repoFullName={repoFullName}
+          aiEnabled={aiEnabled}
+          providers={providers}
+          provider={provider}
+          switchTrust={switchTrust}
+        />
+      )}
+      {activityAgent && (
+        <AgentActivitySheet
+          open={viewing !== null}
+          onOpenChange={(open) => !open && setViewing(null)}
+          agent={activityAgent}
+        />
+      )}
+    </>
+  );
+}

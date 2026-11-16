@@ -18,9 +18,14 @@ export function BoardColumn({
   filtering,
   highlightId,
   runningIds,
+  mergingIds,
   onAdd,
   onOpenCard,
   onRunCard,
+  onStopCard,
+  onMergeCard,
+  onAnswerCard,
+  onViewLog,
   onRemoveCard,
 }: {
   column: (typeof BOARD_COLUMNS)[number];
@@ -32,9 +37,15 @@ export function BoardColumn({
   highlightId: string | null;
   /** Cards whose Run is being started. */
   runningIds: ReadonlySet<string>;
+  /** Cards whose pull request is being merged. */
+  mergingIds: ReadonlySet<string>;
   onAdd: () => void;
   onOpenCard: (card: BoardCard) => void;
   onRunCard: (card: BoardCard) => void;
+  onStopCard: (card: BoardCard) => void;
+  onMergeCard: (card: BoardCard) => void;
+  onAnswerCard: (card: BoardCard) => void;
+  onViewLog: (card: BoardCard) => void;
   onRemoveCard: (card: BoardCard) => void;
 }) {
   // The column itself is a drop target, so empty columns accept cards too.
@@ -86,8 +97,13 @@ export function BoardColumn({
               done={column.id === "done"}
               highlight={card.id === highlightId}
               running={runningIds.has(card.id)}
+              merging={mergingIds.has(card.id)}
               onOpen={() => onOpenCard(card)}
               onRun={() => onRunCard(card)}
+              onStop={() => onStopCard(card)}
+              onMerge={() => onMergeCard(card)}
+              onAnswer={() => onAnswerCard(card)}
+              onViewLog={() => onViewLog(card)}
               onRemove={() => onRemoveCard(card)}
             />
           ))}

@@ -1,7 +1,10 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import { cache } from "react";
 import { cookies } from "next/headers";
+
+import { createSessionCache } from "@/lib/session-cache";
 
 /**
  * Server-side client for the hosted Better Auth service (CloudHike.dev Auth).
@@ -93,6 +96,7 @@ export async function fetchSession(token: string): Promise<AuthSession | null> {
 }
 
 export async function revokeSession(token: string) {
+  sessions.forget(tokenKey(token));
   await authRequest("/sign-out", { method: "POST", token }).catch(() => {});
 }
 
@@ -115,9 +119,20 @@ export async function clearSessionCookie() {
   (await cookies()).delete(SESSION_COOKIE);
 }
 
+/**
+ * Sessions validated in the last minute are reused (see lib/session-cache.ts): every server action and poll would
+ * otherwise call the auth service, which rate-limits. A session revoked elsewhere (another device) can stay valid
+ * here for up to that minute; signing out here forgets it at once. During an auth outage, sessions validated in the
+ * last 10 minutes keep working.
+ */
+const sessions = createSessionCache<AuthSession>({ freshMs: 60_000, staleMs: 10 * 60_000 });
+
+// Keyed by a hash so raw tokens don't sit in memory longer than the request.
+const tokenKey = (token: string) => createHash("sha256").update(token).digest("hex");
+
 /** Validated session for the current request (deduplicated per render). */
 export const getSession = cache(async (): Promise<AuthSession | null> => {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
-  return fetchSession(token);
+  return sessions.get(tokenKey(token), () => fetchSession(token));
 });

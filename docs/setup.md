@@ -47,12 +47,18 @@ All variables live in `.env`. Restart `npm run dev` after changing them.
 | `AUTH_SECRET_KEY` | no | — | Server-only key of the auth project. Not used by the current flows. |
 | `GITHUB_CLIENT_ID` | for GitHub | `lib/github.ts` | Client ID of your GitHub OAuth App. |
 | `GITHUB_CLIENT_SECRET` | for GitHub | `lib/github.ts` | Client secret of your GitHub OAuth App. |
-| `TOKEN_ENCRYPTION_KEY` | for GitHub | `lib/crypto.ts` | 32 random bytes, base64. Encrypts GitHub access tokens at rest. Generate with `openssl rand -base64 32`. **Changing it makes every stored token unreadable**: users must reconnect GitHub. |
+| `TOKEN_ENCRYPTION_KEY` | for GitHub | `lib/crypto.ts` | 32 random bytes, base64. Encrypts GitHub access tokens and AI provider keys at rest. Generate with `openssl rand -base64 32`. **Changing it makes every stored token unreadable**: users must reconnect GitHub and re-enter AI keys. |
 | `S3_ENDPOINT` | for logos | `lib/storage.ts` | S3 API endpoint, e.g. `https://s3.us-east-1.amazonaws.com`. Any S3-compatible service works. |
 | `S3_REGION` | for logos | `lib/storage.ts` | Bucket region. |
 | `S3_BUCKET` | for logos | `lib/storage.ts` | Bucket name. Keep it **private**; logos are served through the app. |
 | `S3_ACCESS_KEY_ID` | for logos | `lib/storage.ts` | Access key with `s3:PutObject` and `s3:GetObject` on the bucket. |
 | `S3_SECRET_ACCESS_KEY` | for logos | `lib/storage.ts` | Matching secret. |
+| `OPENAI_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback; workspaces normally save their own key in Settings → AI providers. Agents on GPT models; **Draft with AI** and AI-assisted trust scans (on `gpt-6.1-sol`). Without any provider key the page works with default instructions and rule-based scans. Model cost is charged to the agent's monthly budget. |
+| `ANTHROPIC_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback, as above. Agents on Claude models (Opus / Sonnet / Haiku 5.5). Also drafting and trust scans (on `claude-sonnet-5-5`) when `OPENAI_API_KEY` isn't set. A Console API key (pay as you go); a Claude.ai subscription can't be used. |
+| `AGENTS_SIMULATED` | no | `lib/agent-simulated.ts` | Local testing. `true` runs the agent pipeline with scripted agents: no model calls and no spend, but real GitHub work on the linked repo (a branch, one note file `agent-simulations/<branch>.md`, a pull request). Each turn waits 4 s so you can watch the card move. Leave `false` in production. |
+| `JOBS_API_URL`, `JOBS_API_KEY` | for Switch scans | `lib/jobs.ts` | Cloudhike Jobs project (`https://cloudhike.dev/api/jobs-service/<project>`) and its server-only key. SwitchAgent scans run on it. |
+| `PUBLIC_APP_URL` | for Switch scans | `lib/jobs.ts` | The app's internet-reachable origin, called back by Cloudhike jobs and Switch evaluations. Defaults to `NEXT_PUBLIC_APP_URL`; a local address disables scans, so in dev use a tunnel (`ngrok http 3000`). |
+| `SWITCH_AGENT_AI_API_KEY` | optional | `lib/switch-trust.ts` | Server-wide Switch Trust key (Editor role) for workspaces that connect without their own. See [switch-trust.md](switch-trust.md). |
 | `INNGEST_EVENT_KEY` | production | `lib/inngest/client.ts` | Inngest Cloud event key. Not needed locally (the Dev Server is used). |
 | `INNGEST_SIGNING_KEY` | production | Inngest `serve()` | Verifies requests from Inngest Cloud to `/api/inngest`. Not needed locally. |
 | `INNGEST_DEV` | no | Inngest SDK | Set to `1` to force Dev Mode, `0` to force Cloud Mode. If unset, the SDK (v3) infers Dev Mode unless the environment looks like production (`NODE_ENV=production`, Vercel/Netlify production, …). |
@@ -117,16 +123,25 @@ Locally nothing to configure: run `npm run inngest:dev`. It starts the Inngest D
 <http://localhost:8288>) and points it at `http://localhost:3000/api/inngest`, where the app's functions are
 served. For production see [docs/background-jobs.md](background-jobs.md#production).
 
+### Switch Trust and Cloudhike Jobs (optional)
+
+For SwitchAgent scans: create a Jobs project on Cloudhike (`JOBS_API_URL`, `JOBS_API_KEY`), an API key with the
+Editor role in Switch Trust (Settings → API keys), and expose the app publicly (`PUBLIC_APP_URL`). Then Settings →
+Switch Trust → **Connect securely**. Details: [switch-trust.md](switch-trust.md).
+
 ## 4. Create the database tables
 
 ```bash
-npm run db:push
+npm run db:migrate
 ```
 
-This compares `db/schema.ts` with the database and applies the difference (it creates `users`, `workspaces`,
-`github_connections` and `tasks` on a fresh database). It prints the SQL before running it; read it. If a change
-could lose data, drizzle-kit stops and asks for confirmation, which requires an interactive terminal.
-More in [docs/data-model.md](data-model.md#schema-changes).
+This applies the SQL migrations in `drizzle/` that the database hasn't run yet (on a fresh database: all of them,
+starting with `0000_baseline.sql`, which creates every table). Applied migrations are recorded in
+`drizzle.__drizzle_migrations`.
+
+**Database created with `db:push` before migrations existed** (any copy older than November 2026): its tables already
+exist, so run `npm run db:baseline` once. It marks the migrations as applied without running them. After that,
+`npm run db:migrate` as usual. More in [docs/data-model.md](data-model.md#schema-changes).
 
 ## 5. Run
 
@@ -135,9 +150,12 @@ npm run dev            # terminal 1 — http://localhost:3000
 npm run inngest:dev    # terminal 2 — only needed for the board's Run action
 ```
 
+The live office's sprites (`public/office/*.webp`) are committed; rebuild them with `npm run office:assets` only after
+changing the office scene (`office/`). See [features.md](features.md#live-agent-office).
+
 ## 6. First-run walkthrough
 
-1. Open <http://localhost:3000> → **Get Started** (or `/sign-up`). Create an account.
+1. Open <http://localhost:3000> (it redirects to sign-in) → **Sign up**. Create an account.
 2. You land on `/workspaces`, which forwards you to **Create a new workspace** because you have none.
 3. Name it, pick an icon (or upload a logo), click **Connect GitHub**, authorize, and pick a repository you can
    push to. Click **Next**.
@@ -152,14 +170,17 @@ npm run inngest:dev    # terminal 2 — only needed for the board's Run action
 - Cookies are `Secure` automatically when `NODE_ENV=production`.
 - Set `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`, deploy, then sync the app in the Inngest dashboard
   (`https://<your-domain>/api/inngest`).
-- Apply schema changes with `npm run db:push` against the production database before deploying code that needs them.
-- Read [docs/security.md](security.md#known-gaps) — in particular, remove or protect `POST /api/inngest/trigger`.
+- Run `npm run db:migrate` against the production database before deploying code that needs the new schema.
+  Never `db:push` there.
+- Run `npm run check` (types, lint, tests) and `npm run build` in CI before deploying.
+- Read [docs/security.md](security.md#known-gaps).
 
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 | --- | --- |
-| `relation "workspaces" does not exist` (or any table) | Tables weren't created. Run `npm run db:push`. |
+| `relation "workspaces" does not exist` (or any table) | Tables weren't created. Run `npm run db:migrate`. |
+| `npm run db:migrate` fails with `relation "…" already exists` | The database was created with `db:push`. Run `npm run db:baseline` once, then migrate again. |
 | "Connect GitHub" is disabled | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` are not set. Restart the dev server after setting them. |
 | GitHub redirects back with "We couldn't connect to GitHub" | Callback URL mismatch (must be exactly `<NEXT_PUBLIC_APP_URL>/api/github/callback`), wrong client secret, or missing `TOKEN_ENCRYPTION_KEY`. Check the server log for `[github] connect failed`. |
 | A repository is missing from the picker | Only repositories you can **push** to and that aren't archived are listed (max 300). For org repos, the org may need to approve the OAuth App. |
@@ -167,5 +188,5 @@ npm run inngest:dev    # terminal 2 — only needed for the board's Run action
 | Board shows "Your GitHub connection expired or was revoked" | The token was revoked on GitHub (or `TOKEN_ENCRYPTION_KEY` changed). Click **Reconnect GitHub**. |
 | **Run** fails with "Is the Inngest Dev Server running?" | Start `npm run inngest:dev`. Without it, the SDK falls back to Inngest Cloud and the placeholder event key is rejected (401). |
 | Logo upload button is disabled | S3 variables are not set. |
-| `npm run db:push` exits with "Interactive prompts require a TTY" | drizzle-kit wants to confirm a risky change (e.g. a new unique constraint on a non-empty table). Run it in a regular terminal and read the prompt; don't accept truncation unless you mean it. |
-| `npm run lint` fails | There's no ESLint config yet. Use `npx tsc --noEmit` and `npm run build`. |
+| `npm run db:generate` asks questions ("Interactive prompts require a TTY") | drizzle-kit can't tell a rename from a drop + add. Run it in a regular terminal and answer the prompt. |
+| `npm install` fails with "Cannot read properties of null (reading 'edgesOut')" | An npm 10 bug while resolving peer dependencies. Add `--legacy-peer-deps` to that install. |
