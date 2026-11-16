@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { AGENT_MODELS, EQUIVALENT_MODEL, agentModelFor, formatMicros, modelInfo, modelsFor } from "@/lib/agent-config";
+import { AGENT_KEYS, AGENT_MODELS, AGENT_ROLES, EQUIVALENT_MODEL, agentModelFor, formatMicros, modelInfo, modelsFor } from "@/lib/agent-config";
 
 describe("models per provider", () => {
   it("lists only that company's models", () => {
@@ -11,6 +11,24 @@ describe("models per provider", () => {
 
   it("maps every model to one on the other company", () => {
     for (const model of AGENT_MODELS) expect(modelInfo(EQUIVALENT_MODEL[model.id]).provider).not.toBe(model.provider);
+  });
+});
+
+describe("roles", () => {
+  it("defines every key with defaults on both companies", () => {
+    for (const key of AGENT_KEYS) {
+      const role = AGENT_ROLES[key];
+      expect(role.id).toBe(key);
+      expect(modelInfo(role.defaults.models.openai).provider).toBe("openai");
+      expect(modelInfo(role.defaults.models.anthropic).provider).toBe("anthropic");
+    }
+  });
+
+  it("keeps the reviewers that gate a merge read-only by default", () => {
+    const writes = ["code.write", "tests.write", "deps.manage", "pr.open", "pr.merge", "issues.create", "tests.run", "secrets.read"];
+    for (const key of ["security", "lead"] as const) {
+      expect(AGENT_ROLES[key].defaults.skills.filter((skill) => writes.includes(skill)), key).toEqual([]);
+    }
   });
 });
 

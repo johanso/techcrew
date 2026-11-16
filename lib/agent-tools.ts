@@ -3,7 +3,7 @@ import "server-only";
 import type { FunctionTool } from "openai/resources/responses/responses";
 
 import type { SkillId } from "@/lib/agent-config";
-import type { RunStage } from "@/lib/agent-run-config";
+import type { AgentStage } from "@/lib/agent-run-config";
 import {
   GithubError,
   compareBranches,
@@ -28,7 +28,7 @@ export type ToolContext = {
   defaultBranch: string;
   /** The run's working branch (null before the developer creates it). */
   branch: string | null;
-  stage: RunStage;
+  stage: AgentStage;
   skills: SkillId[];
 };
 
@@ -102,13 +102,16 @@ const TOOLS = {
 
 export type ToolName = keyof typeof TOOLS;
 
+// Stages that judge the work on the branch: they read its diff and CI but never write.
+const BRANCH_READERS: AgentStage[] = ["review", "security", "approval", "testing"];
+
 /** Tools for this stage, filtered by the agent's skills. */
 export function toolsFor(ctx: Pick<ToolContext, "stage" | "skills" | "branch">): FunctionTool[] {
   const has = (skill: SkillId) => ctx.skills.includes(skill);
   const names: ToolName[] = [];
   if (has("repo.read")) names.push("list_files", "read_file", "search_code");
   if (ctx.stage === "development" && has("code.write") && ctx.branch) names.push("write_file", "replace_in_file", "delete_file");
-  if ((ctx.stage === "review" || ctx.stage === "testing") && ctx.branch) {
+  if (BRANCH_READERS.includes(ctx.stage) && ctx.branch) {
     if (has("repo.read")) names.push("get_diff");
     if (has("ci.read")) names.push("get_checks");
   }

@@ -8,6 +8,32 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+Smarter gates and a live view of the pipeline. Target version: 0.2.0.
+
+### Added
+- **Security** and **Lead** agents. Security reviews every pull request for leaked secrets, injection, unsafe
+  permissions and risky dependencies. The Lead combines both reviews, decides whether the Developer reworks, and rates
+  the change's risk (low, medium, high) with reasons. Both are read-only by default and are created automatically in
+  existing workspaces.
+- Pipeline: Analysis → Development → Review (Reviewer and Security **in parallel**) → Approval (Lead) → Testing →
+  Merge. The board keeps six columns: approval holds the card in In Review.
+- **Risk-based merging**: Settings → Merging offers Manual, **Automatic when low risk** and Automatic. The risk can't be
+  rated below what the facts show: Security's findings and what the diff touches (dependencies, schema, auth, CI, size).
+- Pull Requests show the Lead's risk next to the approval and test verdicts. The bell says why a pull request waits.
+- **Live process** on the AI Team page: the six steps of each card in flight, with who works, what they're doing, their
+  last three actions, turns and cost so far, and each finished step's result. "Inactive" when nothing runs.
+- **Face avatars** for every agent (AI Team, board cards, Overview, activity, agent log). Agent cards show what a
+  working agent is doing.
+
+### Changed
+- The Lead's decision, not the Reviewer's, sends work back to the Developer and sets the pull request's review status.
+- The agent log shows the parallel Code review and Security review blocks, both live at once.
+- AI Team cards sit three per row on wide screens.
+- Existing workspaces keep their merge setting: automatic merging stays "Automatic" (any risk).
+
+### Removed
+- The Live Agent Office (replaced by the live process), its sprites and the `office:assets` script.
+
 ## [0.1.0] — 2026-11-16
 
 The MVP: a workspace linked to one GitHub repository, its issues on a Kanban board, and a team of four AI agents that

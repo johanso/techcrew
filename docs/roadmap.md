@@ -39,14 +39,14 @@ flowchart LR
     BRAIN -.-> APP
 ```
 
-| Target piece | Today (v0.1.0) |
+| Target piece | Today (v0.2) |
 | --- | --- |
 | Input | GitHub issues and board cards |
 | Spec writer | Analyst (brief, questions to the owner) |
 | Builder | Developer (branch + PR) |
-| Specialist reviewers in parallel, mixed model companies | One Reviewer, then one Tester, one company per workspace |
-| Approver with a loop back | Rework loop from review or tests (max 2 rounds) |
-| Risk-based human gate | Workspace-wide merge mode (manual or automatic) |
+| Specialist reviewers in parallel, mixed model companies | Reviewer and Security in parallel, then the Tester; one company per workspace |
+| Approver with a loop back | Lead: combines the reviews, sends work back (max 2 rounds with the tests) |
+| Risk-based human gate | Lead's risk rating with a deterministic floor; "Automatic when low risk" merge mode |
 | Production | No deploy step |
 | Brain | Only a card's earlier questions and answers |
 
@@ -56,18 +56,22 @@ Agents keep never writing to the default branch: low-risk changes still go throu
 
 Each phase is a minor version. The order puts cheap wins on what exists first, then the pieces that unlock the rest.
 
-### v0.2 — Deploy and hardening
+### v0.2 — Smarter gates and live process ✅
+- **Security and Lead agents**: Security reviews in parallel with the Reviewer (parallel Inngest steps); the Lead
+  combines both verdicts, decides whether the Developer reworks and rates the change's risk (low, medium, high), with
+  a deterministic floor from Security's findings and what the diff touches.
+- **Risk-based human gate**: Settings → Merging adds "Automatic when low risk"; medium and high wait for the owner.
+- **Live process** on the AI Team page (replaces the Live Agent Office) and face avatars for every agent.
+- Done on `feat/v0.2-agents-live-process`; see [CHANGELOG.md](../CHANGELOG.md).
+
+### v0.3 — Deploy and hardening
 - Deploy (Vercel works: 300 s functions vs our 120 s routes; Postgres is already hosted). Hobby is non-commercial only.
   Needs Inngest Cloud, a production GitHub OAuth App and `PUBLIC_APP_URL` set to the production domain.
 - Weekly Switch scans in production, without a tunnel.
 - The post-MVP rows of the [test plan](testing.md#test-plan-and-status): Anthropic live, blocked merge, auto pickup
   and auto merge, pause or budget mid-run, Draft with AI, automatic provider switch.
-
-### v0.3 — Smarter gates
-- **Risk-based human gate**: the review also rates the change's risk (low, medium, high); auto-merge applies only to
-  low risk, and the rest waits for the owner.
-- **Parallel specialist reviewers**: Security and Code reviewers run at the same time (parallel Inngest steps), and an
-  **Approver** combines their verdicts and decides whether the Developer reworks.
+- Drop the deprecated `workspaces.agent_auto_merge` column (replaced by `agent_merge_mode` in v0.2, kept one release
+  so v0.1 code still runs against a migrated database).
 - **Mixed companies per agent**: an agent may use OpenAI or Anthropic when both keys exist, so reviewers don't share
   one model's blind spots.
 

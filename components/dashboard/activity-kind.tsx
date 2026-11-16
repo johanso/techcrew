@@ -45,7 +45,7 @@ export function ActivityAvatar({ item }: { item: Pick<ActivityItem, "actor" | "k
     // h-fit: in a stretched flex row the badge would otherwise sink to the row's bottom.
     <span className="relative h-fit shrink-0">
       {item.actor.type === "agent" ? (
-        <AgentAvatar agent={item.actor.agent} className="size-8" />
+        <AgentAvatar agent={item.actor.agent} alt="" className="size-8" />
       ) : (
         <UserInitial name={item.actor.name} className="size-8" />
       )}

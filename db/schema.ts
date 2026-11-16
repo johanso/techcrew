@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { bigint, boolean, date, index, integer, jsonb, pgTable, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
 
 import type { AgentModelId, AgentProvider } from "@/lib/agent-config";
-import type { AnalystBrief, ReviewReport, RunFailure, TestReport } from "@/lib/agent-run-config";
+import type { AnalystBrief, LeadDecision, ReviewReport, RunFailure, SecurityReport, TestReport } from "@/lib/agent-run-config";
 import type { TrustReport } from "@/lib/agent-trust";
 
 export const users = pgTable("users", {
@@ -64,8 +64,12 @@ export const workspaces = pgTable(
     // Last successful issue sync (lib/github-issues.ts). Used as GitHub's `since` for incremental syncs.
     githubIssuesSyncedAt: timestamp("github_issues_synced_at"),
     // Agent automation (Settings → Agents). Pickup: the analyst takes the next Todo card on its own instead of
-    // waiting for Run. Merge: agent pull requests merge once review and tests pass instead of waiting for the user.
+    // waiting for Run. Merge mode ("manual" | "auto_low_risk" | "auto", MERGE_MODES): whether approved, tested
+    // agent pull requests merge on their own (always, or only when the Lead rated them low risk).
     agentAutoPickup: boolean("agent_auto_pickup").default(false).notNull(),
+    agentMergeMode: text("agent_merge_mode").default("manual").notNull(),
+    // Deprecated (v0.1 merge switch): agent_merge_mode replaced it and was backfilled from it. Not read or written;
+    // kept one release so v0.1 code still runs against a migrated database. Drop in v0.3.
     agentAutoMerge: boolean("agent_auto_merge").default(false).notNull(),
     // Settings → AI providers: the provider the team works on ("openai" | "anthropic"). Also used by AI drafting/scans.
     aiProvider: text("ai_provider").default("openai").notNull(),
@@ -152,7 +156,7 @@ export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 
 /**
- * An AI agent of a workspace. Every workspace gets the four roles from lib/agent-config.ts (`key`), created on
+ * An AI agent of a workspace. Every workspace gets the six roles from lib/agent-config.ts (`key`), created on
  * first use by ensureDefaultAgents(); the user configures them on the AI Team page.
  */
 export const agents = pgTable(
@@ -162,7 +166,7 @@ export const agents = pgTable(
     workspaceId: integer("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
-    // Role key ("analyst", "developer", "reviewer", "tester"); also what tasks.assignee_agent_id stores.
+    // Role key ("analyst", "developer", "reviewer", "security", "lead", "tester"); also what tasks.assignee_agent_id stores.
     key: text("key").notNull(),
     description: text("description").notNull(),
     instructions: text("instructions").notNull(),
@@ -332,14 +336,18 @@ export const agentRuns = pgTable(
     // "manual" (Run on the card) or "auto" (picked up by the analyst).
     trigger: text("trigger").notNull(),
     status: text("status").notNull(),
-    // Current (or last) pipeline stage; null while queued.
+    // Current (or last) pipeline phase (RUN_STAGES: analysis … merge); null while queued.
     stage: text("stage"),
     // Working branch in the workspace repository, created by the developer stage.
     branch: text("branch"),
     brief: jsonb("brief").$type<AnalystBrief>(),
     review: jsonb("review").$type<ReviewReport>(),
+    // Security's report, from the same round as `review` (they run in parallel).
+    securityReport: jsonb("security_report").$type<SecurityReport>(),
+    // The Lead's decision after both reviews, with the final risk (raised to the deterministic floor).
+    approval: jsonb("approval").$type<LeadDecision>(),
     testReport: jsonb("test_report").$type<TestReport>(),
-    // Development rounds after the first one (review or tests sent the work back).
+    // Development rounds after the first one (the Lead or the tests sent the work back).
     reworkRounds: integer("rework_rounds").notNull().default(0),
     // Why the run stopped (failed / needs info / merge blocked), in words for the user.
     error: text("error"),
@@ -396,6 +404,7 @@ export const agentRunSteps = pgTable(
     runId: integer("run_id")
       .notNull()
       .references(() => agentRuns.id, { onDelete: "cascade" }),
+    // Agent stage (AGENT_STAGES): "review" and "security" run in parallel in the same round.
     stage: text("stage").notNull(),
     // Rework round (0 = first pass).
     round: integer("round").notNull(),
@@ -436,8 +445,10 @@ export const pullRequests = pgTable(
     baseBranch: text("base_branch").notNull(),
     // "open" | "merged" | "closed".
     state: text("state").notNull(),
-    // "pending" | "approved" | "changes_requested".
+    // The Lead's decision: "pending" | "approved" | "changes_requested".
     reviewStatus: text("review_status").notNull().default("pending"),
+    // The Lead's final risk rating: "low" | "medium" | "high"; null until approval.
+    risk: text("risk"),
     // "pending" | "passed" | "failed".
     testStatus: text("test_status").notNull().default("pending"),
     // Why the last merge attempt failed (conflict, failing checks …); cleared on success.

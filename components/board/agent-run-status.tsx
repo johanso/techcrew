@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 import { PROVIDERS } from "@/lib/agent-config";
-import { STAGE_META, type BoardCardRun } from "@/lib/agent-run-config";
+import { PHASE_META, type BoardCardRun } from "@/lib/agent-run-config";
 import { cn } from "@/lib/utils";
 
 /** Label, icon and tone for a card's latest agent run. Tones color the icon only; the text stays neutral (contrast). */
@@ -20,7 +20,7 @@ export function runStatusMeta(run: BoardCardRun): { label: string; icon: LucideI
     case "queued":
       return { label: "Queued for the agents", icon: LoaderCircleIcon, tone: "text-muted-foreground", spin: true };
     case "running":
-      return { label: `${run.stage ? STAGE_META[run.stage].verb : "Working"}…`, icon: LoaderCircleIcon, tone: "text-action", spin: true };
+      return { label: `${run.stage ? PHASE_META[run.stage].verb : "Working"}…`, icon: LoaderCircleIcon, tone: "text-action", spin: true };
     case "awaiting_merge":
       return { label: pr ? `${pr} ready to merge` : "Ready to merge", icon: GitPullRequestIcon, tone: "text-success" };
     case "completed":

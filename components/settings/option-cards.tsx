@@ -24,7 +24,7 @@ export function OptionCards<T extends string>({
   return (
     <FieldSet className="gap-2.5">
       <FieldLegend variant="label">{legend}</FieldLegend>
-      <div role="radiogroup" aria-label={legend} className="grid gap-2 sm:grid-cols-2">
+      <div role="radiogroup" aria-label={legend} className={cn("grid gap-2", options.length === 3 ? "md:grid-cols-3" : "sm:grid-cols-2")}>
         {options.map((option) => (
           <label key={option.value} className={cn("relative", option.disabled ? "cursor-not-allowed" : "cursor-pointer")}>
             <input

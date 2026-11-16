@@ -3,7 +3,7 @@ import "server-only";
 import { and, desc, eq } from "drizzle-orm";
 
 import { agentRuns, db, pullRequests, tasks, workspaces, type PullRequestRow, type Workspace } from "@/db";
-import { isActiveRun, type RunStatus } from "@/lib/agent-run-config";
+import { RISK_LEVELS, isActiveRun, type RiskLevel, type RunStatus } from "@/lib/agent-run-config";
 import { finishRun, placeTask } from "@/lib/agent-runs";
 import { getAgentRow, logAgentActivity, taskKeyPrefix } from "@/lib/agents";
 import { createAgentTask } from "@/lib/board";
@@ -188,7 +188,7 @@ export async function getRunPullRequest(runId: number) {
 export async function adoptPullRequest(pullRequestId: number, runId: number) {
   await db
     .update(pullRequests)
-    .set({ runId, reviewStatus: "pending", testStatus: "pending", mergeError: null, updatedAt: new Date() })
+    .set({ runId, reviewStatus: "pending", testStatus: "pending", risk: null, mergeError: null, updatedAt: new Date() })
     .where(eq(pullRequests.id, pullRequestId));
 }
 
@@ -294,10 +294,13 @@ export type PullRequestView = {
   headBranch: string;
   baseBranch: string;
   state: "open" | "merged" | "closed";
+  /** The Lead's decision. */
   reviewStatus: "pending" | "approved" | "changes_requested";
+  /** The Lead's final risk rating; null until approval. */
+  risk: RiskLevel | null;
   testStatus: "pending" | "passed" | "failed";
   mergeError: string | null;
-  /** Merge is offered once review and tests passed. */
+  /** Merge is offered once the Lead approved and tests passed. */
   canMerge: boolean;
   task: { key: string; title: string } | null;
   runStatus: RunStatus | null;
@@ -324,6 +327,7 @@ export async function listPullRequests(workspace: Pick<Workspace, "id" | "name">
     baseBranch: pr.baseBranch,
     state: pr.state as PullRequestView["state"],
     reviewStatus: pr.reviewStatus as PullRequestView["reviewStatus"],
+    risk: (RISK_LEVELS as readonly string[]).includes(pr.risk ?? "") ? (pr.risk as RiskLevel) : null,
     testStatus: pr.testStatus as PullRequestView["testStatus"],
     mergeError: pr.mergeError,
     canMerge: pr.state === "open" && pr.reviewStatus === "approved" && pr.testStatus === "passed",
