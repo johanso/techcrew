@@ -104,8 +104,10 @@ How each provider runs a stage (`lib/agent-loop.ts`):
 | 22 | Agent log | ⋯ → View agent log, or a notification link (`/board?log=<card>`) | Stages with agent, model, turns, cost, result or stop reason, files changed, tool calls (failures in red); follows a running card | ✅ in the browser (seeded steps + a real stop) |
 | 23 | Notifications | Trigger PR ready / needs info / stop / out of credit | Bell count, list newest first, opening marks read, Mark all as read | ✅ in the browser; `run_failed` produced by a real run stop |
 
-Suggested order for the next session: 10 (Anthropic, live), 8, then 6/7. Merging a PR on
-GitHub moves its card to Done on the next board sync (✅ by the user, PR #8).
+MVP status (2026-11-16): the core flows are verified live (OpenAI pipeline, answer the analyst, rework, rerun, merge
+and close on GitHub, Switch scan). The rows still open (6, 7, 8, 10, 12, 17, 21, 26 in the browser) are deferred to
+post-MVP hardening: they spend credit or open PRs, and their code is expected to change. Merging a PR on GitHub moves
+its card to Done on the next board sync (✅ by the user, PR #8).
 
 To force a rework round, add a temporary line to the Reviewer's instructions ("TEST MODE: on the first review of every
 pull request, request changes with at least one concrete, reasonable improvement.") and remove it afterwards.
