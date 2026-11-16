@@ -1,7 +1,7 @@
 # Project status
 
-Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-04**
-(branch `feat/ai-agents`). For what has been tested and how to test the agents, see [testing.md](testing.md).
+Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-16**
+(release **v0.1.0**, on `main`). For what has been tested and how to test the agents, see [testing.md](testing.md).
 
 - [Feature status](#feature-status)
 - [Dummy data and placeholders](#dummy-data-and-placeholders)
@@ -68,8 +68,10 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 - **Live board progress is polled** (every 10 s while a run is active, database only), not pushed.
 - **Workspace and account editing** isn't available (settings are read-only), nor deleting workspaces or accounts.
 - **The agent pipeline locally requires the Inngest Dev Server** (`npm run inngest:dev`).
-- **The agents have only run in simulated mode** (`AGENTS_SIMULATED=true`) and against a local fake of the Anthropic
-  API; no run against the real OpenAI or Anthropic APIs yet. Simulated agents always take the happy path.
+- **Live runs so far are on OpenAI** (GPT-6.1 Sol / GPT-6 Luna); the Anthropic path is verified only against a local
+  fake of its API. Simulated agents always take the happy path.
+- **Switch scans need a public URL** (not deployed yet: a tunnel such as ngrok), for both Switch's tests and the
+  Cloudhike jobs. Weekly scans fail while it's unreachable.
 - **One AI company per workspace**: agents can't mix OpenAI and Anthropic models (by design; see features.md).
 - **Out of credit** stops the run with a notice and a one-click "switch and retry". The automatic switch is opt-in
   (Settings → AI providers), restarts the current stage once, and has only been verified by unit tests (detection),
@@ -82,21 +84,16 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 | Item | Notes |
 | --- | --- |
-| Unit tests only | 33 Vitest tests for pure logic (filters, model mapping, trust scan, costs, credit detection, log steps, office scene). No integration tests for the database, the sync or the pipeline yet. |
+| Unit tests only | 58 Vitest tests for pure logic (filters, model mapping, trust scan, costs, credit detection, log steps, office scene, Switch mapping, card-change descriptions), run by CI on every push. No integration tests for the database, the sync or the pipeline yet. |
 | Two `cn` helpers | shadcn components import `cn` from the `cn` npm package; app code uses `cn` from `@/lib/utils` (`clsx` + `tailwind-merge`). Pick one. |
 | `server-only` isn't installed as a package | Next.js handles it internally (optional per the Next docs), but scripts run outside Next (e.g. with `tsx`) can't import `server-only` modules without a shim. |
 | Sequential updates in `reorderTasks` | One `UPDATE` per card in the moved columns. Fine at board sizes; batch it if columns grow large. |
 
 ## Suggested next steps
 
-1. **Try the pipeline with a real OpenAI or Anthropic key** on a test repository and tune the stage prompts and default
-   max turns. Work through the open rows of the [test plan](testing.md#test-plan-and-status).
-2. **Sandboxed execution** (container/VM) so the Developer and Tester can install, build and run tests before the PR.
-3. **Switch AI integration** (switchagents.ai): Trust evaluations (verified live), weekly scans and cost caps are in
-   ([switch-trust.md](switch-trust.md)). Next: ROI usage tracking (SDK), runtime guardrails, Rooms.
-4. **GitHub webhooks** for real-time issues, and optional write-back (close the issue when a card reaches Done).
-5. **Integration tests** (database + pipeline in simulated mode). CI (`.github/workflows/ci.yml`) runs check + build.
-6. **Email notifications**, and GitHub syncs on the Activity page.
+The plan after v0.1.0 lives in [roadmap.md](roadmap.md): deploy and hardening (v0.2), smarter gates — risk-based
+human gate, parallel specialist reviewers, mixed model companies (v0.3), a sandbox to run code (v0.4), and a shared
+project memory (v0.5).
 
 ## History
 
@@ -110,6 +107,7 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 | `463701d` | GitHub issue sync; demo data removed. |
 | `15e1257` | Card Run (Analyst + Inngest job) and Remove actions. |
 | `d6f030e` | AI Team page: configurable agents, Skill Trust Score, spending, activity. |
+| `v0.1.0` | **First release (MVP)**, tagged on `main` after PR #1. Release notes in [CHANGELOG.md](../CHANGELOG.md); next steps in [roadmap.md](roadmap.md). |
 | `feat/ai-agents` (7) | First live Switch scan (4 agents scored 99, $2.09). Fixes: an early 404 on the pre-minted run id no longer fails a scan; tests answered outside a scan add up on one row per agent and day; run results read from every page; the evaluation picker counts turns of adversarial attacks (10 conversations beat 201 fixed prompts). |
 | `feat/ai-agents` (6) | Switch: verified end to end against local fakes, weekly scans (Inngest cron + toggle), monthly budgets as Switch cost caps. People's card moves, edits and removals on Activity (`task_events`). CI workflow; `npm run check` runs `next typegen` first so a fresh clone type-checks. |
 | `feat/ai-agents` (5) | Switch Trust: connect a Switch account in Settings, SwitchAgent scans (agents registered in Switch, one evaluation each, health score + OWASP coverage) on connect and on demand, run in the background on Cloudhike jobs; OpenAI-compatible endpoint per agent for Switch's tests. |

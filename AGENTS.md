@@ -13,7 +13,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 Read this file before changing anything. It sets the design system, typography, coding
 conventions and folder structure every agent and contributor must follow.
 
-Human-oriented documentation lives in [`README.md`](README.md) and [`docs/`](docs): setup, architecture, data model,
+Human-oriented documentation lives in [`README.md`](README.md), [`CHANGELOG.md`](CHANGELOG.md) (versions; add your
+change under **Unreleased**), [`docs/roadmap.md`](docs/roadmap.md) (phases and how to release) and [`docs/`](docs): setup, architecture, data model,
 features, GitHub integration, background jobs, security, project status and **agent testing**
 ([`docs/testing.md`](docs/testing.md): what's verified, what isn't, how to test without spending). Keep it current when behavior changes.
 
