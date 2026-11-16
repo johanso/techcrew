@@ -22,6 +22,20 @@
       "when": 1793922094937,
       "tag": "0002_ambitious_kang",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794850541067,
+      "tag": "0003_stale_spitfire",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794850764401,
+      "tag": "0004_icy_sway",
+      "breakpoints": true
     }
   ]
 }

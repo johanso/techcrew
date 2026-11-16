@@ -49,14 +49,14 @@ sign-in / sign-up ─▶ /workspaces ──(no workspaces)──▶ /workspaces/
 | File storage | Private S3 bucket | Never public; served through ownership-checked routes. |
 | Jobs | Inngest | `lib/inngest/*`, `app/api/inngest`. |
 | AI | OpenAI (`openai` SDK, Responses API) and Anthropic (`@anthropic-ai/sdk`, Messages API) | `lib/openai.ts`, `lib/anthropic.ts`; each agent's model picks the provider. Optional — features degrade without keys. |
-| Quality | ESLint 9 (flat config, `eslint-config-next`) + Vitest 4 | `npm run check` = tsc + lint + unit tests. |
+| Quality | ESLint 9 (flat config, `eslint-config-next`) + Vitest 4 | `npm run check` = typegen + tsc + lint + unit tests. CI: `.github/workflows/ci.yml`. |
 
 ## 3. Commands
 
 ```bash
 npm run dev          # dev server on http://localhost:3000
 npm run build        # production build — must pass before you finish
-npm run check        # tsc + eslint + vitest — must pass before you finish
+npm run check        # next typegen + tsc + eslint + vitest — must pass before you finish (CI runs it + build)
 npm test             # unit tests (Vitest); npm run test:watch while working
 npm run lint         # ESLint
 npm run db:generate  # after changing db/schema.ts: write the SQL migration into drizzle/ (read it, commit it)
@@ -125,7 +125,8 @@ components/
   activity/               activity-timeline (Activity page: events grouped by day, Show older).
   settings/               agent-automation-form (task pickup + merge mode), provider-switch-form, auto-failover-toggle,
                           provider-key-form
-                          (masked key + show/hide), switch-connection-form (Switch Trust account), option-cards (radio
+                          (masked key + show/hide), switch-connection-form (Switch Trust account), switch-weekly-toggle,
+                          option-cards (radio
                           cards shared by the settings forms).
   ai-team/                AI Team: ai-team-view (page markup), agent-roster (cards + open overlay state), agent-card,
                           agent-config-dialog (form + SkillPicker + Draft with AI), trust-panel, spending-panel,
@@ -153,7 +154,8 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   storage.ts              S3 uploads/reads, logo limits.
   workspaces.ts           Workspace queries (always scoped by owner) + getDashboardContext().
   overview.ts             getOverviewData(): stats + upcoming tasks from getBoardData, recent work activity.
-  activity.ts             getActivityFeed(): agent_activity + cards people created, newest first; WORK_ACTIVITY_KINDS.
+  activity.ts             getActivityFeed(): agent_activity + cards people created + task_events, newest first;
+                          WORK_ACTIVITY_KINDS.
   agent-config.ts         AI Team vocabulary shared by server + client: roles + defaults (models per provider), SKILLS,
                           AGENT_MODELS (provider + pricing), PROVIDERS, EQUIVALENT_MODEL, agentModelFor, limits.
   agent-trust.ts          Skill Trust Score: scanAgentRules() (deterministic), trustGrade(). Pure.
@@ -199,6 +201,9 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   inngest/agent-run.ts    agentTaskRun: the agent pipeline (`agent/task.run`, cancel: `agent/task.cancel`). One step per
                           model turn; stages, rework rounds and merge.
   inngest/agent-pickup.ts agentAutoPickup: cron every 2 min, starts runs on never-run Todo cards (auto pickup on).
+  inngest/switch-weekly.ts switchWeeklyScans: Mondays 06:00 UTC, queues SwitchAgent scans (Scan every week on).
+  task-events.ts          People's card moves/edits/removals for Activity: taskSnapshots (before a change),
+                          logCardEdited / logCardsMoved / logCardRemoved (never throw), describeCardChanges.
   github-issues.ts        syncWorkspaceIssues(): pulls the repo's GitHub issues onto the board (see "GitHub issues").
   notifications.ts        Header bell: notify() (never throws), listNotifications, markNotificationsRead, agentLogHref.
   workspace-icons.ts      Selectable icon set (shared client/server).
@@ -468,7 +473,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     connected (Settings → `#switch`), the score comes from Switch. Connecting (and saving a provider key) scans all four
     agents; **SwitchAgent Scan** in the dialog scans one, on demand. Always **one** evaluation per agent (the fastest
     built-in, saved on the connection), never the catalog. Work runs on Cloudhike jobs, never in the user's request;
-    the page polls with `TrustScanWatcher` while a scan is pending. Saving a config keeps a Switch report (flagged as
+    the page polls with `TrustScanWatcher` while a scan is pending. Weekly re-scans (`switch-weekly-scans`, toggle in
+    Settings) and the agent's budget as its Switch cost cap (set on register/scan and on budget change; best effort). Saving a config keeps a Switch report (flagged as
     older than the change) instead of overwriting it with the rule scan. Never copy test conversations: they're
     attacker-written.
   - **Max turns** (`agents.max_turns`, null = role default from `AGENT_ROLES`) caps model turns per pipeline stage.
@@ -528,7 +534,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     run is active; users can still drag, and the next stage moves the card again.
 - **Pull Requests** (`/dashboard/[id]/pull-requests`): the page calls `refreshOpenPullRequests` (picks up merges/closes
   made on GitHub), then renders `PullRequestsView`. **Merge** only for PRs with review approved and tests passed.
-- **Activity feed** (`lib/activity.ts`): `agent_activity` rows plus cards people created (`tasks.created_by_id`),
+- **Activity feed** (`lib/activity.ts`): `agent_activity` rows, cards people created (`tasks.created_by_id`) and
+  people's card moves, edits and removals (`task_events`, logged by the board actions after the change is saved),
   merged newest first. The Activity page shows every kind (`?show=` grows the list in steps of 50, up to 500); the
   Overview shows only `WORK_ACTIVITY_KINDS`. Icons per kind live in `ACTIVITY_KIND` (`components/dashboard/activity-kind.tsx`),
   shared with the agent activity drawer. A new activity kind needs an entry there.

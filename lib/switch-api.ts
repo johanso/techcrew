@@ -168,3 +168,8 @@ export async function listSwitchRunResults(creds: SwitchCredentials, runId: stri
 export function getSwitchAgentSummary(creds: SwitchCredentials, agentId: string) {
   return call<SwitchSummary>(creds, "GET", `${scoped(creds, "eval/agent-evaluation-summary")}?agent_id=${encodeURIComponent(agentId)}`);
 }
+
+/** Switch ROI: the agent's monthly spend cap in US dollars (its TechTeam budget), so Switch tracks it against the same limit. */
+export async function putSwitchCostCap(creds: SwitchCredentials, agentId: string, monthlyCapUsd: number) {
+  await call(creds, "PUT", `${scoped(creds, "cost/agent-caps")}/${encodeURIComponent(agentId)}`, { monthly_cap: monthlyCapUsd });
+}

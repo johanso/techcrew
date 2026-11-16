@@ -1,0 +1,1 @@
+ALTER TABLE "switch_connections" ADD COLUMN "weekly_scans" boolean DEFAULT true NOT NULL;

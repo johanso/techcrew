@@ -353,13 +353,15 @@ Without `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` the page shows "No AI provider c
   (cards move to Done). Empty state: "No agent pull requests yet". **View on GitHub** opens the repo's `/pulls`.
 - **Activity** — the workspace timeline, newest first, grouped by day: everything the agents logged (assignments,
   each pipeline stage with its result and cost, pull requests opened and merged, follow-up issues, configuration,
-  pauses, trust scans, provider switches) plus cards people created on the board ("You" for your own). Each event: title
+  pauses, trust scans, provider switches) plus what people did on the board ("You" for your own): cards created, moved to
+  another column (drag and drop or the dialog), edited (which fields) and removed. Each event: title
   with its cost in a small grey badge on the right (what the agent spent on models for that step; agent stages always
   show it, $0.00 included),
   then who and when (time, plus "5 minutes ago" for today), then the detail. Each day's header shows that day's total
   spend. Rows alternate white and a barely-grey tint (zebra) so long days stay easy to scan. 50 events at a
   time, **Show older activity** adds 50 more (up to 500). Empty state: "No activity yet" with **Open the board**.
-  Not logged yet: card moves, edits, removals and GitHub syncs.
+  Reordering within a column and GitHub syncs aren't logged. The Overview's recent activity shows created and moved
+  cards next to the agents' work.
 
 ## Settings
 
@@ -379,6 +381,7 @@ Without `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` the page shows "No AI provider c
   tenant and workspace IDs (detected from the key), **Connect securely**. Connecting checks the key with Switch and
   starts a SwitchAgent scan of all four agents; the status line shows the masked key and the evaluation each agent
   runs; **Disconnect** asks first. A warning explains when this server can't run scans (no jobs config or a local URL).
+  **Scan every week** (toggle, on by default) re-scans every agent each Monday.
 - **Agent automation** (`#agents`) — **Task pickup** (Manual: Run on each card / Automatic: the Analyst picks the top
   never-run Todo card every 2 minutes) and **Merging pull requests** (Manual: from the Pull Requests page / Automatic:
   once review, tests and CI pass). Both default to Manual. A note explains that a blocked merge makes the Tester file a

@@ -6,7 +6,14 @@ import { PROVIDERS, isAgentProvider } from "@/lib/agent-config";
 import { getAIKeys, keyStatus, removeProviderKey, saveProviderKey, verifyProviderKey } from "@/lib/ai-keys";
 import { switchAgentsToProvider } from "@/lib/agents";
 import { requireUser } from "@/lib/current-user";
-import { connectSwitch, disconnectSwitch, getSwitchConnection, requestSwitchScans, type ConnectSwitchField } from "@/lib/switch-trust";
+import {
+  connectSwitch,
+  disconnectSwitch,
+  getSwitchConnection,
+  requestSwitchScans,
+  setSwitchWeeklyScans,
+  type ConnectSwitchField,
+} from "@/lib/switch-trust";
 import { normalizeInstanceUrl } from "@/lib/switch-trust-config";
 import { getOwnedWorkspace, updateAgentAutomation, updateAIProvider, updateAutoFailover } from "@/lib/workspaces";
 
@@ -193,5 +200,15 @@ export async function disconnectSwitchAction(workspaceId: number): Promise<{ ok:
     return { ok: false, error: "We couldn't disconnect Switch Trust. Please try again." };
   }
   refresh(workspaceId);
+  return { ok: true };
+}
+
+/** Settings → Switch Trust: scan every agent again each week (Mondays, 06:00 UTC). */
+export async function saveSwitchWeeklyAction(workspaceId: number, enabled: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
+  const workspace = await authorize(workspaceId);
+  if (!workspace) return { ok: false, error: "Workspace not found." };
+  if (typeof enabled !== "boolean") return { ok: false, error: "Choose on or off." };
+  if (!(await setSwitchWeeklyScans(workspace.id, enabled))) return { ok: false, error: "Connect Switch Trust first." };
+  revalidatePath(`/dashboard/${workspaceId}/settings`);
   return { ok: true };
 }

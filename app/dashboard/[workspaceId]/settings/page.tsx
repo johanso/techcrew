@@ -8,6 +8,7 @@ import { AutoFailoverToggle } from "@/components/settings/auto-failover-toggle";
 import { ProviderKeyForm } from "@/components/settings/provider-key-form";
 import { ProviderSwitchForm } from "@/components/settings/provider-switch-form";
 import { SwitchConnectionForm } from "@/components/settings/switch-connection-form";
+import { SwitchWeeklyToggle } from "@/components/settings/switch-weekly-toggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { WorkspaceAvatar, workspaceLogoSrc } from "@/components/workspace/workspace-avatar";
@@ -128,8 +129,13 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
           description="Connect your Switch account: your agents are registered there and SwitchAgent scans score them with one evaluation each."
           actions={<span className="eyebrow text-muted-foreground">Trust</span>}
         />
-        <div className="border-t border-border/70 p-6">
+        <div className="flex flex-col gap-6 border-t border-border/70 p-6">
           <SwitchConnectionForm workspaceId={workspace.id} view={switchView} />
+          {switchView.connected && (
+            <div className="border-t border-border/70 pt-6">
+              <SwitchWeeklyToggle workspaceId={workspace.id} enabled={switchView.weeklyScans} />
+            </div>
+          )}
         </div>
       </section>
 

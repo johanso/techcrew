@@ -32,6 +32,7 @@ import { syncWorkspaceIssues, type SyncResult } from "@/lib/github-issues";
 import { requireUser } from "@/lib/current-user";
 import { inngest } from "@/lib/inngest/client";
 import { AGENT_TASK_CANCEL, AGENT_TASK_RUN, type AgentTaskRunData } from "@/lib/inngest/agent-run";
+import { logCardEdited, logCardRemoved, logCardsMoved, taskSnapshots } from "@/lib/task-events";
 import { adoptPullRequest, getRerunPullRequest, getTaskOpenPullRequest, mergeManually, refreshOpenPullRequests } from "@/lib/pull-requests";
 import { getOwnedWorkspace, updateAIProvider } from "@/lib/workspaces";
 
@@ -71,8 +72,10 @@ export async function updateCardAction(workspaceId: number, cardId: string, raw:
   const input = synced ? parseBoardInput(raw) : parseCardInput(raw);
   if (!input.ok) return input;
   try {
+    const before = (await taskSnapshots(auth.workspace.id, [taskId])).get(taskId);
     const card = await updateTask(auth.workspace, taskId, input.value);
     if (!card) return { ok: false, error: "This card no longer exists." };
+    if (before) await logCardEdited({ workspace: auth.workspace, userId: auth.user.id }, before, input.value);
     return { ok: true, card };
   } catch (error) {
     console.error("[board] update failed", error);
@@ -87,7 +90,8 @@ export async function removeCardAction(workspaceId: number, cardId: string): Pro
   const taskId = Number(cardId);
   if (!Number.isSafeInteger(taskId)) return { ok: true };
   try {
-    await removeTask(auth.workspace, taskId);
+    const before = (await taskSnapshots(auth.workspace.id, [taskId])).get(taskId);
+    if ((await removeTask(auth.workspace, taskId)) && before) await logCardRemoved({ workspace: auth.workspace, userId: auth.user.id }, before);
     return { ok: true };
   } catch (error) {
     console.error("[board] remove failed", error);
@@ -224,7 +228,9 @@ export async function moveCardsAction(
     Object.entries(columns).map(([column, list]) => [column, (list ?? []).map(Number).filter(Number.isSafeInteger)])
   );
   try {
+    const before = await taskSnapshots(auth.workspace.id, Object.values(ids).flat());
     const ok = await reorderTasks(auth.workspace, ids);
+    if (ok) await logCardsMoved({ workspace: auth.workspace, userId: auth.user.id }, before, ids);
     return { ok };
   } catch (error) {
     console.error("[board] move failed", error);

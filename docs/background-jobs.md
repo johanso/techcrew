@@ -52,6 +52,7 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | `agent-task-run` | event `agent/task.run` | `lib/inngest/agent-run.ts` | The agent pipeline for one card (below). |
 | `agent-auto-pickup` | cron `*/2 * * * *` | `lib/inngest/agent-pickup.ts` | Auto pickup: starts a run on the top never-run Todo card per workspace. |
+| `switch-weekly-scans` | cron `0 6 * * 1` (Mondays 06:00 UTC) | `lib/inngest/switch-weekly.ts` | Queues a SwitchAgent scan of every agent in each Switch-connected workspace with **Scan every week** on (the scans themselves run on Cloudhike jobs). |
 
 The starter template's example jobs and its unauthenticated `POST /api/inngest/trigger` route were removed.
 

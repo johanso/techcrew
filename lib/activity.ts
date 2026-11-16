@@ -2,15 +2,18 @@ import "server-only";
 
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 
-import { agentActivity, agents, db, tasks, users, type Workspace } from "@/db";
+import { agentActivity, agents, db, taskEvents, tasks, users, type Workspace } from "@/db";
 import { getAgent, taskKeyPrefix, type Agent, type AgentActivityKind } from "@/lib/agents";
+import { TASK_EVENT_KINDS, type TaskEventKind } from "@/lib/task-events";
 
 /**
- * The workspace timeline: everything the agents logged (`agent_activity`) plus the cards people created on the
- * board. Shown on the Activity page (all of it) and in the Overview's recent activity (work only).
+ * The workspace timeline: everything the agents logged (`agent_activity`), the cards people created on the board,
+ * and what people did to cards (`task_events`: moved, edited, removed). Shown on the Activity page (all of it) and in the Overview's recent activity (work only).
  */
 
-export type ActivityKind = AgentActivityKind | "task_created";
+export type ActivityKind = AgentActivityKind | TaskEventKind | "task_created";
+
+const isTaskEventKind = (kind: ActivityKind): kind is TaskEventKind => (TASK_EVENT_KINDS as readonly string[]).includes(kind);
 
 export type ActivityItem = {
   id: string;
@@ -27,7 +30,7 @@ export type ActivityItem = {
 };
 
 /** Work on cards. The rest (joined, configured, paused, scans …) is team setup, left out of the Overview. */
-export const WORK_ACTIVITY_KINDS: ActivityKind[] = ["task_created", "task_assigned", "task_run", "pull_request", "issue_filed"];
+export const WORK_ACTIVITY_KINDS: ActivityKind[] = ["task_created", "task_moved", "task_assigned", "task_run", "pull_request", "issue_filed"];
 
 export const ACTIVITY_PAGE_SIZE = 50;
 export const ACTIVITY_MAX = 500;
@@ -40,12 +43,13 @@ export async function getActivityFeed(
   workspace: Pick<Workspace, "id" | "name">,
   { limit, viewerId, kinds }: { limit: number; viewerId: number; kinds?: ActivityKind[] }
 ): Promise<{ items: ActivityItem[]; hasMore: boolean }> {
-  const agentKinds = kinds?.filter((kind): kind is AgentActivityKind => kind !== "task_created");
+  const agentKinds = kinds?.filter((kind): kind is AgentActivityKind => kind !== "task_created" && !isTaskEventKind(kind));
+  const eventKinds = kinds ? kinds.filter(isTaskEventKind) : [...TASK_EVENT_KINDS];
   const withCreated = !kinds || kinds.includes("task_created");
   const prefix = taskKeyPrefix(workspace.name);
 
   // Each source returns limit + 1 so we know whether anything older is left after merging.
-  const [agentRows, createdRows] = await Promise.all([
+  const [agentRows, createdRows, eventRows] = await Promise.all([
     agentKinds?.length === 0
       ? []
       : db
@@ -82,6 +86,23 @@ export async function getActivityFeed(
           .orderBy(desc(tasks.createdAt), desc(tasks.id))
           .limit(limit + 1)
       : [],
+    eventKinds.length
+      ? db
+          .select({
+            id: taskEvents.id,
+            kind: taskEvents.kind,
+            title: taskEvents.title,
+            detail: taskEvents.detail,
+            userId: taskEvents.userId,
+            userName: users.name,
+            at: taskEvents.createdAt,
+          })
+          .from(taskEvents)
+          .leftJoin(users, eq(users.id, taskEvents.userId))
+          .where(and(eq(taskEvents.workspaceId, workspace.id), inArray(taskEvents.kind, eventKinds)))
+          .orderBy(desc(taskEvents.createdAt), desc(taskEvents.id))
+          .limit(limit + 1)
+      : [],
   ]);
 
   const items: ActivityItem[] = [];
@@ -105,6 +126,18 @@ export async function getActivityFeed(
       actor: { type: "user", name: row.userName ?? "A teammate", isViewer: row.userId === viewerId },
       title: `Created ${prefix}-${row.number}`,
       detail: row.title,
+      costMicros: 0,
+      at: row.at,
+    });
+  }
+
+  for (const row of eventRows) {
+    items.push({
+      id: `e${row.id}`,
+      kind: row.kind as TaskEventKind,
+      actor: { type: "user", name: row.userName ?? "A teammate", isViewer: row.userId === viewerId },
+      title: row.title,
+      detail: row.detail,
       costMicros: 0,
       at: row.at,
     });

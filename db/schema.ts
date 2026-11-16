@@ -224,6 +224,30 @@ export const agentActivity = pgTable(
 export type AgentActivityRow = typeof agentActivity.$inferSelect;
 
 /**
+ * What people did to cards on the board (moved to another column, edited, removed), for the Activity page.
+ * Creating a card needs no row: tasks.created_by_id already says it. Values of `kind` come from TASK_EVENT_KINDS
+ * in lib/task-events.ts.
+ */
+export const taskEvents = pgTable(
+  "task_events",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskId: integer("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    detail: text("detail"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("task_events_workspace_created_idx").on(table.workspaceId, table.createdAt)]
+);
+
+/**
  * A workspace's Switch Trust account (Settings → Switch Trust). Agents are registered there and evaluated by it;
  * see lib/switch-trust.ts.
  */
@@ -246,6 +270,8 @@ export const switchConnections = pgTable("switch_connections", {
   // The one evaluation every agent runs (the fastest built-in one, picked on the first scan).
   evaluationId: text("evaluation_id"),
   evaluationName: text("evaluation_name"),
+  // Settings → Switch Trust: scan every agent again each week (lib/inngest/switch-weekly.ts).
+  weeklyScans: boolean("weekly_scans").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -267,7 +293,7 @@ export const trustScans = pgTable(
     agentId: integer("agent_id")
       .notNull()
       .references(() => agents.id, { onDelete: "cascade" }),
-    // "connected" (Switch account connected) or "manual" (SwitchAgent Scan on the AI Team page).
+    // "connected" (account connected or a provider key saved), "manual" (SwitchAgent Scan) or "scheduled" (weekly).
     trigger: text("trigger").notNull(),
     status: text("status").notNull(),
     // Evaluation run in Switch Trust, once triggered.

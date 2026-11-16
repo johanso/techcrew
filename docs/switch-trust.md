@@ -11,6 +11,7 @@ workspace connects its Switch account, its four agents are registered there, and
 - [When scans run](#when-scans-run)
 - [Background jobs (Cloudhike)](#background-jobs-cloudhike)
 - [The agent endpoint](#the-agent-endpoint)
+- [Cost caps (Switch ROI)](#cost-caps-switch-roi)
 - [Score and report](#score-and-report)
 - [Setup](#setup)
 - [Errors](#errors)
@@ -54,6 +55,7 @@ connection and assigns only that one to each agent, with no schedule. Settings s
 | **Connect securely** / **Update connection** in Settings → Switch Trust | All four agents |
 | Saving an AI provider key while Switch is connected (the evaluation talks to the agent's model) | All four agents |
 | **SwitchAgent Scan** in an agent's Configure dialog | That agent (on demand, any time) |
+| Every Monday 06:00 UTC (`switch-weekly-scans`, Inngest cron), when **Scan every week** is on (default) | All four agents |
 
 An agent with a scan already queued or running is skipped. Saving an agent's configuration does **not** start a scan
 (each one spends model credit): it keeps the Switch score and the panel says the configuration changed after it.
@@ -89,6 +91,12 @@ base URL and at `/chat/completions`, whichever way the client builds the path).
 - **Spend** is added to the scan in progress and logged with its result (`SwitchAgent scan: N/100`). Tests answered
   outside a TechTeam scan are logged on their own. An agent over its monthly budget answers 429.
 - `AGENTS_SIMULATED=true` answers with a canned refusal, without a model call.
+
+## Cost caps (Switch ROI)
+
+Each agent's monthly budget is its monthly spend cap in Switch (`PUT /cost/agent-caps/…`, in dollars): set when the
+agent is registered or scanned, and again whenever its budget changes on the AI Team page. Best effort: a key that
+can't set caps never blocks a scan or a save (logged as a warning).
 
 ## Score and report
 
@@ -127,7 +135,9 @@ evaluation choice and the agents' Switch ids. **Disconnect** forgets the key and
 
 ## Not done yet
 
-- Never run against a real Switch instance from here: request shapes follow the published OpenAPI spec
+- Verified end to end against local fakes of Switch and Cloudhike (connect, register, one evaluation, a run handed over
+  to a second job, weekly trigger, cost caps), never against a real Switch instance: request shapes follow the published OpenAPI spec
   (`docs.switchagents.ai/switch-trust/api-reference/openapi.json`). The endpoint's `endpoint_auth_type: "bearer"` and
   `config.endpoint` names are inferred from the docs. Check them on the first live scan.
-- Switch ROI (SDK usage tracking, cost caps) and weekly scheduled evaluations.
+- Switch ROI usage tracking: Switch only shows spend for model calls reported through its SDK or OpenTelemetry, so
+  until the agents report theirs, Switch shows the caps but not the spend (TechTeam's own spend tracking is unaffected).

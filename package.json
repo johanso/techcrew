@@ -16,7 +16,7 @@
     "test:watch": "vitest",
     "db:migrate": "drizzle-kit migrate",
     "db:baseline": "node --env-file=.env scripts/db-baseline.mjs",
-    "check": "tsc --noEmit && eslint . && vitest run"
+    "check": "next typegen && tsc --noEmit && eslint . && vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",

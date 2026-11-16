@@ -38,6 +38,10 @@ erDiagram
     users ||--o{ notifications : receives
     agent_runs |o--o| pull_requests : opens
     tasks |o--o{ pull_requests : "for (nullable)"
+    workspaces ||--o| switch_connections : "Switch account (0..1)"
+    agents ||--o{ trust_scans : "SwitchAgent scans"
+    tasks ||--o{ task_events : "moved, edited, removed"
+    users |o--o{ task_events : "by (nullable)"
 
     users {
         serial id PK
@@ -220,6 +224,22 @@ first use by `ensureDefaultAgents()` with the defaults in [`lib/agent-config.ts`
 | `switch_agent_id` | text | yes | | Agent fingerprint in Switch Trust (`agn_…`), set on its first SwitchAgent scan; cleared when the account changes. |
 | `created_at`, `updated_at` | timestamp | no | `now()` | |
 
+## task_events
+
+What people did to cards, for the Activity page (`lib/task-events.ts`). Creating a card needs no row
+(`tasks.created_by_id` says it); reordering within a column isn't logged.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | serial | no | | Primary key. |
+| `workspace_id` | integer | no | | → `workspaces.id`, cascade. Index with `created_at`. |
+| `task_id` | integer | no | | → `tasks.id`, cascade (cards are soft-deleted, so rows stay). |
+| `user_id` | integer | yes | | → `users.id`, set null. |
+| `kind` | text | no | | `task_moved`, `task_edited`, `task_removed`. |
+| `title` | text | no | | E.g. "Moved AJU-5 to In Review". |
+| `detail` | text | yes | | The card title, plus the changed fields for edits. |
+| `created_at` | timestamp | no | `now()` | |
+
 ## switch_connections
 
 A workspace's Switch Trust account (Settings → Switch Trust). See [switch-trust.md](switch-trust.md).
@@ -234,6 +254,7 @@ A workspace's Switch Trust account (Settings → Switch Trust). See [switch-trus
 | `instance_url` | text | no | | API base, e.g. `https://api.switchagents.ai/api/v1`. |
 | `tenant_id`, `switch_workspace_id` | text | no | | Scope of every Switch call. |
 | `evaluation_id`, `evaluation_name` | text | yes | | The one evaluation every agent runs, picked on the first scan. |
+| `weekly_scans` | boolean | no | `true` | Settings → Switch Trust → Scan every week (`switch-weekly-scans` cron). |
 | `created_at`, `updated_at` | timestamp | no | `now()` | |
 
 ## trust_scans
@@ -245,7 +266,7 @@ One SwitchAgent scan of one agent, advanced in the background by Cloudhike jobs.
 | `id` | serial | no | | Primary key. |
 | `workspace_id` | integer | no | | → `workspaces.id`, cascade. |
 | `agent_id` | integer | no | | → `agents.id`, cascade. Index with `created_at`. |
-| `trigger` | text | no | | `connected` (account connected or a provider key saved) or `manual` (SwitchAgent Scan). |
+| `trigger` | text | no | | `connected` (account connected or a provider key saved), `manual` (SwitchAgent Scan) or `scheduled` (weekly). |
 | `status` | text | no | | `queued`, `running`, `succeeded`, `failed`. |
 | `switch_run_id` | text | yes | | Evaluation run in Switch. |
 | `job_id` | text | yes | | Latest Cloudhike job run. |

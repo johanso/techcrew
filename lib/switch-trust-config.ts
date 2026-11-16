@@ -10,7 +10,7 @@ export const DEFAULT_SWITCH_INSTANCE = "https://api.switchagents.ai";
 export const TRUST_SCAN_STATUSES = ["queued", "running", "succeeded", "failed"] as const;
 export type TrustScanStatus = (typeof TRUST_SCAN_STATUSES)[number];
 
-export const TRUST_SCAN_TRIGGERS = ["connected", "manual"] as const;
+export const TRUST_SCAN_TRIGGERS = ["connected", "manual", "scheduled"] as const;
 export type TrustScanTrigger = (typeof TRUST_SCAN_TRIGGERS)[number];
 
 export const isPendingScan = (status: string) => status === "queued" || status === "running";

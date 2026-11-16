@@ -14,7 +14,7 @@ import {
   type AgentConfigField,
 } from "@/lib/agents";
 import { requireUser } from "@/lib/current-user";
-import { requestSwitchScans } from "@/lib/switch-trust";
+import { requestSwitchScans, syncSwitchCostCap } from "@/lib/switch-trust";
 import { getOwnedWorkspace } from "@/lib/workspaces";
 
 type Failure = { ok: false; error: string };
@@ -49,6 +49,9 @@ export async function saveAgentAction(workspaceId: number, key: string, raw: unk
   } catch (error) {
     console.error("[ai-team] save failed", error);
     return { ok: false, error: "We couldn't save the configuration. Please try again." };
+  }
+  if (input.value.monthlyBudgetCents !== auth.agent.monthlyBudgetCents) {
+    await syncSwitchCostCap(auth.workspace.id, { ...auth.agent, monthlyBudgetCents: input.value.monthlyBudgetCents });
   }
   refresh(workspaceId);
   return { ok: true };

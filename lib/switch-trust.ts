@@ -17,6 +17,7 @@ import {
   listSwitchEvaluations,
   listSwitchRunResults,
   putSwitchAgentEndpoint,
+  putSwitchCostCap,
   registerSwitchAgent,
   switchErrorMessage,
   SwitchApiError,
@@ -93,6 +94,7 @@ export type SwitchConnectionView = {
   tenantId: string | null;
   switchWorkspaceId: string | null;
   evaluationName: string | null;
+  weeklyScans: boolean;
   updatedAt: string | null;
   serverKeyAvailable: boolean;
   problem: string | null;
@@ -108,6 +110,7 @@ export async function getSwitchConnectionView(workspaceId: number): Promise<Swit
     tenantId: row?.tenantId ?? null,
     switchWorkspaceId: row?.switchWorkspaceId ?? null,
     evaluationName: row?.evaluationName ?? null,
+    weeklyScans: row?.weeklyScans ?? true,
     updatedAt: row?.updatedAt.toISOString() ?? null,
     serverKeyAvailable: envSwitchKey() !== null,
     problem: switchScanProblem(),
@@ -172,6 +175,25 @@ export async function disconnectSwitch(workspaceId: number) {
       .set({ status: "failed", error: "Switch Trust was disconnected.", tokenHash: null, finishedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(trustScans.workspaceId, workspaceId), inArray(trustScans.status, ["queued", "running"])));
   });
+}
+
+/** Settings → Switch Trust: whether the weekly job scans this workspace's agents. */
+export async function setSwitchWeeklyScans(workspaceId: number, enabled: boolean) {
+  const updated = await db
+    .update(switchConnections)
+    .set({ weeklyScans: enabled, updatedAt: new Date() })
+    .where(eq(switchConnections.workspaceId, workspaceId))
+    .returning({ id: switchConnections.id });
+  return updated.length > 0;
+}
+
+/** Workspaces the weekly job scans: connected, with weekly scans on. */
+export async function weeklyScanWorkspaces() {
+  const rows = await db
+    .select({ workspaceId: switchConnections.workspaceId })
+    .from(switchConnections)
+    .where(eq(switchConnections.weeklyScans, true));
+  return rows.map((row) => row.workspaceId);
 }
 
 // ── Agent endpoint credential ──────────────────────────────────────────────────
@@ -358,6 +380,8 @@ async function startEvaluation(agent: AgentRow, workspace: { id: number; name: s
     modelName: activeAgentModel(agent, workspaceProvider(workspace)),
   });
 
+  await putCostCap(creds, switchAgentId, agent);
+
   let evaluation = connection.evaluationId ? { id: connection.evaluationId, name: connection.evaluationName ?? "Switch evaluation" } : null;
   if (!evaluation) {
     const picked = pickFastEvaluation(await listSwitchEvaluations(creds));
@@ -371,6 +395,26 @@ async function startEvaluation(agent: AgentRow, workspace: { id: number; name: s
 
   const assignment = await ensureSwitchAssignment(creds, switchAgentId, evaluation);
   return { runId: await triggerSwitchRun(creds, assignment.id), switchAgentId, evaluation };
+}
+
+/** Best effort: a refused cap (e.g. a key without cost permissions) never blocks a scan or a save. */
+async function putCostCap(creds: SwitchCredentials, switchAgentId: string, agent: Pick<AgentRow, "id" | "monthlyBudgetCents">) {
+  try {
+    await putSwitchCostCap(creds, switchAgentId, agent.monthlyBudgetCents / 100);
+  } catch (error) {
+    console.warn("[switch] cost cap not synced", agent.id, switchAgentId, error instanceof SwitchApiError ? error.status : error);
+  }
+}
+
+/**
+ * After a budget change on the AI Team page: the agent's cap in Switch follows its monthly budget. Only for agents
+ * already registered in Switch (registration sets the cap too).
+ */
+export async function syncSwitchCostCap(workspaceId: number, agent: Pick<AgentRow, "id" | "monthlyBudgetCents" | "switchAgentId">) {
+  if (!agent.switchAgentId) return;
+  const connection = await getSwitchConnection(workspaceId);
+  const creds = connection && credentials(connection);
+  if (creds) await putCostCap(creds, agent.switchAgentId, agent);
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

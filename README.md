@@ -21,12 +21,12 @@ cards from analysis to a merged pull request.
 | Agent pipeline | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (or `AGENTS_SIMULATED=true` to try it free) | Analyst plans → Developer commits on a branch and opens a PR → Reviewer → Tester → merge (manual or automatic). Rework loops, max turns per agent, skills enforced as tools, follow-up card on merge conflicts or failing builds. Auto pickup of Todo cards (optional). Out of credit: the board says so and switches company with one click (or automatically, opt-in). No code execution: verification is static plus CI. |
 | Overview page | ✅ Real | Stats, upcoming tasks and recent activity from the board and the activity feed; empty states when there is nothing yet. |
 | AI Team | ✅ Real | Four default agents (Analyst, Developer, Reviewer, Tester) per workspace: configure instructions, skills, model and budget; Skill Trust Score with **Scan again**; spending; activity drawer. Each agent runs on an OpenAI or Claude model. AI drafts instructions and reviews configs (optional). |
-| Switch Trust (SwitchAgent scans) | 🟡 Built, first live scan pending | Settings → Switch Trust connects a Switch account; the four agents are registered there and each runs **one** Switch evaluation (on connect, and on demand with **SwitchAgent Scan**). Runs in the background on Cloudhike jobs; health score, tests held and OWASP coverage update on their own. Needs a public URL (`PUBLIC_APP_URL`). See [docs/switch-trust.md](docs/switch-trust.md). |
+| Switch Trust (SwitchAgent scans) | 🟡 Built, first live scan pending | Settings → Switch Trust connects a Switch account; the four agents are registered there and each runs **one** Switch evaluation (on connect, every week, and on demand with **SwitchAgent Scan**); budgets become Switch cost caps. Runs in the background on Cloudhike jobs; health score, tests held and OWASP coverage update on their own. Needs a public URL (`PUBLIC_APP_URL`). See [docs/switch-trust.md](docs/switch-trust.md). |
 | Live Agent Office | ✅ Real | AI Team page: the agents at their desks in an illustrated office, typing while they work, with live status bubbles and hover cards (`npm run office:assets` builds the sprites). |
 | Pull Requests page | ✅ Real | Agent PRs with review/test verdicts and **Merge**. |
 | Settings → Agent automation | ✅ Real | Task pickup and merge mode per workspace. |
 | Settings → AI providers | ✅ Real | Encrypted OpenAI / Anthropic keys per workspace, provider switch, optional automatic switch when out of credit. |
-| Activity page | ✅ Real | Workspace timeline (agent events + cards people created), grouped by day. |
+| Activity page | ✅ Real | Workspace timeline (agent events + cards people created, moved, edited or removed), grouped by day. |
 | Notifications (header bell) | ✅ Real | PR ready to merge, analyst questions, stopped runs, out of credit, provider switched, merges and blocked merges. |
 | Landing page (`/`) | ➖ None yet | Redirects to the dashboard (signed in) or to sign-in. |
 
@@ -66,7 +66,7 @@ Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 | `npm run inngest:dev` | Local Inngest Dev Server, pointed at `/api/inngest`. Required for the agent pipeline (**Run**, auto pickup, auto-merge). |
 | `npm run lint` | ESLint (flat config: Next.js core web vitals + TypeScript). |
 | `npm test` | Unit tests (Vitest). `npm run test:watch` while working. |
-| `npm run check` | Type check + lint + tests: run before every commit. |
+| `npm run check` | Route types (`next typegen`) + type check + lint + tests: run before every commit. CI runs it plus `npm run build` on every push and PR. |
 | `npm run office:assets` | Rebuild the live office's sprite sheets from `office/` (see [docs/features.md](docs/features.md#live-agent-office)). |
 | `npx next typegen` | Regenerate `PageProps` / `RouteContext` types after adding routes. |
 
