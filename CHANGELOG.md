@@ -8,6 +8,9 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+### Security
+- Next.js 16.4.4 → 16.4.6: 16.4.4 is affected by a published security advisory (`next upgrade --agent=security`).
+
 ## [0.1.0] — 2026-11-16
 
 The MVP: a workspace linked to one GitHub repository, its issues on a Kanban board, and a team of four AI agents that
