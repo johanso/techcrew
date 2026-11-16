@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { format } from "date-fns";
-import { BadgeCheckIcon, BotIcon, ExternalLinkIcon, KeyRoundIcon, ShieldCheckIcon } from "lucide-react";
+import { BadgeCheckIcon, BotIcon, ExternalLinkIcon, KeyRoundIcon, LibraryBigIcon, ShieldCheckIcon } from "lucide-react";
 
 import { DetailGrid, PageHeader, SurfaceHeader } from "@/components/dashboard/page-header";
 import { AgentAutomationForm } from "@/components/settings/agent-automation-form";
@@ -9,11 +9,14 @@ import { ProviderKeyForm } from "@/components/settings/provider-key-form";
 import { ProviderSwitchForm } from "@/components/settings/provider-switch-form";
 import { SwitchConnectionForm } from "@/components/settings/switch-connection-form";
 import { SwitchWeeklyToggle } from "@/components/settings/switch-weekly-toggle";
+import { SkillLibrary } from "@/components/skills/skill-library";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { WorkspaceAvatar, workspaceLogoSrc } from "@/components/workspace/workspace-avatar";
 import { workspaceProvider } from "@/lib/agent-config";
 import { parseMergeMode } from "@/lib/agent-run-config";
+import { getSkillLibrary } from "@/lib/agent-skills";
+import { ensureDefaultAgents } from "@/lib/agents";
 import { getProviderKeyViews } from "@/lib/ai-keys";
 import { getSwitchConnectionView } from "@/lib/switch-trust";
 import { initials } from "@/lib/utils";
@@ -23,7 +26,13 @@ export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage({ params }: PageProps<"/dashboard/[workspaceId]/settings">) {
   const { user, workspace } = await getDashboardContext((await params).workspaceId);
-  const [keys, switchView] = await Promise.all([getProviderKeyViews(workspace.id), getSwitchConnectionView(workspace.id)]);
+  // Agents and built-in skills exist before the library lists who uses what.
+  await ensureDefaultAgents(workspace.id);
+  const [keys, switchView, skills] = await Promise.all([
+    getProviderKeyViews(workspace.id),
+    getSwitchConnectionView(workspace.id),
+    getSkillLibrary(workspace.id),
+  ]);
   const provider = workspaceProvider(workspace);
 
   return (
@@ -152,6 +161,20 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
           actions={<span className="eyebrow text-muted-foreground">Agents</span>}
         />
         <AgentAutomationForm workspaceId={workspace.id} autoPickup={workspace.agentAutoPickup} mergeMode={parseMergeMode(workspace.agentMergeMode)} />
+      </section>
+
+      <section id="skills" className="surface scroll-mt-24">
+        <SurfaceHeader
+          icon={
+            <span className="icon-tile text-brand-emphasis">
+              <LibraryBigIcon />
+            </span>
+          }
+          title="Agent skills"
+          description="Knowledge your agents search and read while they work. Skills are never run; switch them on per agent here or in AI Team."
+          actions={<span className="eyebrow text-muted-foreground">Skills</span>}
+        />
+        <SkillLibrary workspaceId={workspace.id} skills={skills} />
       </section>
     </>
   );
