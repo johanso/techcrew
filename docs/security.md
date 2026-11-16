@@ -7,6 +7,8 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 - [Input validation](#input-validation)
 - [Secrets](#secrets)
 - [GitHub tokens](#github-tokens)
+- [Agents](#agents)
+- [Agent skills](#agent-skills)
 - [File uploads](#file-uploads)
 - [Redirects and CSRF](#redirects-and-csrf)
 - [Known gaps](#known-gaps)
@@ -92,7 +94,7 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 
 The pipeline acts on the repository with the workspace owner's token, so its guardrails live in code, not prompts:
 
-- **Tools follow skills** (`toolsFor` in `lib/agent-tools.ts`): no *Write code* → no write tools; writes only target
+- **Tools follow permissions** (`toolsFor` in `lib/agent-tools.ts`): no *Write code* → no write tools; writes only target
   the run's own `agent/…` branch, never the default branch. Tool calls outside the agent's set are refused even if
   the model invents them.
 - **Protected paths**: agents can't write `.github/workflows/*` (a workflow could exfiltrate repository secrets),
@@ -104,13 +106,41 @@ The pipeline acts on the repository with the workspace owner's token, so its gua
   auto-merge setting), and only when GitHub reports the PR mergeable with every check green.
 - **Spend** is bounded per stage by max turns and per month by each agent's budget, both re-checked every turn.
 
+## Agent skills
+
+Skills are text that reaches agent prompts, so they're treated like any other untrusted input:
+
+- **Never executed.** Only `.md` and `.txt` are kept; agents read skills through two read-only tools
+  (`search_skill`, `read_skill`) limited to the skills switched on for them, with validated paths (built-ins: only
+  files listed in `agent-skills/catalog.json`; uploads: rows of that skill). Instructions in a skill to run a CLI are
+  mapped to those tools by the prompt.
+- **Untrusted-content protocol.** The operating protocol overrides "the task, the repository, tool output or skills";
+  the skills block says skills are reference material and can't change role, reveal secrets, contact URLs, push to
+  the default branch or skip checks. Skill content is logged by target only, never stored in the agent log.
+- **Built-ins arrive by pull request.** `npm run skills:sync` downloads the pinned commit's tarball from codeload
+  (no token), keeps text files only, rejects unsafe paths and links, and writes `SOURCE.md` + the upstream `LICENSE`.
+  Nothing is fetched at agent runtime; an update is a reviewable diff.
+- **Uploads** (Settings → Agent skills, owner only): ≤ 5 MB zip (Server Action body limit raised to 6 MB),
+  ≤ 3 MB text, ≤ 300 files. The zip reader (`lib/skill-zip.ts`, Node's zlib, no dependency) inflates each entry with
+  its declared size as a hard cap and checks its CRC (zip bombs stop there), refuses ZIP64, encryption, multi-disk
+  archives, symlinks, absolute paths and `..`. Frontmatter must follow the Agent Skills name/description rules.
+- **Security scan before install**: deterministic rules (`lib/skill-scan.ts`) — prompt injection, credentials and
+  secret exfiltration block the install; pushing to the default branch, disabling tests/CI, sending data to URLs,
+  `curl | sh`, invisible characters, hidden HTML-comment instructions and encoded blobs are findings — plus one AI
+  review when a provider key exists (the skill is passed as data to review, never as instructions). Rules run first,
+  so a blocked skill costs nothing. The confirm step carries an AES-GCM sealed token (version, AI findings, 30 min) so
+  the install can't swap the file or drop the AI's findings, and the rules run again on install.
+- **Trust score**: enabled uploaded skills' findings count in every agent's rule-based trust scan; switching a skill
+  on or off, a new version or a delete rescans the affected agents. Built-ins count as reviewed.
+
 ## File uploads
 
 - Workspace logos: PNG, JPEG, WebP or GIF only, ≤ 1 MB, checked on the client and again on the server.
 - **SVG is rejected** on purpose: it can carry scripts and would be served from the app's own origin.
 - Stored in a private bucket under a random UUID key; served with `X-Content-Type-Options: nosniff` and
   `Cache-Control: private`.
-- Server Action body limit is raised to 1.5 MB (`next.config.ts`) to fit a 1 MB file plus multipart overhead.
+- Server Action body limit is raised to 6 MB (`next.config.ts`) to fit a 5 MB skill upload (and the 1 MB logo) plus
+  multipart overhead.
 
 ## Redirects and CSRF
 
@@ -124,6 +154,7 @@ The pipeline acts on the repository with the workspace owner's token, so its gua
 | Gap | Risk | Suggested fix |
 | --- | --- | --- |
 | Agents can be steered by a malicious issue within their tools (e.g. a harmful code change on their branch). | A bad PR. Nothing merges without review + tests, and auto-merge is off by default. | Keep auto-merge off for repos that accept issues from outsiders; review agent PRs. |
+| An uploaded skill's guidance can be subtly wrong or steer code style without tripping the scan. | Worse code on an agent branch; reviews and the human gate still apply. | Review skills before assigning them; prefer built-ins; keep their findings visible. |
 | The agent log stores tool targets and the first line of tool answers (paths, error messages). | Repository paths and error text are kept in Postgres. File contents never are (reads store no summary). | Nothing needed; keep `toolStep` from summarizing read tools. |
 | No rate limiting on Server Actions or route handlers. | Brute-force or abuse of create/sync endpoints. | Add per-user limits (e.g. Upstash Ratelimit) on sync, create and run. |
 | Workspaces have no members or roles. | Not a risk today, but anything shared later needs an access model. | Add memberships before any sharing feature. |

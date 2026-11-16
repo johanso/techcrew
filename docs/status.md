@@ -1,7 +1,7 @@
 # Project status
 
 Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-16**
-(release **v0.2.0**, on `main`). For what has been tested and how to test the agents, see [testing.md](testing.md).
+(release **v0.2.0** on `main`; **v0.3.0 "Agent skills"** in progress on `feat/agent-skills`). For what has been tested and how to test the agents, see [testing.md](testing.md).
 
 - [Feature status](#feature-status)
 - [Dummy data and placeholders](#dummy-data-and-placeholders)
@@ -33,21 +33,22 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | Auto pickup of Todo cards; manual, automatic-when-low-risk or automatic merge | ✅ Real | `lib/inngest/agent-pickup.ts`, `lib/agent-run-config.ts` (`mergeDecision`), `lib/pull-requests.ts` |
 | Follow-up card from the Tester on merge conflict / failing build | ✅ Real | `lib/pull-requests.ts` |
 | Overview page (stats, upcoming tasks, recent activity) | ✅ Real, from the board and the activity feed | `lib/overview.ts`, `lib/activity.ts` |
-| AI Team: six default agents with faces, configure dialog, Skill Trust Score, spending, activity drawer, live working state | ✅ Real, persisted | `components/ai-team`, `lib/agents.ts`, `public/agents` |
+| AI Team: six default agents with faces, configure dialog (permissions, skills), Trust Score, spending, activity drawer, live working state | ✅ Real, persisted | `components/ai-team`, `lib/agents.ts`, `public/agents` |
+| Agent skills: built-ins vendored by `npm run skills:sync` (modern-web-guidance, chrome-extensions), uploads with validation + security scan + AI review, per-agent switches, `search_skill` / `read_skill` in every stage, always-loaded playbooks in the prompt, findings in the trust score | ✅ Real (server verified against the dev database with one real AI review; UI rendered with real data but not clicked through; a simulated run with skills not run end to end) | `agent-skills/`, `lib/agent-skills.ts`, `lib/skill-*.ts`, `components/skills`, Settings `#skills` |
 | Live process (AI Team page): the six steps of each card in flight, live polling | ✅ Real | `components/ai-team/live-process.tsx`, `lib/live-process.ts` |
 | AI drafting of instructions + AI-assisted trust scans | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | `lib/agent-ai.ts` |
 | Switch Trust: connect a Switch account, SwitchAgent scans (register agents, one evaluation each, health score + OWASP coverage) in the background via Cloudhike jobs | ✅ Live scan verified with Switch (2026-11-16, through ngrok); weekly scans and cost caps verified against local fakes | `lib/switch-trust.ts`, `docs/switch-trust.md` |
 | Pull Requests page (agent PRs, approval and test verdicts, risk, Merge) | ✅ Real | `components/pull-requests`, `lib/pull-requests.ts` |
 | Activity page (workspace timeline, incl. people's card moves, edits and removals) | ✅ Real | `lib/activity.ts`, `components/activity` |
 | Notifications (header bell): PR ready, merged, merge blocked, needs info, run stopped, out of credit, provider switched | ✅ Real (polled every 30 s) | `lib/notifications.ts`, `components/dashboard/notifications-menu.tsx` |
-| Settings page | ✅ AI providers (encrypted keys, provider switch) and agent automation editable; account and workspace read-only | `app/dashboard/[workspaceId]/settings` |
+| Settings page | ✅ AI providers (encrypted keys, provider switch), agent automation and agent skills editable; account and workspace read-only | `app/dashboard/[workspaceId]/settings` |
 | Landing page `/` | ➖ None: redirects to the dashboard or sign-in | `app/page.tsx` |
 
 ## Dummy data and placeholders
 
 Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
-- **Some skills have no tool behind them**: Web research, Read environment secrets and Run tests in a sandbox are
+- **Some permissions have no tool behind them**: Web research, Read environment secrets and Run tests in a sandbox are
   stored and scored but no agent tool exists for them (see [features.md](features.md#ai-team)).
 
 ## Known limitations
@@ -77,6 +78,8 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
   (Settings → AI providers), restarts the current stage once, and has only been verified by unit tests (detection),
   not against a real provider running dry.
 - **The agent log only covers runs started after it shipped**; older runs show "Nothing logged".
+- **Agent skills are knowledge only**: agents search and read them; skills can't add tools or run anything. Search is
+  keyword ranking over titles, paths and summaries (no embeddings). Skills from the linked repository aren't read yet.
 - **Notifications are polled** (30 s), not pushed, and only go to the workspace owner. There's no email.
 - **Agent branches are never deleted**, and closing an agent PR on GitHub ends its run as failed.
 
@@ -84,17 +87,17 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 | Item | Notes |
 | --- | --- |
-| Unit tests only | 81 Vitest tests for pure logic (filters, model mapping, roles, trust scan, costs, credit detection, tools per stage, log steps, phases and working agents, risk floor and merge decision, live process, Switch mapping, card-change descriptions), run by CI on every push. No integration tests for the database, the sync or the pipeline yet. |
+| Unit tests only | 121 Vitest tests for pure logic (filters, model mapping, roles, trust scan, costs, credit detection, tools per stage, log steps, phases and working agents, risk floor and merge decision, live process, Switch mapping, card-change descriptions, skill frontmatter/zip/scan/search/prompt), run by CI on every push. No integration tests for the database, the sync or the pipeline yet. |
 | Two `cn` helpers | shadcn components import `cn` from the `cn` npm package; app code uses `cn` from `@/lib/utils` (`clsx` + `tailwind-merge`). Pick one. |
 | `server-only` isn't installed as a package | Next.js handles it internally (optional per the Next docs), but scripts run outside Next (e.g. with `tsx`) can't import `server-only` modules without a shim. |
-| Deprecated `workspaces.agent_auto_merge` | Replaced by `agent_merge_mode` in v0.2 and no longer read; kept so v0.1 code still runs against a migrated database. Drop it in v0.3. |
+| Deprecated `workspaces.agent_auto_merge` | Replaced by `agent_merge_mode` in v0.2 and no longer read; kept so v0.1 code still runs against a migrated database. Drop it in v0.4. |
 | Sequential updates in `reorderTasks` | One `UPDATE` per card in the moved columns. Fine at board sizes; batch it if columns grow large. |
 
 ## Suggested next steps
 
-The plan lives in [roadmap.md](roadmap.md): smarter gates and the live process are done (v0.2); next are deploy and
-hardening, including mixed model companies per agent (v0.3), a sandbox to run code (v0.4), and a shared project memory
-(v0.5).
+The plan lives in [roadmap.md](roadmap.md): smarter gates and the live process are done (v0.2); agent skills are v0.3;
+next are deploy and hardening, including mixed model companies per agent (v0.4), a sandbox to run code (v0.5), and a
+shared project memory (v0.6).
 
 ## History
 

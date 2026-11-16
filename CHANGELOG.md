@@ -8,6 +8,36 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+Agent skills — planned as **0.3.0**.
+
+### Added
+- **Agent skills**: knowledge packs in the Agent Skills format (a folder with SKILL.md plus reference files) that
+  agents search and read while they work. Technical or practice; always loaded (playbook in the prompt, ≤ 8 KB) or on
+  demand. Never executed.
+- **Built-in skills**, vendored at a pinned commit with their license and a `SOURCE.md`: `modern-web-guidance`
+  (Google Chrome, Apache-2.0; on for the Developer, Reviewer and Security) and `chrome-extensions` (off by default).
+  `npm run skills:sync` updates them from GitHub as a reviewable diff.
+- **Settings → Agent skills** (also in the account menu): upload a SKILL.md or a .zip, see the security scan and the
+  suggested type, load and roles, confirm who uses it; the library shows each skill's origin, license, scan and
+  agents, with Assign, New version and Delete.
+- **Skills panel** in AI Team → Configure: switch each skill on or off for the agent (saves at once), recommended
+  skills for the role first, a warning when a skill assumes a permission the agent lacks.
+- Two agent tools in every stage, `search_skill` and `read_skill`, on OpenAI and Anthropic; shown in the agent log
+  and the live process. Simulated agents use them too.
+- Security scan for uploads (prompt injection, credentials, secret exfiltration, pushing to the default branch,
+  disabling tests or CI, sending data to URLs, hidden instructions, encoded blobs) plus an AI review when a provider
+  key exists; critical findings block the install. Enabled uploaded skills' findings count in the trust score.
+
+### Changed
+- What the app called **skills** (Read repository, Write code, Merge pull requests …) are now **permissions** in the
+  UI and the code. The database column `agents.skills` keeps its name.
+- *Skill Trust Score* is now **Trust Score**. Agent cards show *Permissions · N* and *Skills · N*.
+- Switch Trust evaluations include the agent's always-loaded skills in its prompt.
+- Server Action body limit raised to 6 MB for skill uploads.
+
+### Database
+- Migration `0006_agent_skills`: `agent_skills`, `agent_skill_files`, `agent_skill_assignments` (additive).
+
 ## [0.2.0] — 2026-11-16
 
 Smarter gates and a live view of the pipeline.

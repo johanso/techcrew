@@ -60,8 +60,9 @@ components/
   dashboard/                 Shell (sidebar, switcher, header, user menu) and page building blocks
   board/                     Kanban board, cards, columns, dialog, filters, GitHub sync UI, agent log panel,
                              out-of-credit notice
-  ai-team/                   AI Team: agent cards (faces, live working state), configure dialog, trust and spend
-                             panels, live process (six steps per card in flight), live team polling
+  ai-team/                   AI Team: agent cards (faces, live working state), configure dialog, trust, spend and
+                             skills panels, live process (six steps per card in flight), live team polling
+  skills/                    Agent skills UI: Settings library + upload, badges, findings, agent checkboxes
   app-header.tsx, brand.tsx  Top bar for /workspaces pages; product mark + APP_NAME
 db/
   schema.ts                  Drizzle schema (all tables)
@@ -80,8 +81,17 @@ lib/                         Server logic (most files start with `import "server
   ai-keys.ts                 Workspace AI provider keys (encrypted; env fallback), verification, masking
   storage.ts                 S3 uploads and reads
   agents.ts                  Agents persistence, team view, activity/spend ledger, task key prefix
-  agent-config.ts            Agent roles, skills, models (shared client/server)
-  agent-trust.ts             Skill Trust Score rule scan (pure)
+  agent-config.ts            Agent roles, permissions, models (shared client/server)
+  agent-trust.ts             Trust Score rule scan, incl. enabled skills' scan findings (pure)
+  agent-skills-config.ts     Agent skills vocabulary: types, loads, sources, limits, metadata keys, scan type (shared)
+  agent-skills.ts            Skill library + assignments, ensureBuiltinSkills, the agent's skills for prompt and tools
+  builtin-skills.ts          Built-ins: agent-skills/catalog.json + reading their files from disk
+  skill-format.ts            SKILL.md frontmatter parsing/validation, safe paths, search metadata, content version (pure)
+  skill-zip.ts               Defensive ZIP reader on node:zlib (size caps, CRC, no links/ZIP64/encryption)
+  skill-package.ts           An upload → validated skill package (limits, text files only)
+  skill-scan.ts              Deterministic security rules for uploaded skills (pure)
+  skill-runtime.ts           Skills prompt block, search ranking, paginated reads (pure)
+  skill-install.ts           Upload inspect/install (sealed token), new versions, assignments, delete
   agent-ai.ts                Config AI (OpenAI, else Anthropic): instruction drafting, AI trust review
   agent-run-config.ts        Pipeline phases and agent stages, run statuses, report types, risk floor, merge
                              decision (shared client/server)
@@ -90,7 +100,7 @@ lib/                         Server logic (most files start with `import "server
   agent-pipeline.ts          Stage work: prompts, stage start/turns, branch, PR, review/security/approval/test recording
   agent-loop.ts              One model turn with function tools (OpenAI Responses or Anthropic Messages)
   agent-simulated.ts         Scripted agents for AGENTS_SIMULATED=true
-  agent-tools.ts             Agent tools on the GitHub API, gated by stage and skills
+  agent-tools.ts             Agent tools on the GitHub API, gated by stage and permissions; search_skill/read_skill
   pull-requests.ts           Agent PRs: merge, Tester follow-up on conflicts/failing builds, refresh, list
   openai.ts                  OpenAI client and cost accounting
   anthropic.ts               Anthropic client, cost accounting, tool schema conversion
@@ -110,7 +120,8 @@ drizzle.config.ts            drizzle-kit config (public schema only)
 docs/                        This documentation
 drizzle/                     SQL migrations + snapshots (generated; 0000_baseline = schema as of 2026-11)
 test/                        Test helpers (server-only stand-in); tests live next to their modules (*.test.ts)
-scripts/                     db-baseline.mjs
+scripts/                     db-baseline.mjs, sync-agent-skills.mjs (npm run skills:sync)
+agent-skills/                Built-in skills vendored at pinned commits (sources.json, catalog.json, <slug>/)
 public/                      agents/<key>.webp: one face per agent role
 AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.md just imports AGENTS.md)
 ```

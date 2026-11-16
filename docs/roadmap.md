@@ -48,7 +48,7 @@ flowchart LR
 | Approver with a loop back | Lead: combines the reviews, sends work back (max 2 rounds with the tests) |
 | Risk-based human gate | Lead's risk rating with a deterministic floor; "Automatic when low risk" merge mode |
 | Production | No deploy step |
-| Brain | Only a card's earlier questions and answers |
+| Brain | Only a card's earlier questions and answers; agent skills (v0.3) bring curated technical and practice knowledge |
 
 Agents keep never writing to the default branch: low-risk changes still go through a PR, merged automatically.
 
@@ -64,23 +64,36 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
 - **Live process** on the AI Team page (replaces the Live Agent Office) and face avatars for every agent.
 - Released as **v0.2.0** (2026-11-16); see [CHANGELOG.md](../CHANGELOG.md#020--2026-11-16).
 
-### v0.3 — Deploy and hardening
+### v0.3 — Agent skills
+- **Permissions vs. skills**: what the app called skills (repo.read, code.write …, enforced as tools) are now
+  **permissions**; **skills** are installable knowledge packs in the Agent Skills format (SKILL.md + reference files),
+  *technical* or *practice*, loaded *always* (short playbooks in the prompt) or *on demand* (searched and read).
+- **Built-ins** vendored at pinned commits by `npm run skills:sync` (reviewed by pull request, never fetched at
+  runtime): `modern-web-guidance` (on for Developer, Reviewer, Security) and `chrome-extensions` (off).
+- **Uploads** in Settings → Agent skills: validation, deterministic security scan, AI review and classification,
+  confirm with *Assign to*; per-agent switches in AI Team → Configure; findings count in the trust score.
+- Agents use them in every stage through two read-only tools (`search_skill`, `read_skill`) on both providers.
+- To be released as **v0.3.0**.
+
+### v0.4 — Deploy and hardening
 - Deploy (Vercel works: 300 s functions vs our 120 s routes; Postgres is already hosted). Hobby is non-commercial only.
   Needs Inngest Cloud, a production GitHub OAuth App and `PUBLIC_APP_URL` set to the production domain.
 - Weekly Switch scans in production, without a tunnel.
 - The post-MVP rows of the [test plan](testing.md#test-plan-and-status): Anthropic live, blocked merge, auto pickup
   and auto merge, pause or budget mid-run, Draft with AI, automatic provider switch.
-- Drop the deprecated `workspaces.agent_auto_merge` column (replaced by `agent_merge_mode` in v0.2, kept one release
-  so v0.1 code still runs against a migrated database).
+- Drop the deprecated `workspaces.agent_auto_merge` column (replaced by `agent_merge_mode` in v0.2, kept so v0.1 code
+  still runs against a migrated database).
+- **Project skills**: read skills from the linked repository (e.g. `.agents/skills/`, `.claude/skills/`) as a third
+  source (`agent_skills.source = 'project'` is reserved), scanned like uploads.
 - **Mixed companies per agent**: an agent may use OpenAI or Anthropic when both keys exist, so reviewers don't share
   one model's blind spots.
 
-### v0.4 — Sandbox
+### v0.5 — Sandbox
 - Run code in an isolated container: install, build and test before the PR; the Developer fixes what fails.
 - Then **UI / UX reviewers** that look at the running app (screenshots in a headless browser). Without the sandbox they
   could only read code.
 
-### v0.5 — Brain
+### v0.6 — Brain
 - A project memory every agent reads before working: repository conventions, decisions, what earlier cards learned.
   Kept per workspace, editable by the owner.
 
@@ -91,6 +104,8 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
 ## Backlog
 
 Not tied to a phase yet:
+- More built-in skills (practice playbooks for reviews, security and testing), and semantic search over skills.
+- Rename the `agents.skills` column to `permissions` once no older code runs against the database.
 - GitHub webhooks (real-time issues) and closing the issue when a card reaches Done.
 - Integration tests: database + pipeline in simulated mode.
 - Email notifications; GitHub syncs on the Activity page.
