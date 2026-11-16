@@ -1,7 +1,7 @@
 # Project status
 
 Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-16**
-(release **v0.1.0**, on `main`). For what has been tested and how to test the agents, see [testing.md](testing.md).
+(release **v0.2.0**, on `main`). For what has been tested and how to test the agents, see [testing.md](testing.md).
 
 - [Feature status](#feature-status)
 - [Dummy data and placeholders](#dummy-data-and-placeholders)
@@ -108,7 +108,8 @@ hardening, including mixed model companies per agent (v0.3), a sandbox to run co
 | `463701d` | GitHub issue sync; demo data removed. |
 | `15e1257` | Card Run (Analyst + Inngest job) and Remove actions. |
 | `d6f030e` | AI Team page: configurable agents, Skill Trust Score, spending, activity. |
-| `feat/v0.2-agents-live-process` | **v0.2 (unreleased)**: Security and Lead agents, Reviewer and Security in parallel, Lead approval with a risk floor, risk-based merge mode (migration 0005), face avatars, live process instead of the Live Agent Office. |
+| `v0.2.0` | **Second release**, tagged on `main` after PRs #3 (v0.2 work) and #4 (Next.js 16.4.6 security upgrade). |
+| `feat/v0.2-agents-live-process` | v0.2 work: Security and Lead agents, Reviewer and Security in parallel, Lead approval with a risk floor, risk-based merge mode (migration 0005), face avatars, live process instead of the Live Agent Office. |
 | `v0.1.0` | **First release (MVP)**, tagged on `main` after PR #1. Release notes in [CHANGELOG.md](../CHANGELOG.md); next steps in [roadmap.md](roadmap.md). |
 | `feat/ai-agents` (7) | First live Switch scan (4 agents scored 99, $2.09). Fixes: an early 404 on the pre-minted run id no longer fails a scan; tests answered outside a scan add up on one row per agent and day; run results read from every page; the evaluation picker counts turns of adversarial attacks (10 conversations beat 201 fixed prompts). |
 | `feat/ai-agents` (6) | Switch: verified end to end against local fakes, weekly scans (Inngest cron + toggle), monthly budgets as Switch cost caps. People's card moves, edits and removals on Activity (`task_events`). CI workflow; `npm run check` runs `next typegen` first so a fresh clone type-checks. |

@@ -1,6 +1,6 @@
 # Roadmap
 
-Where TechTeam goes after the MVP ([v0.1.0](../CHANGELOG.md#010--2026-11-16)), and how a version is released.
+Where TechTeam goes next (latest release: [v0.2.0](../CHANGELOG.md#020--2026-11-16)), and how a version is released.
 For what works today see [status.md](status.md); for what's verified see [testing.md](testing.md).
 
 - [Direction: an AI software factory](#direction-an-ai-software-factory)
@@ -62,7 +62,7 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
   a deterministic floor from Security's findings and what the diff touches.
 - **Risk-based human gate**: Settings → Merging adds "Automatic when low risk"; medium and high wait for the owner.
 - **Live process** on the AI Team page (replaces the Live Agent Office) and face avatars for every agent.
-- Done on `feat/v0.2-agents-live-process`; see [CHANGELOG.md](../CHANGELOG.md).
+- Released as **v0.2.0** (2026-11-16); see [CHANGELOG.md](../CHANGELOG.md#020--2026-11-16).
 
 ### v0.3 — Deploy and hardening
 - Deploy (Vercel works: 300 s functions vs our 120 s routes; Postgres is already hosted). Hobby is non-commercial only.
