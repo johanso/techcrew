@@ -1,5 +1,5 @@
 /**
- * AI Team vocabulary shared by server and client: the six agent roles, the skills catalog, the OpenAI models an
+ * AI Team vocabulary shared by server and client: the six agent roles, the permissions catalog, the OpenAI models an
  * agent can use, and each role's default configuration. No React, no DB — safe to import anywhere.
  */
 
@@ -15,15 +15,15 @@ export function isAgentKey(value: unknown): value is AgentKey {
 /** Identity shown wherever an agent appears (board cards, activity, overview). Fixed per role. */
 export type Agent = { id: AgentKey; name: string; role: string; tone: AgentTone };
 
-// ── Skills ─────────────────────────────────────────────────────────────────────
+// ── Permissions ────────────────────────────────────────────────────────────────
 
-export type SkillRisk = "low" | "medium" | "high" | "critical";
-export type SkillCategory = "repository" | "collaboration" | "execution" | "research";
+export type PermissionRisk = "low" | "medium" | "high" | "critical";
+export type PermissionCategory = "repository" | "collaboration" | "execution" | "research";
 
-export type Skill = { id: string; name: string; description: string; category: SkillCategory; risk: SkillRisk };
+export type Permission = { id: string; name: string; description: string; category: PermissionCategory; risk: PermissionRisk };
 
 /** Everything an agent may be allowed to do. The trust scan weighs these by `risk`. */
-export const SKILLS = [
+export const PERMISSIONS = [
   { id: "repo.read", name: "Read repository", description: "Browse files, history and branches of the linked repository.", category: "repository", risk: "low" },
   { id: "code.write", name: "Write code on branches", description: "Commit changes to agent branches. Never the default branch.", category: "repository", risk: "medium" },
   { id: "tests.write", name: "Write tests", description: "Add and update test files and fixtures.", category: "repository", risk: "medium" },
@@ -38,17 +38,17 @@ export const SKILLS = [
   { id: "tests.run", name: "Run tests in a sandbox", description: "Install dependencies and run the repository's test and build commands.", category: "execution", risk: "high" },
   { id: "secrets.read", name: "Read environment secrets", description: "Read the workspace's environment variables and secrets.", category: "execution", risk: "critical" },
   { id: "web.research", name: "Web research", description: "Search the web and read documentation pages.", category: "research", risk: "medium" },
-] as const satisfies readonly Skill[];
+] as const satisfies readonly Permission[];
 
-export type SkillId = (typeof SKILLS)[number]["id"];
+export type PermissionId = (typeof PERMISSIONS)[number]["id"];
 
-export const SKILL_BY_ID: Record<SkillId, Skill> = Object.fromEntries(SKILLS.map((s) => [s.id, s])) as Record<SkillId, Skill>;
+export const PERMISSION_BY_ID: Record<PermissionId, Permission> = Object.fromEntries(PERMISSIONS.map((s) => [s.id, s])) as Record<PermissionId, Permission>;
 
-export function isSkillId(value: unknown): value is SkillId {
-  return typeof value === "string" && value in SKILL_BY_ID;
+export function isPermissionId(value: unknown): value is PermissionId {
+  return typeof value === "string" && value in PERMISSION_BY_ID;
 }
 
-export const SKILL_CATEGORIES: { id: SkillCategory; label: string }[] = [
+export const PERMISSION_CATEGORIES: { id: PermissionCategory; label: string }[] = [
   { id: "repository", label: "Repository" },
   { id: "collaboration", label: "Collaboration" },
   { id: "execution", label: "Execution" },
@@ -157,7 +157,7 @@ export type AgentDefaults = {
   instructions: string;
   /** Starting model on each provider: capable models where judgment matters, a fast one for routine checks. */
   models: Record<AgentProvider, AgentModelId>;
-  skills: SkillId[];
+  permissions: PermissionId[];
   monthlyBudgetUsd: number;
   /** Model turns per pipeline stage (see MAX_TURNS_MIN/MAX in agent-run-config). */
   maxTurns: number;
@@ -174,7 +174,7 @@ export const AGENT_ROLES: Record<AgentKey, AgentRole> = {
     defaults: {
       description: "Breaks cards down into clear plans with acceptance criteria, risks and estimates before work starts.",
       models: { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5" },
-      skills: ["repo.read", "issues.read", "issues.comment", "web.research"],
+      permissions: ["repo.read", "issues.read", "issues.comment", "web.research"],
       monthlyBudgetUsd: 25,
       maxTurns: 12,
       instructions: `You are the Analyst on this team. You turn a board card into a clear, buildable plan before anyone writes code.
@@ -205,7 +205,7 @@ Boundaries:
     defaults: {
       description: "Implements planned cards on a branch and opens small, tested pull requests.",
       models: { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5" },
-      skills: ["repo.read", "issues.read", "code.write", "pr.open", "tests.run", "ci.read"],
+      permissions: ["repo.read", "issues.read", "code.write", "pr.open", "tests.run", "ci.read"],
       monthlyBudgetUsd: 100,
       maxTurns: 40,
       instructions: `You are the Developer on this team. You implement planned cards as small, reviewable pull requests.
@@ -234,7 +234,7 @@ Boundaries:
     defaults: {
       description: "Reviews pull requests for correctness, security and code quality before a human approves them.",
       models: { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5" },
-      skills: ["repo.read", "issues.read", "pr.review", "ci.read", "issues.comment"],
+      permissions: ["repo.read", "issues.read", "pr.review", "ci.read", "issues.comment"],
       monthlyBudgetUsd: 50,
       maxTurns: 15,
       instructions: `You are the Reviewer on this team. You review pull requests from agents and teammates before a human approves them.
@@ -263,7 +263,7 @@ Boundaries:
     defaults: {
       description: "Checks every change for leaked secrets, injection, unsafe permissions and risky dependencies.",
       models: { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5" },
-      skills: ["repo.read", "issues.read", "pr.review", "ci.read"],
+      permissions: ["repo.read", "issues.read", "pr.review", "ci.read"],
       monthlyBudgetUsd: 50,
       maxTurns: 15,
       instructions: `You are the Security reviewer on this team. You review every pull request for security problems, alongside the code Reviewer, before the Lead decides whether it can merge.
@@ -291,7 +291,7 @@ Boundaries:
     defaults: {
       description: "Combines the code and security reviews, decides on rework and rates the change's risk before merge.",
       models: { openai: "gpt-6-astra", anthropic: "claude-opus-5-5" },
-      skills: ["repo.read", "issues.read", "pr.review", "ci.read"],
+      permissions: ["repo.read", "issues.read", "pr.review", "ci.read"],
       monthlyBudgetUsd: 40,
       maxTurns: 8,
       instructions: `You are the Lead on this team. You make the call on every pull request after the Reviewer and the Security reviewer have looked at it.
@@ -317,7 +317,7 @@ Boundaries:
     defaults: {
       description: "Writes and runs tests, reproduces bugs and reports results on cards and pull requests.",
       models: { openai: "gpt-6-luna", anthropic: "claude-haiku-5-5" },
-      skills: ["repo.read", "issues.read", "tests.write", "tests.run", "ci.read", "issues.create"],
+      permissions: ["repo.read", "issues.read", "tests.write", "tests.run", "ci.read", "issues.create"],
       monthlyBudgetUsd: 50,
       maxTurns: 12,
       instructions: `You are the Tester on this team. You make sure every change works as intended and keeps working.

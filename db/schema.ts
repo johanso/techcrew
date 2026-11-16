@@ -3,6 +3,7 @@ import { bigint, boolean, date, index, integer, jsonb, pgTable, serial, text, ti
 
 import type { AgentModelId, AgentProvider } from "@/lib/agent-config";
 import type { AnalystBrief, LeadDecision, ReviewReport, RunFailure, SecurityReport, TestReport } from "@/lib/agent-run-config";
+import type { SkillScan } from "@/lib/agent-skills-config";
 import type { TrustReport } from "@/lib/agent-trust";
 
 export const users = pgTable("users", {
@@ -174,14 +175,15 @@ export const agents = pgTable(
     model: text("model").notNull(),
     // The model this agent uses on each provider, so switching provider and back restores the user's choice.
     providerModels: jsonb("provider_models").$type<Partial<Record<AgentProvider, AgentModelId>>>().notNull().default({}),
-    // Skill ids from SKILLS.
-    skills: text("skills").array().notNull().default(sql`'{}'::text[]`),
+    // Permission ids from PERMISSIONS (lib/agent-config.ts). The column kept its v0.1 name "skills"; "skills" now
+    // means the installable knowledge packs in agent_skills.
+    permissions: text("skills").array().notNull().default(sql`'{}'::text[]`),
     monthlyBudgetCents: integer("monthly_budget_cents").notNull(),
     // Model turns allowed per stage before the agent must submit its result. Null = the role's default.
     maxTurns: integer("max_turns"),
     // Paused agents don't pick up work (Run refuses).
     enabled: boolean("enabled").default(true).notNull(),
-    // Latest Skill Trust Score scan (lib/agent-trust.ts). Score is duplicated out of the report for queries.
+    // Latest Trust Score scan (lib/agent-trust.ts). Score is duplicated out of the report for queries.
     trustScore: integer("trust_score"),
     trustReport: jsonb("trust_report").$type<TrustReport>(),
     trustScannedAt: timestamp("trust_scanned_at"),
@@ -195,6 +197,91 @@ export const agents = pgTable(
 
 export type AgentRow = typeof agents.$inferSelect;
 export type NewAgentRow = typeof agents.$inferInsert;
+
+/**
+ * A workspace's skill library: knowledge packs in the Agent Skills format (SKILL.md + reference files) that agents
+ * search and read while they work. Built-ins are created by ensureBuiltinSkills() from agent-skills/catalog.json and
+ * read from disk; uploaded skills keep their files in agent_skill_files. Values of `type`, `load` and `source` come
+ * from lib/agent-skills-config.ts. Blocked uploads are never stored.
+ */
+export const agentSkills = pgTable(
+  "agent_skills",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    // The skill's frontmatter name (built-ins: the slug in agent-skills/sources.json). Agents name skills by it.
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    // "technical" | "practice".
+    type: text("type").notNull(),
+    // "always" | "on_demand".
+    load: text("load").notNull(),
+    // "builtin" | "uploaded" | "project" (project skills from the linked repository: later).
+    source: text("source").notNull(),
+    // "GoogleChrome/modern-web-guidance@64a6d70" or "Uploaded by Ada Lovelace".
+    origin: text("origin").notNull(),
+    license: text("license"),
+    // Content hash (12 hex characters, contentVersion in lib/skill-format.ts); changes with every new version.
+    version: text("version").notNull(),
+    fileCount: integer("file_count").notNull(),
+    totalBytes: integer("total_bytes").notNull(),
+    // Security scan of this version (passed / warned; blocked uploads aren't stored).
+    scan: jsonb("scan").$type<SkillScan>(),
+    // Agent role keys the skill fits: pre-checked on install, "Recommended for" in the configure dialog.
+    suggestedRoles: text("suggested_roles").array().notNull().default(sql`'{}'::text[]`),
+    // Permission ids the skill assumes (metadata techteam-requires); the dialog warns when an agent lacks one.
+    requiresPermissions: text("requires_permissions").array().notNull().default(sql`'{}'::text[]`),
+    createdById: integer("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [unique("agent_skills_workspace_slug_unique").on(table.workspaceId, table.slug)]
+);
+
+export type AgentSkillRow = typeof agentSkills.$inferSelect;
+
+/** Files of an uploaded skill (text only: .md and .txt). `title` and `summary` are what search_skill matches. */
+export const agentSkillFiles = pgTable(
+  "agent_skill_files",
+  {
+    id: serial("id").primaryKey(),
+    skillId: integer("skill_id")
+      .notNull()
+      .references(() => agentSkills.id, { onDelete: "cascade" }),
+    // Relative to the skill folder, e.g. "SKILL.md", "references/checklist.md".
+    path: text("path").notNull(),
+    content: text("content").notNull(),
+    title: text("title").notNull(),
+    summary: text("summary").notNull(),
+    // UTF-8 bytes of `content`.
+    size: integer("size").notNull(),
+  },
+  (table) => [unique("agent_skill_files_skill_path_unique").on(table.skillId, table.path)]
+);
+
+/** Which agent uses which skill. A row with enabled = false is a skill the user switched off; nothing re-enables it on its own. */
+export const agentSkillAssignments = pgTable(
+  "agent_skill_assignments",
+  {
+    id: serial("id").primaryKey(),
+    agentId: integer("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    skillId: integer("skill_id")
+      .notNull()
+      .references(() => agentSkills.id, { onDelete: "cascade" }),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    unique("agent_skill_assignments_agent_skill_unique").on(table.agentId, table.skillId),
+    index("agent_skill_assignments_skill_idx").on(table.skillId),
+  ]
+);
 
 /**
  * What an agent did, newest first in the activity drawer. Rows with `cost_micros` > 0 are also the spend ledger:

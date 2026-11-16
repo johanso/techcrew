@@ -1,0 +1,29 @@
+{
+  "$comment": "Built-in agent skills, vendored from public repositories at a pinned commit. Edit `ref` (or run `npm run skills:sync -- --update <slug>`), then `npm run skills:sync` and open a pull request with the diff. Never fetched at agent runtime. `usage` replaces upstream instructions that assume a shell (TechTeam agents can't run commands).",
+  "skills": [
+    {
+      "slug": "modern-web-guidance",
+      "repo": "GoogleChrome/modern-web-guidance",
+      "path": "skills/modern-web-guidance",
+      "ref": "64a6d708f5a43f2cd3fde5d4d7db3905ba1bdf65",
+      "license": "Apache-2.0",
+      "licenseFile": "LICENSE",
+      "type": "technical",
+      "load": "on_demand",
+      "roles": ["developer", "reviewer", "security"],
+      "usage": "Upstream tells agents to run `npx modern-web-guidance search/retrieve`; you can't run commands, so use search_skill instead of `search` (a 2–5 word query naming one web capability or UI pattern, e.g. \"light dismiss dialog\", \"responsive data table\", no framework names) and read_skill with the guide's path instead of `retrieve` (e.g. guides/css/css-layout.md). Search before writing or reviewing HTML, CSS or client-side JavaScript; follow the guide's fallbacks for features that aren't Baseline widely available. Security reviews: search the security and sanitization topics (e.g. \"sanitize html\", \"passkey sign in\"). Skip the upstream steps about legacy-scan, permissions and disclosure sections."
+    },
+    {
+      "slug": "chrome-extensions",
+      "repo": "GoogleChrome/modern-web-guidance",
+      "path": "skills/chrome-extensions",
+      "ref": "64a6d708f5a43f2cd3fde5d4d7db3905ba1bdf65",
+      "license": "Apache-2.0",
+      "licenseFile": "LICENSE",
+      "type": "technical",
+      "load": "on_demand",
+      "roles": [],
+      "usage": "Only for Chrome extension projects (Manifest V3). Read SKILL.md first with read_skill, then the references/ file for the API you touch (search_skill finds it, e.g. \"side panel\", \"message passing\")."
+    }
+  ]
+}

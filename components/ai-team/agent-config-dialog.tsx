@@ -6,6 +6,7 @@ import { CheckIcon, RotateCcwIcon, SaveIcon, SparklesIcon, Undo2Icon } from "luc
 
 import { generateAgentAction, saveAgentAction } from "@/app/dashboard/[workspaceId]/ai-team/actions";
 import { AGENT_STATUS, AgentPortrait } from "@/components/ai-team/agent-visuals";
+import { SkillsPanel } from "@/components/ai-team/skills-panel";
 import { SpendingPanel } from "@/components/ai-team/spending-panel";
 import { TrustPanel } from "@/components/ai-team/trust-panel";
 import { FormMessage } from "@/components/auth/form-parts";
@@ -26,8 +27,8 @@ import {
   DESCRIPTION_MAX,
   INSTRUCTIONS_MAX,
   PROVIDERS,
-  SKILL_CATEGORIES,
-  SKILLS,
+  PERMISSION_CATEGORIES,
+  PERMISSIONS,
   formatMicros,
   isAgentModelId,
   modelInfo,
@@ -35,22 +36,23 @@ import {
   type AgentModelId,
   type AgentProvider,
   type ProviderStatus,
-  type SkillId,
-  type SkillRisk,
+  type PermissionId,
+  type PermissionRisk,
 } from "@/lib/agent-config";
 import { MAX_TURNS_MAX, MAX_TURNS_MIN } from "@/lib/agent-run-config";
 import type { AgentConfigField, AgentView } from "@/lib/agents";
+import type { SkillView } from "@/lib/agent-skills-config";
 import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
 import { cn } from "@/lib/utils";
 
-const RISK: Record<SkillRisk, { label: string; dot: string; text: string }> = {
+const RISK: Record<PermissionRisk, { label: string; dot: string; text: string }> = {
   low: { label: "Low risk", dot: "bg-success", text: "text-muted-foreground" },
   medium: { label: "Medium risk", dot: "bg-action", text: "text-muted-foreground" },
   high: { label: "High risk", dot: "bg-warning", text: "text-foreground" },
   critical: { label: "Critical", dot: "bg-error", text: "text-error" },
 };
 
-const sameSkills = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((s) => b.includes(s));
+const samePermissions = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((s) => b.includes(s));
 
 export function AgentConfigDialog({
   open,
@@ -62,6 +64,7 @@ export function AgentConfigDialog({
   providers,
   provider,
   switchTrust,
+  skills,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -72,6 +75,8 @@ export function AgentConfigDialog({
   providers: ProviderStatus;
   provider: AgentProvider;
   switchTrust: SwitchTrustStatus;
+  /** The workspace's skill library (Settings → Agent skills). */
+  skills: SkillView[];
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -85,6 +90,7 @@ export function AgentConfigDialog({
           providers={providers}
           provider={provider}
           switchTrust={switchTrust}
+          skills={skills}
           onSaved={() => onOpenChange(false)}
         />
       </DialogContent>
@@ -100,6 +106,7 @@ function ConfigForm({
   providers,
   provider,
   switchTrust,
+  skills,
   onSaved,
 }: {
   agent: AgentView;
@@ -109,6 +116,8 @@ function ConfigForm({
   providers: ProviderStatus;
   provider: AgentProvider;
   switchTrust: SwitchTrustStatus;
+  /** The workspace's skill library (Settings → Agent skills). */
+  skills: SkillView[];
   onSaved: () => void;
 }) {
   const defaults = AGENT_ROLES[agent.id].defaults;
@@ -116,7 +125,7 @@ function ConfigForm({
   const [description, setDescription] = useState(agent.description);
   const [instructions, setInstructions] = useState(agent.instructions);
   const [model, setModel] = useState<AgentModelId>(agent.model);
-  const [skills, setSkills] = useState<SkillId[]>(agent.skills);
+  const [permissions, setPermissions] = useState<PermissionId[]>(agent.permissions);
   const [budget, setBudget] = useState(String(agent.monthlyBudgetCents / 100));
   const [maxTurns, setMaxTurns] = useState(String(agent.maxTurns));
   const [errors, setErrors] = useState<Partial<Record<AgentConfigField, string>>>({});
@@ -130,7 +139,7 @@ function ConfigForm({
     description.trim() !== agent.description ||
     instructions.trim() !== agent.instructions ||
     model !== agent.model ||
-    !sameSkills(skills, agent.skills) ||
+    !samePermissions(permissions, agent.permissions) ||
     budgetCents !== agent.monthlyBudgetCents ||
     Number(maxTurns) !== agent.maxTurns;
 
@@ -145,7 +154,7 @@ function ConfigForm({
         description,
         instructions,
         model,
-        skills,
+        permissions,
         monthlyBudgetUsd: budget.trim() === "" ? Number.NaN : budgetUsd,
         maxTurns: maxTurns.trim() === "" ? Number.NaN : Number(maxTurns),
       });
@@ -215,7 +224,7 @@ function ConfigForm({
             aiEnabled={aiEnabled}
             instructions={instructions}
             description={description}
-            skills={skills}
+            permissions={permissions}
             budgetUsd={budgetCents / 100}
             error={errors.instructions}
             onChange={(next) => {
@@ -230,14 +239,14 @@ function ConfigForm({
             }}
           />
 
-          <SkillPicker
-            value={skills}
-            defaults={defaults.skills}
+          <PermissionPicker
+            value={permissions}
+            defaults={defaults.permissions}
             roleName={agent.name}
-            error={errors.skills}
+            error={errors.permissions}
             onChange={(next) => {
-              setSkills(next);
-              clearError("skills");
+              setPermissions(next);
+              clearError("permissions");
             }}
           />
 
@@ -368,6 +377,7 @@ function ConfigForm({
         <aside className="flex min-w-0 flex-col gap-4 border-t border-border/70 bg-canvas px-5 py-6 lg:border-t-0 lg:border-l">
           <TrustPanel agent={agent} workspaceId={workspaceId} dirty={dirty} aiEnabled={aiEnabled} switchTrust={switchTrust} />
           <SpendingPanel spend={agent.spend} budgetCents={budgetCents} />
+          <SkillsPanel agent={agent} skills={skills} permissions={permissions} workspaceId={workspaceId} />
         </aside>
       </div>
 
@@ -397,7 +407,7 @@ function InstructionsField({
   aiEnabled,
   instructions,
   description,
-  skills,
+  permissions,
   budgetUsd,
   error,
   onChange,
@@ -409,7 +419,7 @@ function InstructionsField({
   aiEnabled: boolean;
   instructions: string;
   description: string;
-  skills: SkillId[];
+  permissions: PermissionId[];
   budgetUsd: number;
   error?: string;
   onChange: (next: { instructions?: string; description?: string }) => void;
@@ -425,7 +435,7 @@ function InstructionsField({
   const generate = () => {
     setDraftError(null);
     startGenerating(async () => {
-      const result = await generateAgentAction(workspaceId, agent.id, { skills, monthlyBudgetUsd: budgetUsd, focus });
+      const result = await generateAgentAction(workspaceId, agent.id, { permissions, monthlyBudgetUsd: budgetUsd, focus });
       if (!result.ok) return setDraftError(result.error);
       setDraft({ costMicros: result.costMicros, repoAware: result.repoAware, previous: { instructions, description } });
       onChange({ instructions: result.instructions, description: result.description });
@@ -471,7 +481,7 @@ function InstructionsField({
             <SparklesIcon className="mt-0.5 size-4 shrink-0 text-brand-emphasis" />
             <p className="text-xs text-muted-foreground">
               AI writes a description and instructions for the <span className="font-semibold text-foreground">{agent.name}</span>,
-              tailored to <span className="font-semibold text-foreground">{repoFullName}</span> and the skills and budget below. Nothing is
+              tailored to <span className="font-semibold text-foreground">{repoFullName}</span> and the permissions and budget below. Nothing is
               saved until you review it and click Save.
             </p>
           </div>
@@ -541,32 +551,32 @@ function InstructionsField({
   );
 }
 
-/** Skills grouped by category as checkbox cards; the role's defaults are tagged and restorable. */
-function SkillPicker({
+/** Permissions grouped by category as checkbox cards; the role's defaults are tagged and restorable. */
+function PermissionPicker({
   value,
   defaults,
   roleName,
   error,
   onChange,
 }: {
-  value: SkillId[];
-  defaults: SkillId[];
+  value: PermissionId[];
+  defaults: PermissionId[];
   roleName: string;
   error?: string;
-  onChange: (next: SkillId[]) => void;
+  onChange: (next: PermissionId[]) => void;
 }) {
-  const isDefault = sameSkills(value, defaults);
-  const toggle = (id: SkillId) => onChange(value.includes(id) ? value.filter((s) => s !== id) : [...value, id]);
+  const isDefault = samePermissions(value, defaults);
+  const toggle = (id: PermissionId) => onChange(value.includes(id) ? value.filter((s) => s !== id) : [...value, id]);
 
   return (
-    <fieldset className="flex flex-col gap-4 border-t border-border/70 pt-6" aria-describedby="skills-hint">
+    <fieldset className="flex flex-col gap-4 border-t border-border/70 pt-6" aria-describedby="permissions-hint">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div className="flex flex-col gap-0.5">
           <legend className="text-sm font-medium">
-            Skills <span className="text-muted-foreground tabular-nums">· {value.length} attached</span>
+            Permissions <span className="text-muted-foreground tabular-nums">· {value.length} granted</span>
           </legend>
-          <p id="skills-hint" className="text-xs text-muted-foreground">
-            What the {roleName} may do. Each skill raises the trust scan&apos;s risk weight.
+          <p id="permissions-hint" className="text-xs text-muted-foreground">
+            What the {roleName} may do, enforced as tools. Each permission raises the trust scan&apos;s risk weight.
           </p>
         </div>
         {!isDefault && (
@@ -577,22 +587,22 @@ function SkillPicker({
         )}
       </div>
 
-      {SKILL_CATEGORIES.map((category) => (
+      {PERMISSION_CATEGORIES.map((category) => (
         <div key={category.id} className="flex flex-col gap-2">
           <p className="eyebrow text-muted-foreground">{category.label}</p>
           <div className="grid gap-2 sm:grid-cols-2">
-            {SKILLS.filter((s) => s.category === category.id).map((skill) => {
-              const checked = value.includes(skill.id);
-              const risk = RISK[skill.risk];
+            {PERMISSIONS.filter((s) => s.category === category.id).map((permission) => {
+              const checked = value.includes(permission.id);
+              const risk = RISK[permission.risk];
               return (
                 <label
-                  key={skill.id}
+                  key={permission.id}
                   className={cn(
                     "flex cursor-pointer gap-3 rounded-lg border bg-card p-3 transition-colors hover:bg-accent has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50",
                     checked && "border-brand/40 bg-brand/5 hover:bg-brand/10"
                   )}
                 >
-                  <input type="checkbox" className="sr-only" checked={checked} onChange={() => toggle(skill.id)} />
+                  <input type="checkbox" className="sr-only" checked={checked} onChange={() => toggle(permission.id)} />
                   <span
                     aria-hidden
                     className={cn(
@@ -604,14 +614,14 @@ function SkillPicker({
                   </span>
                   <span className="flex min-w-0 flex-col gap-1">
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="text-sm font-semibold">{skill.name}</span>
-                      {defaults.includes(skill.id) && (
+                      <span className="text-sm font-semibold">{permission.name}</span>
+                      {defaults.includes(permission.id) && (
                         <span className="rounded-full bg-muted px-1.5 py-px text-[10px] font-semibold text-muted-foreground ring-1 ring-border/70">
                           Default
                         </span>
                       )}
                     </span>
-                    <span className="text-xs text-muted-foreground">{skill.description}</span>
+                    <span className="text-xs text-muted-foreground">{permission.description}</span>
                     <span className={cn("flex items-center gap-1.5 text-[11px] font-medium", risk.text)}>
                       <span aria-hidden className={cn("size-1.5 rounded-full", risk.dot)} />
                       {risk.label}

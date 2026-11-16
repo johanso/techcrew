@@ -11,6 +11,7 @@ What each part of the product does, from the user's point of view, with pointers
 - [Card actions: Run and Remove](#card-actions-run-and-remove)
 - [Agent pipeline](#agent-pipeline)
 - [AI Team](#ai-team)
+- [Agent skills](#agent-skills)
 - [Live process](#live-process)
 - [Pull Requests, Activity](#pull-requests-activity)
 - [Settings](#settings)
@@ -101,7 +102,7 @@ The header bell shows a count of unread notifications (9+ above nine) and opens 
 | Merged | Auto merge went through | Pull Requests |
 | Merge blocked | A conflict or failing build; says which follow-up card the Tester filed | Pull Requests |
 | Analyst needs info | The analyst asked a question instead of starting | The card's agent log (Answer the analyst) |
-| Agents stopped | A run failed (paused agent, budget, missing skill, GitHub, out of turns, error) | The card's agent log |
+| Agents stopped | A run failed (paused agent, budget, missing permission, GitHub, out of turns, error) | The card's agent log |
 | Out of credit | The provider refused for lack of credit and the run stopped | The board (switch and retry) |
 | Switched provider | Auto failover moved the team to the other company | Settings → AI providers |
 
@@ -276,10 +277,12 @@ Review, so the board still has six columns:
   card that was never run, one card at a time per workspace.
 - **Max turns** (per agent, AI Team → Configure): model calls allowed per stage. The last turn forces the agent to
   submit its result. Pausing an agent or reaching its budget stops the run at its next turn.
-- **Skills are enforced**: an agent only gets the tools its skills allow (*Read repository* → list/read/search files,
+- **Permissions are enforced**: an agent only gets the tools its permissions allow (*Read repository* → list/read/search files,
   plus the branch diff for the Reviewer, Security, Lead and Tester; *Write code* → write/edit/delete on the run's
   branch, Developer only; *Read CI results* → checks). Dependency manifests need
   *Manage dependencies*; CI workflows, `.env*` files (except `.env.example`) and `.git/` can never be written.
+- **Skills** (see [Agent skills](#agent-skills)): an agent with skills switched on sees them listed in its prompt and
+  gets two read-only tools in every stage, `search_skill` and `read_skill`; always-loaded skills ride in the prompt.
 - If one of the two parallel reviewers stops (paused, budget, error), the other stops at its next turn and the run
   ends with the first reason (one notification).
 - Each card shows its run: phase in progress ("Reviewing…", "Approving…"), "Analyst needs info" + the question, "Agents stopped" + the reason,
@@ -294,26 +297,28 @@ Review, so the board still has six columns:
 
 `/dashboard/[workspaceId]/ai-team`. Every workspace gets six agents on first use: **Analyst** (requirements &
 planning), **Developer** (implementation), **Reviewer** (code review), **Security** (security review), **Lead**
-(approval & risk) and **Tester** (quality assurance), each with a face, written instructions, default skills, a model
+(approval & risk) and **Tester** (quality assurance), each with a face, written instructions, default permissions, a model
 and a monthly budget. Workspaces created before Security and Lead existed get them the next time the page loads or a
 card runs. Security and Lead are read-only by default (read the repository, issues and CI; post reviews).
 
-- **Stats** — Active agents (active/total, how many are working on cards or paused), Skill Trust Score (team average,
+- **Stats** — Active agents (active/total, how many are working on cards or paused), Trust Score (team average,
   grade, lowest agent), Monthly spending (all agents, against the sum of their budgets).
 - **Agent cards** (three per row on wide screens) — the agent's face with a status dot, status (Ready, Working = a run
   is in this agent's phase and its stage hasn't finished, Paused, Over budget), description; while working, a brand
   border, a ring on the face and a "Working on KEY" box with what it's doing ("The Developer is editing
-  src/styles.css."), live; model, skill count, trust score, open cards and a budget bar (turns warning at 75 %,
+  src/styles.css."), live; model, *Permissions · N*, *Skills · N*, trust score, open cards and a budget bar (turns warning at 75 %,
   error at 100 %). Buttons: **Configure** and **View activity**.
 - **Configure** (dialog) — Active/Paused switch, description, instructions (**Reset to default**; **Draft with AI**
   asks the AI (OpenAI, else Claude) for a description and instructions tailored to the repository's description, languages, topics and
-  README, the selected skills and budget, plus an optional focus; **Undo** restores the previous text; nothing is
-  saved until **Save changes**), skills by category with risk level and *Default* tags (**Reset to defaults**), model
+  README, the selected permissions and budget, plus an optional focus; **Undo** restores the previous text; nothing is
+  saved until **Save changes**), **Permissions** by category with risk level and *Default* tags (**Reset to defaults**), model
   (only the workspace's company — OpenAI or Anthropic — with prices, and a *change company* link to Settings; a warning
-  shows when that company has no key) and monthly budget (presets $25/$50/$100/$250). The side panel shows the **Skill Trust Score** (ring,
+  shows when that company has no key) and monthly budget (presets $25/$50/$100/$250). The side panel shows the **Trust Score** (ring,
   grade — Trusted ≥ 85, Needs review ≥ 70, At risk — summary, checks passed, findings, **Scan again**) and
   **Spending** for the month (spent, budget bar, remaining, projection, reset date, breakdown: task runs, AI drafting,
-  trust scans). Saving logs exactly what changed and re-scores the agent. With **Switch Trust** connected the panel
+  trust scans) and **Skills** (the workspace's skills, *Recommended for the <role>* first, then *Other skills* with
+  the roles they fit; type, load and source badges; a switch per skill that saves at once; a warning when a skill
+  assumes a permission the agent lacks; **Manage skills** → Settings). Saving logs exactly what changed and re-scores the agent. With **Switch Trust** connected the panel
   becomes the **Switch Trust Score**: **SwitchAgent Scan** queues one Switch evaluation of the agent in the background
   (the card and panel say "Scanning…" and the page refreshes itself until the score lands), shows tests held, OWASP
   coverage, findings, a failed scan's reason, and a note when the configuration changed after the scan. See
@@ -325,9 +330,10 @@ card runs. Security and Lead are read-only by default (read the repository, issu
 
 Without `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` the page shows "No AI provider connected", **Draft with AI** is disabled and scans are rule-based.
 
-**Skills vs. what the runtime does.** The pipeline enforces skills as tools:
+**Permissions vs. what the runtime does.** The pipeline enforces permissions as tools (until v0.3 these were called
+"skills"; the database column is still `agents.skills`):
 
-| Skill | Platform support today |
+| Permission | Platform support today |
 | --- | --- |
 | Read repository, Read board & issues | ✅ list/read/search files (GitHub API); the card is in the agent's brief. |
 | Write code on branches, Open pull requests | ✅ Developer commits through the GitHub contents API; the pipeline opens the PR. |
@@ -337,6 +343,55 @@ Without `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` the page shows "No AI provider c
 | Write tests, Run tests in a sandbox | 🟡 / ❌ Tests can be written as files; nothing executes them (needs a sandbox service). |
 | Web research | ❌ Needs a search tool (e.g. OpenAI's web search tool in the Responses API). |
 | Read environment secrets | ❌ No per-workspace secrets store. |
+
+## Agent skills
+
+Skills are knowledge packs agents read while they work, in the [Agent Skills](https://agentskills.io) format: a folder
+with `SKILL.md` (YAML frontmatter `name` + `description`, markdown body) and optional reference `.md` files. They are
+never executed. Not to be confused with **permissions**, which decide what an agent may do.
+
+- **Type**: *Technical* (how to use a technology well, e.g. modern HTML/CSS/JS) or *Practice* (how to do a kind of work
+  well, e.g. security review, testing). **Load**: *Always loaded* (the SKILL.md body, ≤ 8 KB, goes into every prompt;
+  for short role playbooks) or *On demand* (the agent searches and reads it when the task needs it; for libraries).
+- **Sources**: *Built-in* (vendored in `agent-skills/` by pull request, see below) and *Uploaded* (by the workspace
+  owner in Settings). Skills from the linked repository are a later phase.
+- **Built-ins (v0.3)**: `modern-web-guidance` (Google Chrome's modern web guidance: 211 guides on HTML, CSS, JS,
+  accessibility, performance, security; on for the Developer, Reviewer and Security by default) and
+  `chrome-extensions` (Manifest V3; off for everyone, for extension projects). Both Apache-2.0, pinned to a commit.
+  Upstream tells agents to run `npx modern-web-guidance search/retrieve`; TechTeam agents can't run commands, so
+  their prompt maps that to `search_skill` / `read_skill` instead (`usage` in `agent-skills/sources.json`).
+- **How agents use them**: the system prompt lists the agent's enabled skills (name, type, load, description), framed
+  as reference material that never overrides the operating protocol, and includes the body of always-loaded ones.
+  `search_skill(skill, query)` ranks a skill's files by title, path and summary; `read_skill(skill, path, offset)`
+  returns up to 30 KB per call. Only the agent's enabled skills are reachable. The agent log and the live process
+  show these calls ("Searched skill modern-web-guidance: light dismiss dialog"), never their content. Switching a
+  skill on or off applies from the agent's next turn.
+- **Settings → Agent skills** (`#skills`, also in the account menu): **Upload a skill** (a `SKILL.md`, or a `.zip`
+  with SKILL.md at its root or in one folder). It's read and scanned before anything is installed: a critical finding
+  blocks it with the reasons; otherwise a confirm step shows the findings, files left out, **Type**, **Loading** and
+  **Assign to** (the six agents, pre-checked with the suggestion), then **Install skill**. The library lists built-ins
+  first: badges, origin (built-ins link to the pinned upstream folder) and license, files and size, scan status
+  (*Reviewed*, *Scan passed*, or *N scan findings* with details), and the agents that have it on. **Assign** changes
+  who uses it; uploaded skills also get **New version** (same name; scanned again; agents using it are rescanned) and
+  **Delete** (confirmation). Built-ins can't be deleted, only switched off.
+- **Upload limits**: zip ≤ 5 MB, text ≤ 3 MB uncompressed, ≤ 300 files; only `.md` and `.txt` are kept (the rest is
+  listed as left out); absolute paths, `..`, symlinks, encryption, ZIP64 and invalid frontmatter are refused (name:
+  lowercase letters, digits and single hyphens, ≤ 64; description ≤ 1024).
+- **Classification**: from the frontmatter when present —
+  ```yaml
+  metadata:
+    techteam-type: practice          # technical | practice
+    techteam-load: always            # always | on_demand
+    techteam-roles: tester, reviewer # agents it fits
+    techteam-requires: tests.write   # permissions it assumes (warning in the configure dialog)
+  ```
+  otherwise the AI review proposes them (one call on the workspace's provider, billed to the Security agent as a
+  scan), and the user confirms.
+- **Security scan** (`lib/skill-scan.ts` + the AI review when a provider key exists): prompt-injection phrases,
+  credentials, sending secrets out (critical: blocked); pushing to the default branch, disabling tests or CI, sending
+  data to URLs, `curl | sh`, invisible characters, instructions in hidden HTML comments (high); large encoded blobs
+  (medium). Non-critical findings install with the skill and count in the **trust score** of every agent that has
+  it on; built-ins count as reviewed.
 
 ## Live process
 
@@ -377,7 +432,7 @@ Security), Approval (Lead), Testing, Merge (automatic, no agent).
 
 ## Settings
 
-`/dashboard/[workspaceId]/settings` (also reachable from the user menu, which jumps to `#account`, `#workspace` or `#ai`):
+`/dashboard/[workspaceId]/settings` (also reachable from the user menu, which jumps to `#account`, `#workspace`, `#ai` or `#skills`):
 - **Account** — avatar, name, verified-email badge, email, member since, last sign-in, account id.
 - **Workspace** — avatar, name, repository, default branch, visibility, creation date, **Open repository**.
 - **AI providers** (`#ai`) — **Agents work on** OpenAI or Anthropic: each agent then picks its model from that company on
@@ -399,6 +454,7 @@ Security), Approval (Lead), Testing, Merge (automatic, no agent).
   low risk: once tests and CI pass, if the Lead rated it low risk / Automatic: once approval, tests and CI pass). Both
   default to Manual; workspaces that merged automatically before v0.2 keep Automatic. A note explains that a blocked merge makes the Tester file a
   follow-up card.
+- **Agent skills** (`#skills`) — upload skills and manage the library; see [Agent skills](#agent-skills).
 
 Account and workspace details are read-only.
 

@@ -13,11 +13,11 @@ import {
   DESCRIPTION_MAX,
   INSTRUCTIONS_MAX,
   INSTRUCTIONS_MIN,
-  SKILL_BY_ID,
+  PERMISSION_BY_ID,
   formatCents,
   isAgentKey,
   isAgentModelId,
-  isSkillId,
+  isPermissionId,
   agentModelFor,
   modelInfo,
   workspaceProvider,
@@ -26,7 +26,7 @@ import {
   type AgentModelId,
   type AgentProvider,
   type AgentTone,
-  type SkillId,
+  type PermissionId,
 } from "@/lib/agent-config";
 import {
   ACTIVE_RUN_STATUSES,
@@ -40,6 +40,7 @@ import {
   workingAgents,
 } from "@/lib/agent-run-config";
 import { getEndedStages, getWorkingAgents } from "@/lib/agent-runs";
+import { ensureBuiltinSkills, getEnabledSkillIds, getTrustSkills } from "@/lib/agent-skills";
 import { ISSUE_TYPES, type IssueType } from "@/lib/board-config";
 import { LIVE_ACTIONS, agentDoingSentence, type LiveRun, type LiveStage } from "@/lib/live-process";
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
@@ -135,12 +136,13 @@ export function agentMaxTurns(row: Pick<AgentRow, "key" | "maxTurns">) {
 
 /**
  * Creates any of the default agents this workspace doesn't have yet, each with a first (rule-based) trust
- * scan. Safe to call on every request: concurrent calls can't duplicate thanks to (workspace_id, key).
+ * scan, then the built-in skills with their default assignments (ensureBuiltinSkills). Safe to call on every
+ * request: concurrent calls can't duplicate thanks to (workspace_id, key).
  */
 export async function ensureDefaultAgents(workspaceId: number) {
   const existing = await db.select({ key: agents.key }).from(agents).where(eq(agents.workspaceId, workspaceId));
   const missing = AGENT_KEYS.filter((key) => !existing.some((row) => row.key === key));
-  if (!missing.length) return;
+  if (!missing.length) return ensureBuiltinSkills(workspaceId);
   const [workspace] = await db.select({ aiProvider: workspaces.aiProvider }).from(workspaces).where(eq(workspaces.id, workspaceId));
   const provider = workspace ? workspaceProvider(workspace) : "openai";
 
@@ -151,7 +153,7 @@ export async function ensureDefaultAgents(workspaceId: number) {
       missing.map((key) => {
         const { defaults } = AGENT_ROLES[key];
         const monthlyBudgetCents = defaults.monthlyBudgetUsd * 100;
-        const report = scanAgentRules({ key, instructions: defaults.instructions, skills: defaults.skills, monthlyBudgetCents });
+        const report = scanAgentRules({ key, instructions: defaults.instructions, permissions: defaults.permissions, monthlyBudgetCents });
         return {
           workspaceId,
           key,
@@ -159,7 +161,7 @@ export async function ensureDefaultAgents(workspaceId: number) {
           instructions: defaults.instructions,
           model: defaults.models[provider],
           providerModels: { [provider]: defaults.models[provider] },
-          skills: defaults.skills,
+          permissions: defaults.permissions,
           monthlyBudgetCents,
           maxTurns: defaults.maxTurns,
           trustScore: report.score,
@@ -187,6 +189,8 @@ export async function ensureDefaultAgents(workspaceId: number) {
       ])
     );
   }
+  // New agents get their role's built-in skills.
+  await ensureBuiltinSkills(workspaceId, true);
 }
 
 export async function getAgentRow(workspaceId: number, key: AgentKey) {
@@ -231,7 +235,9 @@ export type AgentView = Agent & {
   description: string;
   instructions: string;
   model: AgentModelId;
-  skills: SkillId[];
+  permissions: PermissionId[];
+  /** Ids of the library skills switched on for this agent (agent_skill_assignments). */
+  skillIds: number[];
   monthlyBudgetCents: number;
   maxTurns: number;
   enabled: boolean;
@@ -277,7 +283,7 @@ export async function getAgentTeam(
   await ensureDefaultAgents(workspace.id);
   const { start, end } = monthWindow();
 
-  const [rows, spendRows, taskRows, activityRows, working] = await Promise.all([
+  const [rows, spendRows, taskRows, activityRows, working, skillIds] = await Promise.all([
     db.select().from(agents).where(eq(agents.workspaceId, workspace.id)),
     db
       .select({
@@ -302,6 +308,7 @@ export async function getAgentTeam(
       .orderBy(desc(agentActivity.createdAt), desc(agentActivity.id))
       .limit(ACTIVITY_PER_AGENT * AGENT_KEYS.length),
     getWorkingAgents(workspace.id),
+    getEnabledSkillIds(workspace.id),
   ]);
 
   const now = Date.now();
@@ -327,7 +334,8 @@ export async function getAgentTeam(
         description: row.description,
         instructions: row.instructions,
         model: activeAgentModel(row, provider),
-        skills: row.skills.filter(isSkillId),
+        permissions: row.permissions.filter(isPermissionId),
+        skillIds: skillIds.get(key) ?? [],
         monthlyBudgetCents: row.monthlyBudgetCents,
         maxTurns: agentMaxTurns(row),
         enabled: row.enabled,
@@ -587,13 +595,13 @@ export type AgentConfigInput = {
   description: string;
   instructions: string;
   model: AgentModelId;
-  skills: SkillId[];
+  permissions: PermissionId[];
   monthlyBudgetCents: number;
   maxTurns: number;
   enabled: boolean;
 };
 
-export type AgentConfigField = "description" | "instructions" | "model" | "skills" | "budget" | "maxTurns";
+export type AgentConfigField = "description" | "instructions" | "model" | "permissions" | "budget" | "maxTurns";
 
 export type ParseResult =
   | { ok: true; value: AgentConfigInput }
@@ -615,8 +623,8 @@ export function parseAgentConfigInput(raw: unknown): ParseResult {
 
   if (!isAgentModelId(input.model)) errors.model = "Choose a model.";
 
-  const skills = Array.isArray(input.skills) ? [...new Set(input.skills.filter(isSkillId))] : [];
-  if (!skills.length) errors.skills = "Attach at least one skill.";
+  const permissions = Array.isArray(input.permissions) ? [...new Set(input.permissions.filter(isPermissionId))] : [];
+  if (!permissions.length) errors.permissions = "Grant at least one permission.";
 
   const budget = typeof input.monthlyBudgetUsd === "number" ? input.monthlyBudgetUsd : Number.NaN;
   if (!Number.isFinite(budget) || budget < BUDGET_MIN_USD || budget > BUDGET_MAX_USD) {
@@ -635,7 +643,7 @@ export function parseAgentConfigInput(raw: unknown): ParseResult {
       description,
       instructions,
       model: input.model as AgentModelId,
-      skills,
+      permissions,
       monthlyBudgetCents: Math.round(budget * 100),
       maxTurns,
       enabled: input.enabled !== false,
@@ -647,17 +655,17 @@ function modelLabel(id: string) {
   return AGENT_MODELS.find((m) => m.id === id)?.label ?? id;
 }
 
-/** "Instructions, model (GPT-6.1 Sol → GPT-6 Luna), skills (+Web research)" — for the activity log. */
+/** "Instructions, model (GPT-6.1 Sol → GPT-6 Luna), permissions (+Web research)" — for the activity log. */
 function describeChanges(row: AgentRow, next: AgentConfigInput) {
   const changes: string[] = [];
   if (row.description !== next.description) changes.push("description");
   if (row.instructions !== next.instructions) changes.push("instructions");
   if (row.model !== next.model) changes.push(`model (${modelLabel(row.model)} → ${modelLabel(next.model)})`);
-  const added = next.skills.filter((s) => !row.skills.includes(s));
-  const removed = row.skills.filter((s) => !next.skills.includes(s as SkillId)) as SkillId[];
+  const added = next.permissions.filter((s) => !row.permissions.includes(s));
+  const removed = row.permissions.filter((s) => !next.permissions.includes(s as PermissionId)) as PermissionId[];
   if (added.length || removed.length) {
-    const parts = [...added.map((s) => `+${SKILL_BY_ID[s].name}`), ...removed.filter(isSkillId).map((s) => `−${SKILL_BY_ID[s].name}`)];
-    changes.push(`skills (${parts.join(", ")})`);
+    const parts = [...added.map((s) => `+${PERMISSION_BY_ID[s].name}`), ...removed.filter(isPermissionId).map((s) => `−${PERMISSION_BY_ID[s].name}`)];
+    changes.push(`permissions (${parts.join(", ")})`);
   }
   if (row.monthlyBudgetCents !== next.monthlyBudgetCents) {
     changes.push(`budget (${formatCents(row.monthlyBudgetCents)} → ${formatCents(next.monthlyBudgetCents)})`);
@@ -679,10 +687,11 @@ export async function updateAgentConfig(workspaceId: number, key: AgentKey, inpu
   const trustInputsChanged =
     row.instructions !== input.instructions ||
     row.monthlyBudgetCents !== input.monthlyBudgetCents ||
-    row.skills.join() !== input.skills.join();
+    row.permissions.join() !== input.permissions.join();
   // A Switch evaluation stays until the next SwitchAgent scan (the panel flags it as older than the change); a rule
   // or AI score is recomputed so it never describes a configuration that no longer exists.
-  const report = trustInputsChanged && row.trustReport?.mode !== "switch" ? scanAgentRules({ key, ...input }) : null;
+  const report =
+    trustInputsChanged && row.trustReport?.mode !== "switch" ? scanAgentRules({ key, ...input, skills: await getTrustSkills(row.id) }) : null;
   const now = new Date();
 
   await db
@@ -748,6 +757,27 @@ export async function switchAgentsToProvider(workspaceId: number, provider: Agen
     switched++;
   }
   return switched;
+}
+
+/**
+ * Re-runs the rule-based trust scan on the saved configuration after something it weighs changed outside the
+ * dialog (a skill switched on or off, a new skill version). A Switch evaluation stays, as it does for dialog saves:
+ * the panel flags it as older than the change. Returns the new score, or null when nothing was rescanned.
+ */
+export async function refreshRuleTrust(row: AgentRow) {
+  if (row.trustReport?.mode === "switch" || !isAgentKey(row.key)) return null;
+  const report = scanAgentRules({
+    key: row.key,
+    instructions: row.instructions,
+    permissions: row.permissions.filter(isPermissionId),
+    monthlyBudgetCents: row.monthlyBudgetCents,
+    skills: await getTrustSkills(row.id),
+  });
+  await db
+    .update(agents)
+    .set({ trustScore: report.score, trustReport: report, trustScannedAt: new Date(report.scannedAt) })
+    .where(eq(agents.id, row.id));
+  return report.score;
 }
 
 export async function saveTrustScan(row: AgentRow, report: TrustReport, costMicros: number) {

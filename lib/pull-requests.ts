@@ -112,7 +112,7 @@ async function closeWithoutMerge(pr: PullRequestRow) {
 
 /**
  * The merge can't happen: the tester files a follow-up card in Todo (a GitHub issue too, with the
- * "File issues" skill) so the problem gets picked up like any other task. One follow-up per pull request.
+ * "File issues" permission) so the problem gets picked up like any other task. One follow-up per pull request.
  */
 async function blockMerge(workspace: PrWorkspace, pr: PullRequestRow, reason: string, details = ""): Promise<MergeOutcome> {
   const prefix = taskKeyPrefix(workspace.name);
@@ -137,7 +137,7 @@ async function blockMerge(workspace: PrWorkspace, pr: PullRequestRow, reason: st
 
     const tester = await getAgentRow(workspace.id, "tester");
     let github: Parameters<typeof createAgentTask>[1]["github"] = null;
-    if (tester?.skills.includes("issues.create")) {
+    if (tester?.permissions.includes("issues.create")) {
       const token = await getGithubToken(workspace.ownerId).catch(() => null);
       if (token) {
         github = await createIssue(token, workspace.githubRepoFullName, { title, body: `${description}\n\n_Filed by the TechTeam Tester agent._`, labels: ["bug"] }).catch(

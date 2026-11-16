@@ -32,8 +32,8 @@ describe("toolStep (agent log)", () => {
 });
 
 describe("toolsFor", () => {
-  const names = (stage: Parameters<typeof toolsFor>[0]["stage"], skills: Parameters<typeof toolsFor>[0]["skills"]) =>
-    toolsFor({ stage, skills, branch: "agent/acm-1-x" }).map((tool) => tool.name);
+  const names = (stage: Parameters<typeof toolsFor>[0]["stage"], permissions: Parameters<typeof toolsFor>[0]["permissions"]) =>
+    toolsFor({ stage, permissions, branch: "agent/acm-1-x" }).map((tool) => tool.name);
 
   it("gives the security reviewer and the lead the diff and CI, never writes", () => {
     for (const stage of ["security", "approval"] as const) {
@@ -41,12 +41,33 @@ describe("toolsFor", () => {
     }
   });
 
-  it("writes only in development, with the skill", () => {
+  it("writes only in development, with the permission", () => {
     expect(names("development", ["repo.read", "code.write"])).toContain("write_file");
     expect(names("development", ["repo.read"])).not.toContain("write_file");
   });
 
   it("has no diff before the branch exists", () => {
-    expect(toolsFor({ stage: "review", skills: ["repo.read"], branch: null }).map((tool) => tool.name)).not.toContain("get_diff");
+    expect(toolsFor({ stage: "review", permissions: ["repo.read"], branch: null }).map((tool) => tool.name)).not.toContain("get_diff");
+  });
+});
+
+describe("skill tools", () => {
+  it("are offered in every stage only when the agent has skills", () => {
+    for (const stage of ["analysis", "development", "review", "security", "approval", "testing"] as const) {
+      expect(toolsFor({ stage, permissions: ["repo.read"], branch: null, skills: [{}] }).map((t) => t.name), stage).toEqual(
+        expect.arrayContaining(["search_skill", "read_skill"])
+      );
+      expect(toolsFor({ stage, permissions: ["repo.read"], branch: null, skills: [] }).map((t) => t.name)).not.toContain("search_skill");
+    }
+  });
+
+  it("log the skill and file or query, never the content", () => {
+    expect(toolStep("read_skill", JSON.stringify({ skill: "web", path: "guides/a.md", offset: null }), "web/guides/a.md (characters …)\nsecret text")).toEqual({
+      tool: "read_skill",
+      target: "web/guides/a.md",
+      ok: true,
+      summary: null,
+    });
+    expect(toolStep("search_skill", JSON.stringify({ skill: "web", query: "dialog" }), "2 matches …").target).toBe("web: dialog");
   });
 });

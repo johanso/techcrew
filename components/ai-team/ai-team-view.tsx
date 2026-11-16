@@ -10,6 +10,7 @@ import { StatTile } from "@/components/dashboard/stat-tile";
 import { MICROS_PER_USD, formatCents, formatMicros, type AgentProvider, type ProviderStatus } from "@/lib/agent-config";
 import { trustGrade } from "@/lib/agent-trust";
 import type { AgentTeamStats, AgentView, TeamOverview } from "@/lib/agents";
+import type { SkillView } from "@/lib/agent-skills-config";
 import { isPendingScan, type SwitchTrustStatus } from "@/lib/switch-trust-config";
 
 /** AI Team content. Presentational: the page loads the data. */
@@ -22,6 +23,7 @@ export function AiTeamView({
   providers,
   provider,
   switchTrust,
+  skills,
 }: {
   workspace: { id: number; githubRepoFullName: string };
   agents: AgentView[];
@@ -32,6 +34,8 @@ export function AiTeamView({
   providers: ProviderStatus;
   provider: AgentProvider;
   switchTrust: SwitchTrustStatus;
+  /** The workspace's skill library (Settings → Agent skills). */
+  skills: SkillView[];
 }) {
   const scanning = agents.filter((a) => a.scan && isPendingScan(a.scan.status)).length;
   const budgetMicros = stats.monthBudgetCents * (MICROS_PER_USD / 100);
@@ -80,7 +84,7 @@ export function AiTeamView({
         />
         <StatTile
           icon={ShieldCheckIcon}
-          label={switchTrust.connected ? "Switch Trust Score" : "Skill Trust Score"}
+          label={switchTrust.connected ? "Switch Trust Score" : "Trust Score"}
           value={
             stats.trustAverage === null ? (
               "—"
@@ -118,6 +122,7 @@ export function AiTeamView({
           providers={providers}
           provider={provider}
           switchTrust={switchTrust}
+          skills={skills}
         />
         <LiveProcess workspaceId={workspace.id} />
       </LiveTeamProvider>

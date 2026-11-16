@@ -68,6 +68,8 @@ export const TOOL_LABEL: Record<string, string> = {
   delete_file: "Deleted",
   get_diff: "Checked the diff",
   get_checks: "Checked CI",
+  search_skill: "Searched skill",
+  read_skill: "Read skill",
 };
 
 export const RUN_STATUSES = [

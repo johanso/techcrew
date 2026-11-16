@@ -84,7 +84,7 @@ analysis ──ready──▶ development ──▶ PR ──┤                
 - **Stages** (`runStage` in `agent-run.ts`): one per agent (`AGENT_STAGES`: analysis, development, review, security,
   approval, testing). Review and security run in **parallel** (`Promise.all` of two `runStage` calls): Inngest runs
   their steps side by side, each still one step per model turn, with ids prefixed by the stage so they never collide.
-  1. `<stage>-<round>-start` → `beginStage`: agent enabled + under budget (`checkAgentCanRun`), required skills
+  1. `<stage>-<round>-start` → `beginStage`: agent enabled + under budget (`checkAgentCanRun`), required permissions
      present (Developer: `code.write`, `pr.open`), run marked running in the stage's phase only if it's still active
      (`markStageRunning`), card moved to the phase's column and assigned (the phase's first agent only), a `task_run`
      activity row opened.
@@ -110,7 +110,7 @@ analysis ──ready──▶ development ──▶ PR ──┤                
   30 s apart (automatic merges only; up to 10 minutes, then the run waits for a manual merge).
 - **Merge** ([`lib/pull-requests.ts`](../lib/pull-requests.ts)): merges (squash) only when GitHub reports the PR mergeable
   and every check run / commit status passed. A conflict or failing build makes the Tester file a follow-up card in Todo
-  (and a GitHub issue with the **File issues** skill); the run ends `failed` with the reason.
+  (and a GitHub issue with the **File issues** permission); the run ends `failed` with the reason.
 - **Notifications** (`notify`, lib/notifications.ts; never throws, so it can't fail a step): PR ready to merge
   (manual merge, not low risk in "Automatic when low risk" — with the risk and its reasons — or auto merge timed out), merged (auto merge), merge blocked, analyst needs info, run stopped, out of
   credit, provider switched.

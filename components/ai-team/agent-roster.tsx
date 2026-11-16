@@ -8,6 +8,7 @@ import { AgentConfigDialog } from "@/components/ai-team/agent-config-dialog";
 import { useLiveTeam } from "@/components/ai-team/live-team";
 import type { AgentKey, AgentProvider, ProviderStatus } from "@/lib/agent-config";
 import type { AgentView } from "@/lib/agents";
+import type { SkillView } from "@/lib/agent-skills-config";
 import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
 
 /**
@@ -22,6 +23,7 @@ export function AgentRoster({
   providers,
   provider,
   switchTrust,
+  skills,
 }: {
   agents: AgentView[];
   workspaceId: number;
@@ -30,6 +32,8 @@ export function AgentRoster({
   providers: ProviderStatus;
   provider: AgentProvider;
   switchTrust: SwitchTrustStatus;
+  /** The workspace's skill library (Settings → Agent skills). */
+  skills: SkillView[];
 }) {
   const [configuring, setConfiguring] = useState<AgentKey | null>(null);
   const [viewing, setViewing] = useState<AgentKey | null>(null);
@@ -75,6 +79,7 @@ export function AgentRoster({
           providers={providers}
           provider={provider}
           switchTrust={switchTrust}
+          skills={skills}
         />
       )}
       {activityAgent && (

@@ -129,6 +129,13 @@ For SwitchAgent scans: create a Jobs project on Cloudhike (`JOBS_API_URL`, `JOBS
 Editor role in Switch Trust (Settings → API keys), and expose the app publicly (`PUBLIC_APP_URL`). Then Settings →
 Switch Trust → **Connect securely**. Details: [switch-trust.md](switch-trust.md).
 
+### Built-in agent skills
+
+Nothing to set up: the built-ins are committed in `agent-skills/` and every workspace gets them on first use. To
+update one, change its `ref` in `agent-skills/sources.json` (or `npm run skills:sync -- --update <slug>` to take the
+upstream's latest commit), run `npm run skills:sync`, review the diff and open a pull request. The sync downloads
+public GitHub tarballs (no token) and writes text files only.
+
 ## 4. Create the database tables
 
 ```bash

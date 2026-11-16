@@ -43,6 +43,13 @@
       "when": 1794862356726,
       "tag": "0005_amused_venus",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794870812887,
+      "tag": "0006_agent_skills",
+      "breakpoints": true
     }
   ]
 }

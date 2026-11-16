@@ -121,6 +121,10 @@ function doing(stage: AgentStage, last: LiveAction | undefined, run: Pick<LiveRu
       return `reading the diff of ${prLabel(run)}`;
     case "get_checks":
       return `checking CI on ${prLabel(run)}`;
+    case "search_skill":
+      return target ? `searching the skill ${target}` : "searching its skills";
+    case "read_skill":
+      return target ? `reading the skill guide ${target}` : "reading a skill guide";
   }
   switch (stage) {
     case "analysis":

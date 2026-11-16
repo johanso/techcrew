@@ -67,6 +67,7 @@ npm run db:studio    # inspect data
 npm run inngest:dev  # local Inngest Dev Server — required for the agent pipeline (Run, auto pickup, auto-merge)
 npx next typegen     # regenerate PageProps / RouteContext types after adding routes
 npx shadcn add <c>   # add a shadcn component into components/ui
+npm run skills:sync  # re-vendor the built-in agent skills at their pinned refs (-- --update <slug> to bump); commit the diff
 ```
 
 ## 4. Folder structure
@@ -102,8 +103,10 @@ app/
                           (agent log), syncIssuesAction (also refreshes agent PRs) (auth + validation).
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
       settings/           Account (#account), workspace (#workspace), AI providers (#ai: keys + provider switch), Switch
-                          Trust (#switch) and agent automation (#agents). actions.ts: automation, provider switch, auto
-                          failover toggle, save/remove provider key, connect/disconnect Switch.
+                          Trust (#switch), agent automation (#agents) and agent skills (#skills). actions.ts: automation,
+                          provider switch, auto failover toggle, save/remove provider key, connect/disconnect Switch,
+                          inspectSkillAction / installSkillAction (upload, two steps), saveSkillAssignmentsAction,
+                          deleteSkillAction.
   globals.css             THE theme: palette, semantic tokens, Tailwind mapping.
   layout.tsx              Root layout; loads Plus Jakarta Sans, ThemeProvider.
   page.tsx                `/`: redirects to /dashboard (signed in) or /sign-in. No landing page yet.
@@ -126,12 +129,15 @@ components/
                           option-cards (radio
                           cards shared by the settings forms).
   ai-team/                AI Team: ai-team-view (page markup), agent-roster (cards + open overlay state), agent-card
-                          (live working state), agent-config-dialog (form + SkillPicker + Draft with AI), trust-panel,
-                          spending-panel, agent-activity-sheet, agent-visuals (AgentPortrait, AgentStatusBadge, BudgetMeter,
+                          (live working state), agent-config-dialog (form + PermissionPicker + Draft with AI), trust-panel,
+                          spending-panel, skills-panel (per-agent skill switches, setAgentSkillAction), agent-activity-sheet, agent-visuals (AgentPortrait, AgentStatusBadge, BudgetMeter,
                           TrustRing), agent-face (the face image + initial fallback), live-process (the six steps of each
                           card in flight), live-team (LiveTeamProvider + useLiveTeam: one poll of getTeamStatusAction; also
                           keeps the Overview's AI team card live), trust-scan-watcher (refreshes the page while a
                           SwitchAgent scan is pending).
+  skills/                 Agent skills UI: skill-library (Settings #skills: list, Assign, New version, Delete),
+                          skill-upload (choose → inspect → confirm → install), skill-badges (SkillBadges, SkillScanChip,
+                          SkillAgents, agentOf), skill-findings, agent-checkboxes ("Assign to" the six agents).
   dashboard/              Overview sections: stat-tile, upcoming-tasks, team-status (AI team card, live), recent-activity,
                           agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS), activity-kind (ACTIVITY_KIND,
                           ActivityAvatar).
@@ -156,23 +162,38 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   overview.ts             getOverviewData(): stats + upcoming tasks from getBoardData, recent work activity.
   activity.ts             getActivityFeed(): agent_activity + cards people created + task_events, newest first;
                           WORK_ACTIVITY_KINDS.
-  agent-config.ts         AI Team vocabulary shared by server + client: roles + defaults (models per provider), SKILLS,
+  agent-config.ts         AI Team vocabulary shared by server + client: roles + defaults (models per provider), PERMISSIONS,
                           AGENT_MODELS (provider + pricing), PROVIDERS, EQUIVALENT_MODEL, agentModelFor, limits.
-  agent-trust.ts          Skill Trust Score: scanAgentRules() (deterministic), trustGrade(). Pure.
+  agent-trust.ts          Trust Score: scanAgentRules() (deterministic; permissions, instructions, budget, enabled uploaded
+                          skills' scan findings), trustGrade(). Pure.
+  agent-skills-config.ts  Agent skills vocabulary shared by server + client: SKILL_TYPES / SKILL_LOADS / SKILL_SOURCES,
+                          limits, metadata keys (skillMetadata), SkillScan + skillScanStatus, SkillView, defaultAssignment.
+  agent-skills.ts         Skill library: ensureBuiltinSkills (rows + default assignments, never re-enables), getSkillLibrary,
+                          getAgentSkills / promptSkills (runtime), searchSkill / readSkill (the two tools), getTrustSkills.
+  builtin-skills.ts       BUILTIN_SKILLS from agent-skills/catalog.json, readBuiltinFile (only catalog-listed paths).
+  skill-format.ts         Pure: parseFrontmatter (YAML subset), parseSkillMarkdown (Agent Skills rules), cleanSkillPath,
+                          docMeta (search title/summary), contentVersion. Mirrored by scripts/sync-agent-skills.mjs.
+  skill-zip.ts            ZIP reader on node:zlib: listZip, readZipEntry (declared-size cap + CRC; links reported).
+  skill-package.ts        readSkillPackage: an upload (.md or .zip) → validated text-only package within the limits.
+  skill-scan.ts           Pure: scanSkillFiles (deterministic security rules), sortSkillFindings.
+  skill-runtime.ts        Pure: skillsPromptBlock (always vs on demand), rankSkillFiles + formatSearchResults, pageSkillFile.
+  skill-install.ts        inspectSkillUpload (rules → AI review, sealed token) / installSkillUpload, setAgentSkill,
+                          setSkillAssignments, deleteUploadedSkill; every change rescans the affected agents' trust.
   switch-trust.ts         Switch Trust: connection (encrypted key, connectSwitch/disconnectSwitch), SwitchAgent scans
                           (requestSwitchScans → Cloudhike job → advanceTrustScan: register, 1 evaluation, poll, save),
                           getLatestTrustScans, agent endpoint credential. See docs/switch-trust.md.
   switch-api.ts           Switch Trust REST client (identity, register agent, endpoint, assignment, trigger, run, summary).
   switch-trust-config.ts  Pure: scan statuses, pickFastEvaluation, runPhase, buildSwitchReport, parseEvalMessages.
-  switch-eval.ts          answerEvaluation(): an agent answers one Switch test with its model + instructions, cost logged.
+  switch-eval.ts          answerEvaluation(): an agent answers one Switch test with its model + instructions (+ its
+                          always-loaded skills), cost logged.
   jobs.ts                 Cloudhike Jobs: enqueueJob, getJobRun, publicAppUrl (null for local addresses).
   agent-ai.ts             Config AI (OpenAI if configured, else Anthropic): generateAgentConfig() (repo-aware instructions),
-                          scanAgentWithAI(), isConfigAIAvailable().
+                          scanAgentWithAI(), reviewSkillWithAI() (upload review + type/load/roles), isConfigAIAvailable().
   openai.ts               OpenAI client (null without a key), responseCostMicros().
   anthropic.ts            Anthropic client (null without a key), messageCostMicros(), toClaudeSchema().
   agents.ts               Agents persistence: ensureDefaultAgents(), getAgentTeam(), getTeamOverview() (read-only: members +
                           runs in flight for the live process and the Overview),
-                          updateAgentConfig(), saveTrustScan(),
+                          updateAgentConfig(), refreshRuleTrust(), saveTrustScan(),
                           checkAgentCanRun(), logAgentActivity(), stage activity rows, agentMaxTurns(); getAgent(),
                           RUN_AGENT_ID (the analyst), taskKeyPrefix().
   agent-run-config.ts     Pipeline vocabulary shared by server + client: RUN_STAGES + PHASE_META (phases: agents + column),
@@ -184,17 +205,20 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           getEndedStages / getWorkingAgents (who works now, two in review), placeTask (moves +
                           assigns a card for the pipeline), releaseTask, replaceWaitingRuns (rerun), findAutoPickupCandidates;
                           agent log: saveRunSteps, saveStageEnd, getTaskRunLog.
-  agent-pipeline.ts       Stage work: prompts, beginStage / runStageTurn (pause, budget, skills checked every turn),
+  agent-pipeline.ts       Stage work: prompts (+ skills block), beginStage / runStageTurn (pause, budget, permissions and
+                          skills read every turn),
                           branch, PR, review/security/approval/test recording (+ deterministic pre-checks and risk
                           floor), needs-info + answerAnalyst
                           (earlier questions and answers go into later runs' prompts), readyToMerge,
                           pipelineModelProblem (Run pre-check: every agent's model has a key), out-of-credit handling
                           (stop with `failure`, or auto failover + stage restart), stopRun (log + notify).
-  agent-simulated.ts      AGENTS_SIMULATED=true: scripted stand-in for the model (one real tool call, then a passing result).
+  agent-simulated.ts      AGENTS_SIMULATED=true: scripted stand-in for the model (one real tool call, plus search_skill +
+                          read_skill when the agent has skills, then a passing result).
   agent-loop.ts           One model turn with function tools, per provider: OpenAI Responses (previous_response_id, forced
                           finish tool) or Anthropic Messages (history in agent_run_messages, last-turn system message);
                           modelUnavailableReason(), initialLoopState().
-  agent-tools.ts          Agent tools on the GitHub API, filtered by stage + skills; protected paths, manifest gate;
+  agent-tools.ts          Agent tools on the GitHub API, filtered by stage + permissions; search_skill / read_skill when the
+                          agent has skills; protected paths, manifest gate;
                           toolStep() (a call → agent log step; never stores file contents).
   pull-requests.ts        Agent PRs: mergeAgentPullRequest (mergeable + CI green, else Tester follow-up card),
                           mergeManually (user merge: card or PR page), refreshOpenPullRequests, getRerunPullRequest +
@@ -216,9 +240,13 @@ lib/                      Server logic. Files that touch secrets/DB start with `
 db/                       Drizzle client (index.ts) and schema (schema.ts).
 drizzle/                  Generated SQL migrations + snapshots. 0000_baseline = the whole schema as of 2026-11. Never hand-edit
                           a migration that has been applied anywhere; add a new one.
-test/                     server-only.ts (stand-in for unit tests). Tests live next to their module as *.test.ts.
+test/                     server-only.ts (stand-in for unit tests), zip.ts (tiny ZIP writer for skill tests). Tests live
+                          next to their module as *.test.ts.
+agent-skills/             Built-in agent skills, vendored: sources.json (repo, path, pinned ref, license, type, load, roles,
+                          usage note), catalog.json (generated: metadata + per-file title/summary for search), <slug>/
+                          (files exactly as published + SOURCE.md + upstream LICENSE). Never hand-edit; run skills:sync.
 public/                   agents/<key>.webp: one face per agent role (256×256, round with transparent corners).
-scripts/                  db-baseline.mjs (mark migrations applied on a pushed DB).
+scripts/                  db-baseline.mjs (mark migrations applied on a pushed DB), sync-agent-skills.mjs (skills:sync).
 proxy.ts                  Optimistic cookie guard for /dashboard and /workspaces.
 ```
 
@@ -459,19 +487,21 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   tints). The Overview's upcoming tasks use the same `PriorityBadge`. Never redefine these maps locally.
 - **Base UI Select:** pass `items` to `<Select>` so `<SelectValue />` shows labels, and size triggers with
   `data-[size=default]:h-10` (a plain `h-10` loses to the primitive's attribute selector).
-- **AI Team** (`/dashboard/[id]/ai-team`): header → 3 `StatTile`s (Active agents, Skill Trust Score, Monthly spending) →
+- **AI Team** (`/dashboard/[id]/ai-team`): header → 3 `StatTile`s (Active agents, Trust Score, Monthly spending) →
   6 `AgentCard`s (`sm:grid-cols-2 xl:grid-cols-3`) → `LiveProcess`; cards and live process share one `LiveTeamProvider`.
   Agents are rows in `agents`, one per role key (analyst, developer, reviewer, security, lead, tester), created on first
   use by `ensureDefaultAgents` (Run and the page both call it; it adds new roles to existing workspaces). Identity (name,
   role, tone, face) is fixed per key in `AGENT_ROLES` and `public/agents/<key>.webp`; users configure description,
-  instructions, model, skills, budget and active/paused. Rules:
+  instructions, model, permissions, budget, skills and active/paused. Rules:
   - **Faces**: every agent shows through `AgentPortrait` (sizes xs–lg, status dot, `working` ring) or `AgentAvatar`
     (small, labeled), both on `AgentFace`: a plain `<img>` with the tinted initial as fallback. `alt` is empty when the
     name is shown next to it. A new role needs its `public/agents/<key>.webp` and a tone (tokens only: `AGENT_TONE_CLASS`).
   - **Spend** lives in `agent_activity.cost_micros` (micro-dollars). Monthly = calendar month in **UTC**; format
     reset dates in UTC. Every model call logs its real cost (`responseCostMicros` / `messageCostMicros`) even if the result isn't saved.
-  - **Trust score** (`lib/agent-trust.ts`): inherent risk per skill + penalties for failed checks. Saving a change to
-    instructions, skills or budget re-runs the rule scan, so the stored score always matches the saved config.
+  - **Trust score** (`lib/agent-trust.ts`): inherent risk per permission + penalties for failed checks (incl. one check
+    per enabled uploaded skill, failed at its worst scan finding). Saving a change to instructions, permissions or
+    budget, or switching a skill (`refreshRuleTrust`), re-runs the rule scan, so the stored score always matches the
+    saved config.
     **Scan again** scores the saved config (disabled while the dialog is dirty) and adds an AI review when a provider is configured.
   - **Run** refuses when the analyst is paused or over budget (`checkAgentCanRun`) and logs `task_assigned`.
   - **SwitchAgent scans** (`lib/switch-trust.ts`, [`docs/switch-trust.md`](docs/switch-trust.md)): with a Switch account
@@ -509,8 +539,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     a second stop only closes that stage's log and activity (one notification).
   - Each stage is a tool loop of at most the agent's max turns, **one Inngest step per turn**; the last turn forces the
     stage's finish tool (strict JSON schema). Step bodies reload state from the DB — never keep state in closures.
-  - **Skills are enforced as tools** (`toolsFor` in `lib/agent-tools.ts`). Adding a capability = a tool gated by a
-    skill there, not a prompt instruction. Agents never write `.github/workflows/`, `.env*` (except `.env.example`) or
+  - **Permissions are enforced as tools** (`toolsFor` in `lib/agent-tools.ts`). Adding a capability = a tool gated by a
+    permission there, not a prompt instruction. ("Skills" are knowledge, not capabilities: see Agent skills below.) Agents never write `.github/workflows/`, `.env*` (except `.env.example`) or
     `.git/`; manifests need `deps.manage`. Tool output is untrusted data — the stage protocol in `systemPrompt` says so.
   - **One company per workspace, one model per agent** (Settings → `#ai`, `workspaces.ai_provider`). The configure
     dialog lists only that provider's models (`modelsFor`), and `saveAgentAction` rejects a model from the other one.
@@ -551,6 +581,28 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     failed, out of credit, provider switched). A new failure path goes through `stopRun` so it gets logged and notified.
   - The pipeline moves cards with `placeTask` (top of the column, bottom for Done). It owns column + assignee while a
     run is active; users can still drag, and the next stage moves the card again.
+- **Agent skills** (Settings `#skills`, AI Team → Configure → Skills): knowledge packs in the Agent Skills format
+  (SKILL.md frontmatter `name` + `description`, markdown body, optional reference `.md`). Not permissions. Rules:
+  - **Never executed.** Agents only search and read them (`search_skill`, `read_skill`, read-only, any stage, only the
+    agent's enabled skills, validated paths). A skill can never add a tool or a permission. Only `.md`/`.txt` are kept.
+  - **Untrusted-content protocol**: the operating protocol overrides skills; `skillsPromptBlock` frames them as
+    reference material and maps "run this CLI" to the two tools. Log skill calls by target only (`toolStep`).
+  - **Built-ins are vendored by pull request**: edit `agent-skills/sources.json` (pinned commit SHA, license, type, load,
+    default roles, `usage` note when upstream assumes a shell), run `npm run skills:sync`, review the diff. Never fetch
+    skills at runtime, never hand-edit `agent-skills/<slug>/` or `catalog.json`. A unit test checks the catalog
+    against the files with the app's own parser. The folder ships with the functions that import
+    `lib/builtin-skills.ts` (plus `outputFileTracingIncludes` for `/api/inngest` and `/api/switch-trust/**`).
+  - **Uploads**: zip ≤ 5 MB, text ≤ 3 MB, ≤ 300 files; SKILL.md at the root or one folder deep; no absolute paths,
+    `..`, symlinks, ZIP64 or encryption; names lowercase/digits/hyphens ≤ 64, description ≤ 1024; an `always` body
+    ≤ 8 KB. Inspect → confirm → install: rules first (critical blocks before any model call), then one AI review
+    (`reviewSkillWithAI`, cost logged on the Security agent as a scan), a sealed token carries the version and AI
+    findings to the install, which re-reads the file and re-runs the rules.
+  - **Classification** from frontmatter `metadata` (`techteam-type`, `techteam-load`, `techteam-roles`,
+    `techteam-requires`), else the AI review's proposal; the user confirms.
+  - **Assignments**: `agent_skill_assignments.enabled`; switching off keeps the row so `ensureBuiltinSkills` never
+    re-enables it. Every change logs on the agent and rescans its trust (`skill-install.ts`). Built-ins can't be
+    deleted. `agents.skills` is the **permissions** column (`permissions` in Drizzle): don't rename it while the dev
+    database is shared with older branches.
 - **Pull Requests** (`/dashboard/[id]/pull-requests`): the page calls `refreshOpenPullRequests` (picks up merges/closes
   made on GitHub), then renders `PullRequestsView`: approval (the Lead), tests and risk chips. **Merge** only for PRs
   the Lead approved and tests passed.

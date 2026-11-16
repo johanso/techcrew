@@ -27,7 +27,7 @@ describe("roles", () => {
   it("keeps the reviewers that gate a merge read-only by default", () => {
     const writes = ["code.write", "tests.write", "deps.manage", "pr.open", "pr.merge", "issues.create", "tests.run", "secrets.read"];
     for (const key of ["security", "lead"] as const) {
-      expect(AGENT_ROLES[key].defaults.skills.filter((skill) => writes.includes(skill)), key).toEqual([]);
+      expect(AGENT_ROLES[key].defaults.permissions.filter((permission) => writes.includes(permission)), key).toEqual([]);
     }
   });
 });

@@ -10,6 +10,7 @@ The hosted auth service keeps identities elsewhere (its own `auth` schema); the 
 - [ai_provider_keys](#ai_provider_keys)
 - [tasks](#tasks)
 - [agents](#agents)
+- [agent_skills, agent_skill_files, agent_skill_assignments](#agent_skills)
 - [agent_activity](#agent_activity)
 - [agent_runs](#agent_runs)
 - [agent_run_messages](#agent_run_messages)
@@ -42,6 +43,11 @@ erDiagram
     agents ||--o{ trust_scans : "SwitchAgent scans"
     tasks ||--o{ task_events : "moved, edited, removed"
     users |o--o{ task_events : "by (nullable)"
+    workspaces ||--o{ agent_skills : "skill library"
+    agent_skills ||--o{ agent_skill_files : "uploaded files"
+    agent_skills ||--o{ agent_skill_assignments : "used by"
+    agents ||--o{ agent_skill_assignments : "has on/off"
+    users |o--o{ agent_skills : "uploaded (nullable)"
 
     users {
         serial id PK
@@ -108,6 +114,29 @@ erDiagram
         text tool
         text target
     }
+    agent_skills {
+        serial id PK
+        int workspace_id FK
+        text slug "UK per workspace"
+        text type "technical | practice"
+        text load "always | on_demand"
+        text source "builtin | uploaded | project"
+        text version "content hash"
+        jsonb scan
+        text_arr suggested_roles
+    }
+    agent_skill_files {
+        serial id PK
+        int skill_id FK
+        text path "UK per skill"
+        text content
+    }
+    agent_skill_assignments {
+        serial id PK
+        int agent_id FK
+        int skill_id FK
+        boolean enabled
+    }
     pull_requests {
         serial id PK
         int run_id FK
@@ -118,8 +147,8 @@ erDiagram
     }
 ```
 
-Every foreign key to `users` / `workspaces` is `ON DELETE CASCADE`, as is `agent_runs.task_id`. `SET NULL`:
-`tasks.created_by_id`, `agent_activity.task_id`, `agent_runs.created_by_id`, `pull_requests.task_id` / `run_id` /
+Every foreign key to `users` / `workspaces` is `ON DELETE CASCADE`, as are `agent_runs.task_id` and the skill tables'
+foreign keys to `agent_skills` / `agents`. `SET NULL`: `agent_skills.created_by_id`, `tasks.created_by_id`, `agent_activity.task_id`, `agent_runs.created_by_id`, `pull_requests.task_id` / `run_id` /
 `follow_up_task_id`.
 
 ## users
@@ -175,7 +204,7 @@ A workspace is bound to **exactly one** GitHub repository, chosen at creation. O
 | `github_issues_synced_at` | timestamp | yes | Last successful issue sync, **minus 60 s** of overlap; passed to GitHub as `since`. `null` = never synced (the next sync imports all open issues). |
 | `agent_auto_pickup` | boolean | no | Default `false`. Settings → Agents: the analyst takes never-run Todo cards on its own. |
 | `agent_merge_mode` | text | no | Default `manual`. Settings → Agents → Merging (`MERGE_MODES`): `manual`, `auto_low_risk` (merge on their own only when the Lead's final risk is low) or `auto` (merge once approval, tests and CI pass). Backfilled from `agent_auto_merge` (true → `auto`) by migration 0005. Unknown values read as `manual`. |
-| `agent_auto_merge` | boolean | no | **Deprecated** (v0.1's merge switch). Not read or written since v0.2; kept one release so v0.1 code still runs against a migrated database. Drop in v0.3. |
+| `agent_auto_merge` | boolean | no | **Deprecated** (v0.1's merge switch). Not read or written since v0.2; kept so v0.1 code still runs against a migrated database (the dev database is shared across branches). Drop in v0.4. |
 | `ai_provider` | text | no | Default `openai`. Settings → AI providers: `openai` or `anthropic`; drives AI drafting/trust reviews and the last provider switch. |
 | `ai_auto_failover` | boolean | no | Default `false`. Settings → AI providers: when the provider runs out of credit mid-run and the other has a key, switch the team and restart the stage. |
 | `created_at`, `updated_at` | timestamp | no | |
@@ -247,15 +276,49 @@ One row per agent role per workspace. The six roles (`analyst`, `developer`, `re
 | `instructions` | text | no | | The agent's operating instructions (system prompt), 50–8,000 chars. |
 | `model` | text | no | | Active model id from `AGENT_MODELS`, always on the workspace's provider (`workspaces.ai_provider`). |
 | `provider_models` | jsonb | no | `{}` | The agent's model per provider (`{ openai, anthropic }`), so a provider switch and back restores it. |
-| `skills` | text[] | no | `{}` | Skill ids from `SKILLS`. |
+| `skills` | text[] | no | `{}` | **Permission** ids from `PERMISSIONS` (`permissions` in Drizzle). Kept its v0.1 name; "skills" now means the knowledge packs in `agent_skills`. |
 | `monthly_budget_cents` | integer | no | | $1–$10,000. |
 | `max_turns` | integer | yes | | Model turns per pipeline stage (3–100). `null` = role default (`AGENT_ROLES[key].defaults.maxTurns`: analyst 12, developer 40, reviewer 15, security 15, lead 8, tester 12). |
 | `enabled` | boolean | no | `true` | Paused agents can't be Run; a running stage stops at its next turn. |
-| `trust_score` | integer | yes | | Latest Skill Trust Score (0–100), duplicated from the report for queries. |
+| `trust_score` | integer | yes | | Latest Trust Score (0–100), duplicated from the report for queries. |
 | `trust_report` | jsonb | yes | | `TrustReport` (`lib/agent-trust.ts`): findings, checks, mode (`rules` \| `ai` \| `switch`), model, time; Switch reports add `evaluation` and `coverage`. |
 | `trust_scanned_at` | timestamp | yes | | |
 | `switch_agent_id` | text | yes | | Agent fingerprint in Switch Trust (`agn_…`), set on its first SwitchAgent scan; cleared when the account changes. |
 | `created_at`, `updated_at` | timestamp | no | `now()` | |
+
+## agent_skills
+
+The workspace's skill library (Settings → Agent skills): knowledge packs in the Agent Skills format that agents search
+and read. Built-ins are upserted by `ensureBuiltinSkills()` (`lib/agent-skills.ts`, called from `ensureDefaultAgents`)
+from `agent-skills/catalog.json`, and their files are read from disk; uploaded skills keep their files in
+`agent_skill_files`. A blocked upload is never stored.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | serial | no | | Primary key. |
+| `workspace_id` | integer | no | | → `workspaces.id`, cascade. |
+| `slug` | text | no | | Frontmatter `name` (built-ins: their slug). **Unique with `workspace_id`.** What agents pass to the skill tools. Uploads can't take a built-in's name. |
+| `name`, `description` | text | no | | From SKILL.md frontmatter (≤ 64 / ≤ 1024 chars). |
+| `type` | text | no | | `technical` \| `practice`. |
+| `load` | text | no | | `always` (SKILL.md body ≤ 8 KB in every prompt) \| `on_demand`. |
+| `source` | text | no | | `builtin` \| `uploaded` \| `project` (reserved for skills from the linked repository). |
+| `origin` | text | no | | `GoogleChrome/modern-web-guidance@64a6d70` or `Uploaded by <name>`. |
+| `license` | text | yes | | SPDX id or the frontmatter `license`. |
+| `version` | text | no | | Content hash (12 hex chars of sha256 over the sorted files); changes with every new version. |
+| `file_count`, `total_bytes` | integer | no | | Text files kept and their UTF-8 size. |
+| `scan` | jsonb | yes | | `SkillScan` (`lib/agent-skills-config.ts`): `status` (`passed` \| `warned`), findings (rules and AI), `reviewedBy` (`builtin` \| `rules` \| `ai`), model, time. |
+| `suggested_roles` | text[] | no | `{}` | Agent keys it fits: built-ins' default roles, or the upload's metadata / AI proposal. |
+| `requires_permissions` | text[] | no | `{}` | Permission ids from `techteam-requires`; the configure dialog warns when an agent lacks one. |
+| `created_by_id` | integer | yes | | → `users.id`, set null. |
+| `created_at`, `updated_at` | timestamp | no | `now()` | |
+
+**`agent_skill_files`** — files of uploaded skills: `skill_id` (→ `agent_skills.id`, cascade), `path` (relative,
+validated; **unique with `skill_id`**), `content` (text), `title` and `summary` (what `search_skill` matches), `size`.
+
+**`agent_skill_assignments`** — which agent uses which skill: `agent_id` (→ `agents.id`, cascade), `skill_id`
+(→ `agent_skills.id`, cascade, indexed), `enabled`, timestamps; **unique (`agent_id`, `skill_id`)**. Switching a skill
+off keeps the row with `enabled = false`, so `ensureBuiltinSkills` (which only inserts missing rows for a built-in's
+default roles) never turns it back on.
 
 ## task_events
 
@@ -429,7 +492,8 @@ an unknown `status` (e.g. after renaming a column), `getBoardData` shows it in *
 
 Agent ids (`assignee_agent_id`, `agents.key`) are the role keys in `AGENT_KEYS`
 ([`lib/agent-config.ts`](../lib/agent-config.ts)): `analyst`, `developer`, `reviewer`, `security`, `lead`, `tester`. An unknown id renders
-as unassigned. `model` and `skills` are validated against `AGENT_MODELS` / `SKILLS` by `parseAgentConfigInput`.
+as unassigned. `model` and `skills` (permissions) are validated against `AGENT_MODELS` / `PERMISSIONS` by `parseAgentConfigInput`.
+Skill `type`, `load` and `source` values live in [`lib/agent-skills-config.ts`](../lib/agent-skills-config.ts).
 
 ## Behaviors worth knowing
 

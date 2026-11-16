@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { format, formatDistanceStrict, formatDistanceToNowStrict } from "date-fns";
 import {
+  BookOpenTextIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   FileDiffIcon,
@@ -17,6 +18,7 @@ import {
   MessageCircleReplyIcon,
   ScrollTextIcon,
   SearchIcon,
+  TextSearchIcon,
   WrenchIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -55,6 +57,8 @@ const TOOL_ICON: Record<string, LucideIcon> = {
   delete_file: FileXIcon,
   get_diff: FileDiffIcon,
   get_checks: ListChecksIcon,
+  search_skill: TextSearchIcon,
+  read_skill: BookOpenTextIcon,
 };
 
 function Step({ step }: { step: RunLogStep }) {
