@@ -363,7 +363,7 @@ export async function getAgentTeam(
   };
 }
 
-/** One agent as the Overview and the live office show it. */
+/** One agent as the Overview and the AI Team page show it live. */
 export type TeamMember = Agent & {
   status: AgentStatus;
   /** What it is doing right now, e.g. "Reviewing ACM-142" (a running run at its stage). */
@@ -381,7 +381,7 @@ export type TeamMember = Agent & {
 const WORK_KINDS: AgentActivityKind[] = ["task_assigned", "task_run", "pull_request", "issue_filed"];
 
 /**
- * The four agents with their live status, for the Overview and the live office (polled). Read-only: unlike
+ * Every agent with its live status, for the Overview and the AI Team page (polled). Read-only: unlike
  * getAgentTeam it never creates agents, so a role without a row yet shows its defaults (ready, never active).
  */
 export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" | "aiProvider">) {

@@ -5,7 +5,7 @@ import { createContext, use, useEffect, useState } from "react";
 import { getTeamStatusAction } from "@/app/dashboard/[workspaceId]/actions";
 import type { TeamOverview } from "@/lib/agents";
 
-// Faster while someone is working, so stage changes show within seconds; slower when the office is quiet.
+// Faster while someone is working, so stage changes show within seconds; slower when the team is idle.
 const POLL_WORKING_MS = 5_000;
 const POLL_IDLE_MS = 15_000;
 
@@ -14,7 +14,7 @@ type LiveTeam = { team: TeamOverview; connected: boolean };
 const LiveTeamContext = createContext<LiveTeam | null>(null);
 
 /**
- * Keeps the team's status fresh for everything below it (office, AI team card) with one poll. Polls only while the
+ * Keeps the team's status fresh for everything below it (AI Team cards and live process, Overview's AI team card) with one poll. Polls only while the
  * tab is visible, and right away when it becomes visible again.
  */
 export function LiveTeamProvider({

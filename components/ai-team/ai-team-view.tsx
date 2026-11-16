@@ -2,11 +2,10 @@ import Link from "next/link";
 import { BotIcon, CoinsIcon, ShieldCheckIcon, SparklesIcon } from "lucide-react";
 
 import { AgentRoster } from "@/components/ai-team/agent-roster";
+import { LiveTeamProvider } from "@/components/ai-team/live-team";
 import { TrustScanWatcher } from "@/components/ai-team/trust-scan-watcher";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatTile } from "@/components/dashboard/stat-tile";
-import { AgentOffice } from "@/components/office/agent-office";
-import { LiveTeamProvider } from "@/components/office/live-team";
 import { MICROS_PER_USD, formatCents, formatMicros, type AgentProvider, type ProviderStatus } from "@/lib/agent-config";
 import { trustGrade } from "@/lib/agent-trust";
 import type { AgentTeamStats, AgentView, TeamOverview } from "@/lib/agents";
@@ -25,7 +24,7 @@ export function AiTeamView({
 }: {
   workspace: { id: number; githubRepoFullName: string };
   agents: AgentView[];
-  /** Live status for the office (polled on the client). */
+  /** Live status for the cards and the live process (polled on the client). */
   team: TeamOverview;
   stats: AgentTeamStats;
   aiEnabled: boolean;
@@ -109,20 +108,18 @@ export function AiTeamView({
         />
       </section>
 
-      <AgentRoster
-        agents={agents}
-        workspaceId={workspace.id}
-        repoFullName={workspace.githubRepoFullName}
-        aiEnabled={aiEnabled}
-        providers={providers}
-        provider={provider}
-        switchTrust={switchTrust}
-      />
-      <TrustScanWatcher pending={scanning > 0} />
-
       <LiveTeamProvider workspaceId={workspace.id} initial={team}>
-        <AgentOffice workspaceId={workspace.id} title="Live Agent Office Workspace" description="Watch your agents work in real time" />
+        <AgentRoster
+          agents={agents}
+          workspaceId={workspace.id}
+          repoFullName={workspace.githubRepoFullName}
+          aiEnabled={aiEnabled}
+          providers={providers}
+          provider={provider}
+          switchTrust={switchTrust}
+        />
       </LiveTeamProvider>
+      <TrustScanWatcher pending={scanning > 0} />
     </>
   );
 }

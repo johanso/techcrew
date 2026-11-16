@@ -5,7 +5,7 @@ import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { StatTile } from "@/components/dashboard/stat-tile";
 import { TeamStatus } from "@/components/dashboard/team-status";
 import { UpcomingTasks } from "@/components/dashboard/upcoming-tasks";
-import { LiveTeamProvider } from "@/components/office/live-team";
+import { LiveTeamProvider } from "@/components/ai-team/live-team";
 import type { OverviewData } from "@/lib/overview";
 
 /** Overview content. Presentational: the page loads the data. */

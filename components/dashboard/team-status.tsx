@@ -6,7 +6,7 @@ import { ArrowRightIcon } from "lucide-react";
 
 import { AgentPortrait, AgentStatusBadge, BudgetMeter } from "@/components/ai-team/agent-visuals";
 import { SurfaceHeader } from "@/components/dashboard/page-header";
-import { useLiveTeam } from "@/components/office/live-team";
+import { useLiveTeam } from "@/components/ai-team/live-team";
 import { buttonVariants } from "@/components/ui/button";
 import { PROVIDERS } from "@/lib/agent-config";
 import type { TeamMember } from "@/lib/agents";
