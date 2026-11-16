@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 
-import { PROVIDERS, isAgentProvider } from "@/lib/agent-config";
+import { PROVIDERS, isAgentKey, isAgentProvider } from "@/lib/agent-config";
 import { isMergeMode } from "@/lib/agent-run-config";
+import { UPLOAD_MAX_BYTES, formatBytes } from "@/lib/agent-skills-config";
+import { getOwnedSkill } from "@/lib/agent-skills";
 import { getAIKeys, keyStatus, removeProviderKey, saveProviderKey, verifyProviderKey } from "@/lib/ai-keys";
 import { switchAgentsToProvider } from "@/lib/agents";
 import { requireUser } from "@/lib/current-user";
@@ -15,6 +17,7 @@ import {
   setSwitchWeeklyScans,
   type ConnectSwitchField,
 } from "@/lib/switch-trust";
+import { deleteUploadedSkill, inspectSkillUpload, installSkillUpload, setSkillAssignments, type InspectResult } from "@/lib/skill-install";
 import { normalizeInstanceUrl } from "@/lib/switch-trust-config";
 import { getOwnedWorkspace, updateAgentAutomation, updateAIProvider, updateAutoFailover } from "@/lib/workspaces";
 
@@ -211,5 +214,86 @@ export async function saveSwitchWeeklyAction(workspaceId: number, enabled: unkno
   if (typeof enabled !== "boolean") return { ok: false, error: "Choose on or off." };
   if (!(await setSwitchWeeklyScans(workspace.id, enabled))) return { ok: false, error: "Connect Switch Trust first." };
   revalidatePath(`/dashboard/${workspaceId}/settings`);
+  return { ok: true };
+}
+
+// ── Agent skills ───────────────────────────────────────────────────────────────
+
+/** The uploaded file and the skill a new version replaces (validated: form fields are input too). */
+async function uploadInput(formData: FormData) {
+  const file = formData.get("file");
+  if (!(file instanceof File) || !file.size) return { error: "Choose a SKILL.md or .zip file." } as const;
+  if (file.size > UPLOAD_MAX_BYTES) return { error: `The file is larger than ${formatBytes(UPLOAD_MAX_BYTES)}.` } as const;
+  const rawReplace = formData.get("replaceId");
+  const replaceId = typeof rawReplace === "string" && rawReplace ? Number(rawReplace) : null;
+  if (replaceId !== null && (!Number.isSafeInteger(replaceId) || replaceId <= 0)) return { error: "Unknown skill." } as const;
+  return { name: file.name.slice(0, 200), bytes: Buffer.from(await file.arrayBuffer()), replaceId } as const;
+}
+
+/**
+ * Settings → Agent skills, step 1: reads, validates and scans an upload (rules, plus one AI review when a provider key
+ * exists) without installing it. Blocked skills come back with their findings; the rest with a sealed preview.
+ */
+export async function inspectSkillAction(workspaceId: number, formData: FormData): Promise<InspectResult> {
+  const workspace = await authorize(workspaceId);
+  if (!workspace) return { ok: false, error: "Workspace not found." };
+  const upload = await uploadInput(formData);
+  if ("error" in upload) return { ok: false, error: upload.error! };
+  try {
+    const result = await inspectSkillUpload({ workspace, fileName: upload.name, bytes: upload.bytes, replaceId: upload.replaceId });
+    // The AI review's cost shows in the Security agent's spend.
+    if (result.ok) revalidatePath(`/dashboard/${workspaceId}/ai-team`);
+    return result;
+  } catch (error) {
+    console.error("[settings] skill inspect failed", error);
+    return { ok: false, error: "We couldn't read that skill. Please try again." };
+  }
+}
+
+/** Step 2: the user confirmed type, load and the agents to assign. Installs the inspected file (sent again). */
+export async function installSkillAction(workspaceId: number, formData: FormData): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
+  const user = await requireUser(`/dashboard/${workspaceId}/settings`);
+  const workspace = await getOwnedWorkspace(user.id, workspaceId);
+  if (!workspace) return { ok: false, error: "Workspace not found." };
+  const upload = await uploadInput(formData);
+  if ("error" in upload) return { ok: false, error: upload.error! };
+  const result = await installSkillUpload({
+    workspace,
+    user,
+    fileName: upload.name,
+    bytes: upload.bytes,
+    token: formData.get("token"),
+    replaceId: upload.replaceId,
+    choices: { type: formData.get("type"), load: formData.get("load"), roles: formData.getAll("roles") },
+  });
+  if (!result.ok) return result;
+  refresh(workspaceId);
+  return { ok: true, name: result.name };
+}
+
+/** Which agents have a skill switched on (everyone not listed: off). */
+export async function saveSkillAssignmentsAction(workspaceId: number, skillId: unknown, roles: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
+  const workspace = await authorize(workspaceId);
+  if (!workspace) return { ok: false, error: "Workspace not found." };
+  const skill = typeof skillId === "number" ? await getOwnedSkill(workspace.id, skillId) : null;
+  if (!skill) return { ok: false, error: "Skill not found." };
+  const keys = Array.isArray(roles) ? roles.filter(isAgentKey) : [];
+  try {
+    await setSkillAssignments(workspace.id, skill, keys);
+  } catch (error) {
+    console.error("[settings] skill assignments failed", error);
+    return { ok: false, error: "We couldn't save the assignments. Please try again." };
+  }
+  refresh(workspaceId);
+  return { ok: true };
+}
+
+export async function deleteSkillAction(workspaceId: number, skillId: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
+  const workspace = await authorize(workspaceId);
+  if (!workspace) return { ok: false, error: "Workspace not found." };
+  if (typeof skillId !== "number") return { ok: false, error: "Skill not found." };
+  const result = await deleteUploadedSkill(workspace.id, skillId);
+  if (!result.ok) return result;
+  refresh(workspaceId);
   return { ok: true };
 }
