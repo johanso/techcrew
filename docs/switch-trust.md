@@ -1,7 +1,7 @@
 # Switch Trust (SwitchAgent scans)
 
 The AI Team's trust score can come from [Switch Trust](https://docs.switchagents.ai/switch-trust/index.md): the
-workspace connects its Switch account, its four agents are registered there, and each **SwitchAgent scan** runs
+workspace connects its Switch account, its agents (six since v0.2) are registered there, and each **SwitchAgent scan** runs
 **one** Switch evaluation against one agent and reads back its health score. Code: [`lib/switch-trust.ts`](../lib/switch-trust.ts)
 (connection + scans), [`lib/switch-api.ts`](../lib/switch-api.ts) (REST client),
 [`lib/switch-trust-config.ts`](../lib/switch-trust-config.ts) (pure mapping, tested),
@@ -54,10 +54,10 @@ only that one to each agent, with no schedule. Settings shows which one. On the 
 
 | Trigger | Scope |
 | --- | --- |
-| **Connect securely** / **Update connection** in Settings → Switch Trust | All four agents |
-| Saving an AI provider key while Switch is connected (the evaluation talks to the agent's model) | All four agents |
+| **Connect securely** / **Update connection** in Settings → Switch Trust | Every agent (six since v0.2) |
+| Saving an AI provider key while Switch is connected (the evaluation talks to the agent's model) | Every agent (six since v0.2) |
 | **SwitchAgent Scan** in an agent's Configure dialog | That agent (on demand, any time) |
-| Every Monday 06:00 UTC (`switch-weekly-scans`, Inngest cron), when **Scan every week** is on (default) | All four agents |
+| Every Monday 06:00 UTC (`switch-weekly-scans`, Inngest cron), when **Scan every week** is on (default) | Every agent (six since v0.2) |
 
 An agent with a scan already queued or running is skipped. Saving an agent's configuration does **not** start a scan
 (each one spends model credit): it keeps the Switch score and the panel says the configuration changed after it.

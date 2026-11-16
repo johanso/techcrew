@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { toolStep } from "@/lib/agent-tools";
+import { toolStep, toolsFor } from "@/lib/agent-tools";
 
 describe("toolStep (agent log)", () => {
   it("keeps the target and drops the content of reads", () => {
@@ -28,5 +28,25 @@ describe("toolStep (agent log)", () => {
 
   it("clips long summaries", () => {
     expect(toolStep("get_checks", "{}", "x".repeat(500)).summary).toHaveLength(200);
+  });
+});
+
+describe("toolsFor", () => {
+  const names = (stage: Parameters<typeof toolsFor>[0]["stage"], skills: Parameters<typeof toolsFor>[0]["skills"]) =>
+    toolsFor({ stage, skills, branch: "agent/acm-1-x" }).map((tool) => tool.name);
+
+  it("gives the security reviewer and the lead the diff and CI, never writes", () => {
+    for (const stage of ["security", "approval"] as const) {
+      expect(names(stage, ["repo.read", "ci.read", "code.write"])).toEqual(["list_files", "read_file", "search_code", "get_diff", "get_checks"]);
+    }
+  });
+
+  it("writes only in development, with the skill", () => {
+    expect(names("development", ["repo.read", "code.write"])).toContain("write_file");
+    expect(names("development", ["repo.read"])).not.toContain("write_file");
+  });
+
+  it("has no diff before the branch exists", () => {
+    expect(toolsFor({ stage: "review", skills: ["repo.read"], branch: null }).map((tool) => tool.name)).not.toContain("get_diff");
   });
 });

@@ -6,9 +6,12 @@ import { agentRunSteps, agentRuns, db, pullRequests, tasks, workspaces, type Age
 import type { AgentKey, AgentModelId } from "@/lib/agent-config";
 import {
   ACTIVE_RUN_STATUSES,
-  RUN_STAGES,
-  STAGE_META,
   RUN_STATUSES,
+  STAGE_META,
+  isAgentStage,
+  isRunStage,
+  workingAgents,
+  type AgentStage,
   type BoardCardRun,
   type RunFailure,
   type RunStage,
@@ -23,7 +26,6 @@ import type { BoardColumnId } from "@/lib/board-config";
  */
 
 const isRunStatus = (value: string): value is RunStatus => (RUN_STATUSES as readonly string[]).includes(value);
-const isRunStage = (value: string | null): value is RunStage => value !== null && (RUN_STAGES as readonly string[]).includes(value);
 
 export async function createRun(values: {
   workspaceId: number;
@@ -58,6 +60,19 @@ export async function replaceWaitingRuns(taskId: number, newRunId: number) {
     .update(agentRuns)
     .set({ status: "cancelled", error: "Replaced by a new run on the same pull request.", finishedAt: new Date(), updatedAt: new Date() })
     .where(and(eq(agentRuns.taskId, taskId), eq(agentRuns.status, "awaiting_merge"), ne(agentRuns.id, newRunId)));
+}
+
+/**
+ * Marks the run as working in `phase`, only while it is still queued or running: in the review phase two stages begin
+ * in parallel, and one may have stopped the run meanwhile. Returns false when the run already ended.
+ */
+export async function markStageRunning(runId: number, phase: RunStage) {
+  const rows = await db
+    .update(agentRuns)
+    .set({ status: "running", stage: phase, error: null, failure: null, updatedAt: new Date() })
+    .where(and(eq(agentRuns.id, runId), inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES])))
+    .returning({ id: agentRuns.id });
+  return rows.length > 0;
 }
 
 /**
@@ -120,13 +135,33 @@ export async function getLatestRuns(workspaceId: number) {
   return byTask;
 }
 
-/** Stage of each agent that is working right now (for the AI Team "Working" status). */
-export async function getWorkingStages(workspaceId: number) {
+/**
+ * Stages that ended (result or stop) in the given rounds of these runs. A phase's agent whose stage ended is no longer
+ * working, even while its parallel partner still is.
+ */
+export async function getEndedStages(runs: { id: number; reworkRounds: number }[]) {
+  const ended = new Map<number, AgentStage[]>();
+  if (!runs.length) return ended;
   const rows = await db
-    .select({ stage: agentRuns.stage })
+    .select({ runId: agentRunSteps.runId, stage: agentRunSteps.stage, round: agentRunSteps.round })
+    .from(agentRunSteps)
+    .where(and(inArray(agentRunSteps.runId, runs.map((run) => run.id)), inArray(agentRunSteps.tool, ["result", "stopped"])));
+  for (const row of rows) {
+    const run = runs.find((r) => r.id === row.runId);
+    if (!run || row.round !== run.reworkRounds || !isAgentStage(row.stage)) continue;
+    ended.set(row.runId, [...(ended.get(row.runId) ?? []), row.stage]);
+  }
+  return ended;
+}
+
+/** Agents working right now in the workspace (for the AI Team "Working" status); two at once in the review phase. */
+export async function getWorkingAgents(workspaceId: number) {
+  const runs = await db
+    .select({ id: agentRuns.id, stage: agentRuns.stage, reworkRounds: agentRuns.reworkRounds })
     .from(agentRuns)
     .where(and(eq(agentRuns.workspaceId, workspaceId), eq(agentRuns.status, "running")));
-  return rows.map((row) => row.stage).filter(isRunStage);
+  const ended = await getEndedStages(runs);
+  return new Set(runs.flatMap((run) => (isRunStage(run.stage) ? workingAgents(run.stage, ended.get(run.id) ?? []) : [])));
 }
 
 /**
@@ -199,7 +234,7 @@ export async function findAutoPickupCandidates() {
 
 // ── Agent log ──────────────────────────────────────────────────────────────────
 
-type StepPosition = { stage: RunStage; round: number; turn: number; model: AgentModelId };
+type StepPosition = { stage: AgentStage; round: number; turn: number; model: AgentModelId };
 // The stage's end row sorts after every tool call of its turn.
 const END_SEQ = 1000;
 
@@ -234,9 +269,9 @@ export async function saveStageEnd(runId: number, at: StepPosition, end: { ok: b
 export type RunLogStep = { id: number; tool: string; target: string | null; ok: boolean; summary: string | null; turn: number };
 
 export type RunLogStage = {
-  stage: RunStage;
+  stage: AgentStage;
   round: number;
-  agent: AgentKey | null;
+  agent: AgentKey;
   model: AgentModelId | null;
   turns: number;
   costMicros: number;
@@ -263,7 +298,10 @@ export type RunLog = {
 
 const WRITE_TOOLS = new Set(["write_file", "replace_in_file", "delete_file"]);
 
-/** The card's latest run with what each stage did, grouped in the order the stages ran. Null if never run. */
+/**
+ * The card's latest run with what each stage did, grouped in the order the stages started (the parallel review and
+ * security stages interleave by time, each in its own group). Null if never run.
+ */
 export async function getTaskRunLog(workspaceId: number, taskId: number): Promise<RunLog | null> {
   const [run] = await db
     .select()
@@ -281,7 +319,7 @@ export async function getTaskRunLog(workspaceId: number, taskId: number): Promis
 
   const stages: RunLogStage[] = [];
   for (const row of rows) {
-    if (!isRunStage(row.stage)) continue;
+    if (!isAgentStage(row.stage)) continue;
     let group = stages.find((g) => g.stage === row.stage && g.round === row.round);
     if (!group) {
       group = {

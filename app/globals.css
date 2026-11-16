@@ -293,37 +293,15 @@
     text-transform: uppercase;
 }
 
-/*
- * Live office sprite: a horizontal sheet of N frames. `office-typing` steps through them; the element sets
- * --office-frames and --office-duration. Each keyframe lands exactly on a frame (steps … jump-none).
- */
-@utility office-sprite {
-    background-repeat: no-repeat;
-    background-size: calc(var(--office-frames) * 100%) 100%;
-    background-position: 0% 0%;
-}
-
-@utility office-typing {
-    animation: office-typing var(--office-duration) steps(var(--office-frames), jump-none) infinite;
+/* "Working…" dots next to an agent's current card: each fades in turn (set the delay per dot). */
+@utility working-dot {
+    animation: working-dot 1.2s ease-in-out infinite;
     @media (prefers-reduced-motion: reduce) {
         animation: none;
     }
 }
 
-@keyframes office-typing {
-    from { background-position-x: 0%; }
-    to { background-position-x: 100%; }
-}
-
-/* "Typing…" dots in an agent's status bubble: each fades in turn (set the delay per dot). */
-@utility office-dot {
-    animation: office-dot 1.2s ease-in-out infinite;
-    @media (prefers-reduced-motion: reduce) {
-        animation: none;
-    }
-}
-
-@keyframes office-dot {
+@keyframes working-dot {
     0%, 100% { opacity: 0.25; }
     40% { opacity: 1; }
 }

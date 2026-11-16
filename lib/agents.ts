@@ -1,8 +1,8 @@
 import "server-only";
 
-import { and, desc, eq, gte, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 
-import { agentActivity, agentRuns, agents, db, tasks, workspaces, type AgentRow, type Workspace } from "@/db";
+import { agentActivity, agentRunSteps, agentRuns, agents, db, pullRequests, tasks, workspaces, type AgentRow, type Workspace } from "@/db";
 import {
   AGENT_KEYS,
   AGENT_MODELS,
@@ -28,13 +28,25 @@ import {
   type AgentTone,
   type SkillId,
 } from "@/lib/agent-config";
-import { MAX_TURNS_MAX, MAX_TURNS_MIN, RUN_STAGES, STAGE_META, type RunStage } from "@/lib/agent-run-config";
-import { getWorkingStages } from "@/lib/agent-runs";
+import {
+  ACTIVE_RUN_STATUSES,
+  AGENT_STAGE,
+  MAX_TURNS_MAX,
+  MAX_TURNS_MIN,
+  STAGE_META,
+  isAgentStage,
+  isRunStage,
+  parseMergeMode,
+  workingAgents,
+} from "@/lib/agent-run-config";
+import { getEndedStages, getWorkingAgents } from "@/lib/agent-runs";
+import { ISSUE_TYPES, type IssueType } from "@/lib/board-config";
+import { LIVE_ACTIONS, agentDoingSentence, type LiveRun, type LiveStage } from "@/lib/live-process";
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
 import type { TrustScanView } from "@/lib/switch-trust-config";
 
 /**
- * AI agents of a workspace: the four roles from lib/agent-config.ts, persisted in `agents` and created on first use.
+ * AI agents of a workspace: the six roles from lib/agent-config.ts, persisted in `agents` and created on first use.
  * Every function takes a workspace the caller has already authorized and scopes its queries to it.
  */
 
@@ -122,7 +134,7 @@ export function agentMaxTurns(row: Pick<AgentRow, "key" | "maxTurns">) {
 // ── Defaults ───────────────────────────────────────────────────────────────────
 
 /**
- * Creates any of the four default agents this workspace doesn't have yet, each with a first (rule-based) trust
+ * Creates any of the default agents this workspace doesn't have yet, each with a first (rule-based) trust
  * scan. Safe to call on every request: concurrent calls can't duplicate thanks to (workspace_id, key).
  */
 export async function ensureDefaultAgents(workspaceId: number) {
@@ -265,7 +277,7 @@ export async function getAgentTeam(
   await ensureDefaultAgents(workspace.id);
   const { start, end } = monthWindow();
 
-  const [rows, spendRows, taskRows, activityRows, workingStages] = await Promise.all([
+  const [rows, spendRows, taskRows, activityRows, working] = await Promise.all([
     db.select().from(agents).where(eq(agents.workspaceId, workspace.id)),
     db
       .select({
@@ -289,9 +301,8 @@ export async function getAgentTeam(
       .where(eq(agentActivity.workspaceId, workspace.id))
       .orderBy(desc(agentActivity.createdAt), desc(agentActivity.id))
       .limit(ACTIVITY_PER_AGENT * AGENT_KEYS.length),
-    getWorkingStages(workspace.id),
+    getWorkingAgents(workspace.id),
   ]);
-  const working = new Set(workingStages.map((stage) => STAGE_META[stage].agent));
 
   const now = Date.now();
   const elapsedDays = Math.max(1, (now - start.getTime()) / 86_400_000);
@@ -363,13 +374,15 @@ export async function getAgentTeam(
   };
 }
 
-/** One agent as the Overview and the live office show it. */
+/** One agent as the Overview and the AI Team page show it live. */
 export type TeamMember = Agent & {
   status: AgentStatus;
-  /** What it is doing right now, e.g. "Reviewing ACM-142" (a running run at its stage). */
+  /** What it is doing right now, e.g. "Reviewing ACM-142" (a running run at its stage, until its stage ends). */
   currentTask: string | null;
   /** The card behind `currentTask`, with when its run started. */
   task: { key: string; title: string; startedAt: Date } | null;
+  /** What it is doing on that card, from its latest tool call: "The Developer is editing src/app.ts." */
+  doing: string | null;
   /** Latest work on a card (assigned, stage, pull request, issue filed); setup events don't count. */
   lastAction: { title: string; at: Date } | null;
   /** Label of the active model, e.g. "Claude Sonnet 5.5". */
@@ -381,10 +394,104 @@ export type TeamMember = Agent & {
 const WORK_KINDS: AgentActivityKind[] = ["task_assigned", "task_run", "pull_request", "issue_filed"];
 
 /**
- * The four agents with their live status, for the Overview and the live office (polled). Read-only: unlike
- * getAgentTeam it never creates agents, so a role without a row yet shows its defaults (ready, never active).
+ * Queued and running runs of the workspace with what each agent of the current round did, for the live process.
+ * Read-only. Steps carry tool names and targets only (agent_run_steps never stores content).
  */
-export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" | "aiProvider">) {
+async function getLiveRuns(workspace: Pick<Workspace, "id" | "name">, rows: AgentRow[]): Promise<LiveRun[]> {
+  const runs = await db
+    .select({ run: agentRuns, number: tasks.number, title: tasks.title, type: tasks.type, pr: pullRequests.number })
+    .from(agentRuns)
+    .innerJoin(tasks, eq(tasks.id, agentRuns.taskId))
+    .leftJoin(pullRequests, eq(pullRequests.runId, agentRuns.id))
+    .where(and(eq(agentRuns.workspaceId, workspace.id), inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES])))
+    .orderBy(asc(agentRuns.startedAt));
+  if (!runs.length) return [];
+
+  const ids = runs.map(({ run }) => run.id);
+  const [steps, activity] = await Promise.all([
+    db
+      .select({
+        runId: agentRunSteps.runId,
+        stage: agentRunSteps.stage,
+        round: agentRunSteps.round,
+        turn: agentRunSteps.turn,
+        tool: agentRunSteps.tool,
+        target: agentRunSteps.target,
+        ok: agentRunSteps.ok,
+        summary: agentRunSteps.summary,
+        costMicros: agentRunSteps.costMicros,
+        at: agentRunSteps.createdAt,
+      })
+      .from(agentRunSteps)
+      .where(inArray(agentRunSteps.runId, ids))
+      .orderBy(asc(agentRunSteps.createdAt), asc(agentRunSteps.turn), asc(agentRunSteps.seq)),
+    // A working stage's spend so far lives on its open task_run activity row (the result row comes at the end).
+    db
+      .select({ agentId: agentActivity.agentId, taskId: agentActivity.taskId, costMicros: agentActivity.costMicros, at: agentActivity.createdAt })
+      .from(agentActivity)
+      .where(and(eq(agentActivity.workspaceId, workspace.id), eq(agentActivity.kind, "task_run"), inArray(agentActivity.taskId, runs.map(({ run }) => run.taskId))))
+      .orderBy(desc(agentActivity.createdAt), desc(agentActivity.id)),
+  ]);
+
+  const prefix = taskKeyPrefix(workspace.name);
+  return runs.map(({ run, number, title, type, pr }): LiveRun => {
+    const stages: LiveRun["stages"] = {};
+    for (const step of steps) {
+      // Analysis runs once (round 0); every other stage is shown for the current rework round.
+      if (step.runId !== run.id || !isAgentStage(step.stage)) continue;
+      if (step.stage !== "analysis" && step.round !== run.reworkRounds) continue;
+      const agent = STAGE_META[step.stage].agent;
+      const row = rows.find((r) => r.key === agent);
+      const live: LiveStage = (stages[step.stage] ??= {
+        turn: 0,
+        maxTurns: row ? agentMaxTurns(row) : AGENT_ROLES[agent].defaults.maxTurns,
+        costMicros: 0,
+        actions: [],
+        end: null,
+      });
+      live.turn = Math.max(live.turn, step.turn);
+      if (step.tool === "result" || step.tool === "stopped") {
+        live.end = { ok: step.tool === "result", summary: step.summary };
+        live.costMicros = step.costMicros;
+      } else {
+        live.actions = [...live.actions, { tool: step.tool, target: step.target, ok: step.ok, at: step.at }].slice(-LIVE_ACTIONS);
+      }
+    }
+    for (const [stage, live] of Object.entries(stages) as [keyof typeof stages, LiveStage][]) {
+      if (live.end) continue;
+      const row = rows.find((r) => r.key === STAGE_META[stage].agent);
+      const open = row && activity.find((a) => a.agentId === row.id && a.taskId === run.taskId && a.at >= run.startedAt);
+      live.costMicros = open?.costMicros ?? 0;
+    }
+    return {
+      runId: run.id,
+      taskId: run.taskId,
+      key: `${prefix}-${number}`,
+      title,
+      type: (ISSUE_TYPES as readonly string[]).includes(type) ? (type as IssueType) : "issue",
+      status: run.status === "queued" ? "queued" : "running",
+      phase: isRunStage(run.stage) ? run.stage : null,
+      round: run.reworkRounds,
+      startedAt: run.startedAt,
+      costMicros: run.costMicros,
+      branch: run.branch,
+      pullRequest: pr ?? null,
+      brief: run.brief ?? null,
+      review: run.review ?? null,
+      securityReport: run.securityReport ?? null,
+      approval: run.approval ?? null,
+      testReport: run.testReport ?? null,
+      stages,
+    };
+  });
+}
+
+/**
+ * Every agent with its live status, plus the runs in flight, for the Overview and the AI Team page (polled).
+ * Read-only: unlike getAgentTeam it never creates agents, so a role without a row yet shows its defaults (ready,
+ * never active).
+ */
+export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" | "aiProvider" | "agentMergeMode">) {
   const { start } = monthWindow();
   const prefix = taskKeyPrefix(workspace.name);
   const provider = workspaceProvider(workspace);
@@ -402,7 +509,14 @@ export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" |
       .where(and(eq(agentActivity.workspaceId, workspace.id), inArray(agentActivity.kind, WORK_KINDS)))
       .orderBy(agentActivity.agentId, desc(agentActivity.createdAt), desc(agentActivity.id)),
     db
-      .select({ stage: agentRuns.stage, number: tasks.number, title: tasks.title, startedAt: agentRuns.startedAt })
+      .select({
+        id: agentRuns.id,
+        stage: agentRuns.stage,
+        reworkRounds: agentRuns.reworkRounds,
+        number: tasks.number,
+        title: tasks.title,
+        startedAt: agentRuns.startedAt,
+      })
       .from(agentRuns)
       .innerJoin(tasks, eq(tasks.id, agentRuns.taskId))
       .where(and(eq(agentRuns.workspaceId, workspace.id), eq(agentRuns.status, "running")))
@@ -420,13 +534,21 @@ export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" |
       ? provider
       : null;
 
-  const current = new Map<AgentKey, { label: string; task: NonNullable<TeamMember["task"]> }>();
+  const [ended, runs] = await Promise.all([getEndedStages(runningRows), getLiveRuns(workspace, rows)]);
+  const current = new Map<AgentKey, { label: string; task: NonNullable<TeamMember["task"]>; doing: string | null }>();
   for (const run of runningRows) {
-    if (!RUN_STAGES.includes(run.stage as RunStage)) continue;
-    const meta = STAGE_META[run.stage as RunStage];
-    if (!meta.agent || current.has(meta.agent)) continue;
+    if (!isRunStage(run.stage)) continue;
     const key = `${prefix}-${run.number}`;
-    current.set(meta.agent, { label: `${meta.verb} ${key}`, task: { key, title: run.title, startedAt: run.startedAt } });
+    const live = runs.find((r) => r.runId === run.id);
+    for (const agent of workingAgents(run.stage, ended.get(run.id) ?? [])) {
+      if (current.has(agent)) continue;
+      const { verb } = STAGE_META[AGENT_STAGE[agent]];
+      current.set(agent, {
+        label: `${verb} ${key}`,
+        task: { key, title: run.title, startedAt: run.startedAt },
+        doing: live ? agentDoingSentence(agent, live) : null,
+      });
+    }
   }
 
   let monthSpendMicros = 0;
@@ -446,6 +568,7 @@ export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" |
       status,
       currentTask: working?.label ?? null,
       task: working?.task ?? null,
+      doing: working?.doing ?? null,
       lastAction: last ? { title: last.title, at: last.at } : null,
       model: modelInfo(row ? activeAgentModel(row, provider) : AGENT_ROLES[key].defaults.models[provider]).label,
       monthSpendMicros: spent,
@@ -453,7 +576,7 @@ export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" |
     };
   });
 
-  return { members, monthSpendMicros, monthBudgetCents, outOfCredit };
+  return { members, monthSpendMicros, monthBudgetCents, outOfCredit, runs, mergeMode: parseMergeMode(workspace.agentMergeMode) };
 }
 
 export type TeamOverview = Awaited<ReturnType<typeof getTeamOverview>>;

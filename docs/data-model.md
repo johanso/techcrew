@@ -28,7 +28,7 @@ erDiagram
     users ||--o{ workspaces : owns
     users ||--o{ tasks : "created (nullable)"
     workspaces ||--o{ tasks : contains
-    workspaces ||--o{ agents : "has (4)"
+    workspaces ||--o{ agents : "has (6)"
     agents ||--o{ agent_activity : logs
     tasks |o--o{ agent_activity : "about (nullable)"
     tasks ||--o{ agent_runs : "runs through the pipeline"
@@ -70,7 +70,8 @@ erDiagram
         text github_repo_full_name
         timestamp github_issues_synced_at
         boolean agent_auto_pickup
-        boolean agent_auto_merge
+        text agent_merge_mode "manual | auto_low_risk | auto"
+        boolean agent_auto_merge "deprecated"
         text ai_provider
         boolean ai_auto_failover
     }
@@ -84,6 +85,36 @@ erDiagram
         bigint github_issue_id "nullable"
         text assignee_agent_id "nullable"
         timestamp removed_at "nullable"
+    }
+    agent_runs {
+        serial id PK
+        int task_id FK
+        text status
+        text stage "phase"
+        jsonb brief
+        jsonb review
+        jsonb security_report
+        jsonb approval "Lead + final risk"
+        jsonb test_report
+        int rework_rounds
+    }
+    agent_run_steps {
+        serial id PK
+        int run_id FK
+        text stage "agent stage"
+        int round
+        int turn
+        int seq
+        text tool
+        text target
+    }
+    pull_requests {
+        serial id PK
+        int run_id FK
+        int number
+        text review_status "Lead's decision"
+        text risk "low | medium | high"
+        text test_status
     }
 ```
 
@@ -143,7 +174,8 @@ A workspace is bound to **exactly one** GitHub repository, chosen at creation. O
 | `github_repo_private` | boolean | no | Snapshot at link time. |
 | `github_issues_synced_at` | timestamp | yes | Last successful issue sync, **minus 60 s** of overlap; passed to GitHub as `since`. `null` = never synced (the next sync imports all open issues). |
 | `agent_auto_pickup` | boolean | no | Default `false`. Settings → Agents: the analyst takes never-run Todo cards on its own. |
-| `agent_auto_merge` | boolean | no | Default `false`. Settings → Agents: agent PRs merge once review, tests and CI pass. |
+| `agent_merge_mode` | text | no | Default `manual`. Settings → Agents → Merging (`MERGE_MODES`): `manual`, `auto_low_risk` (merge on their own only when the Lead's final risk is low) or `auto` (merge once approval, tests and CI pass). Backfilled from `agent_auto_merge` (true → `auto`) by migration 0005. Unknown values read as `manual`. |
+| `agent_auto_merge` | boolean | no | **Deprecated** (v0.1's merge switch). Not read or written since v0.2; kept one release so v0.1 code still runs against a migrated database. Drop in v0.3. |
 | `ai_provider` | text | no | Default `openai`. Settings → AI providers: `openai` or `anthropic`; drives AI drafting/trust reviews and the last provider switch. |
 | `ai_auto_failover` | boolean | no | Default `false`. Settings → AI providers: when the provider runs out of credit mid-run and the other has a key, switch the team and restart the stage. |
 | `created_at`, `updated_at` | timestamp | no | |
@@ -202,8 +234,9 @@ Indexes and constraints:
 
 ## agents
 
-One row per agent role per workspace. The four roles (`analyst`, `developer`, `reviewer`, `tester`) are created on
-first use by `ensureDefaultAgents()` with the defaults in [`lib/agent-config.ts`](../lib/agent-config.ts).
+One row per agent role per workspace. The six roles (`analyst`, `developer`, `reviewer`, `security`, `lead`,
+`tester`) are created on first use by `ensureDefaultAgents()` with the defaults in
+[`lib/agent-config.ts`](../lib/agent-config.ts); roles added later are created in existing workspaces the same way.
 
 | Column | Type | Null | Default | Notes |
 | --- | --- | --- | --- | --- |
@@ -216,7 +249,7 @@ first use by `ensureDefaultAgents()` with the defaults in [`lib/agent-config.ts`
 | `provider_models` | jsonb | no | `{}` | The agent's model per provider (`{ openai, anthropic }`), so a provider switch and back restores it. |
 | `skills` | text[] | no | `{}` | Skill ids from `SKILLS`. |
 | `monthly_budget_cents` | integer | no | | $1–$10,000. |
-| `max_turns` | integer | yes | | Model turns per pipeline stage (3–100). `null` = role default (`AGENT_ROLES[key].defaults.maxTurns`: 12/40/15/12). |
+| `max_turns` | integer | yes | | Model turns per pipeline stage (3–100). `null` = role default (`AGENT_ROLES[key].defaults.maxTurns`: analyst 12, developer 40, reviewer 15, security 15, lead 8, tester 12). |
 | `enabled` | boolean | no | `true` | Paused agents can't be Run; a running stage stops at its next turn. |
 | `trust_score` | integer | yes | | Latest Skill Trust Score (0–100), duplicated from the report for queries. |
 | `trust_report` | jsonb | yes | | `TrustReport` (`lib/agent-trust.ts`): findings, checks, mode (`rules` \| `ai` \| `switch`), model, time; Switch reports add `evaluation` and `coverage`. |
@@ -304,11 +337,13 @@ shows each card's latest run.
 | `task_id` | integer | no | | → `tasks.id`, cascade. Indexed with `started_at`. |
 | `trigger` | text | no | | `manual` (Run) or `auto` (auto pickup). |
 | `status` | text | no | | `RUN_STATUSES`: `queued`, `running`, `awaiting_merge`, `completed`, `needs_info`, `failed`, `cancelled`. |
-| `stage` | text | yes | | `RUN_STAGES`: `analysis`, `development`, `review`, `testing`, `merge`. |
+| `stage` | text | yes | | The current phase, `RUN_STAGES`: `analysis`, `development`, `review` (Reviewer and Security in parallel), `approval` (Lead), `testing`, `merge`. |
 | `branch` | text | yes | | `agent/<key>-<slug>` (suffix `-r<id>` if a previous run left that name). |
 | `brief` | jsonb | yes | | `AnalystBrief`: decision, summary, acceptance criteria, plan, relevant files, notes, question. |
-| `review` | jsonb | yes | | `ReviewReport`: verdict, summary, findings. |
-| `test_report` | jsonb | yes | | `TestReport`: verdict, summary, checks (failed pre-checks included). |
+| `review` | jsonb | yes | | `ReviewReport` (Reviewer): verdict, summary, findings. |
+| `security_report` | jsonb | yes | | `SecurityReport` (Security, same round as `review`): verdict `pass`/`issues`, summary, findings with severity (critical…low), category (secrets, injection, permissions, dependencies, other), path, detail. |
+| `approval` | jsonb | yes | | `LeadDecision`: decision (`approve` / `request_changes`), final risk (`low`/`medium`/`high`, already raised to `riskFloor`), risk reasons, summary, required changes (source, path, detail). |
+| `test_report` | jsonb | yes | | `TestReport`: verdict, summary, checks (failed pre-checks included). Cleared when the Lead requests changes (that round's tests never ran). |
 | `rework_rounds` | integer | no | `0` | Development rounds after the first (max `MAX_REWORK_ROUNDS` = 2). |
 | `error` | text | yes | | Why it stopped, or the analyst's question (`needs_info`). Shown on the card. |
 | `answer` | text | yes | | The owner's answer to the analyst's question (`needs_info` runs, `answerCardAction`). Later runs of the card read it into their prompts. |
@@ -327,7 +362,7 @@ history on every turn.
 | --- | --- | --- | --- | --- |
 | `id` | serial | no | | Primary key. |
 | `run_id` | integer | no | | → `agent_runs.id`, cascade. |
-| `conversation` | text | no | | `<stage>:<rework round>`, e.g. `development:1`. |
+| `conversation` | text | no | | `<agent stage>:<rework round>`, e.g. `development:1`, `security:0`. |
 | `seq` | integer | no | | Position in the conversation. **Unique with `run_id`, `conversation`**: a retried turn overwrites its own rows. |
 | `message` | jsonb | no | | The Anthropic message param, verbatim (thinking blocks must go back unchanged). |
 | `created_at` | timestamp | no | `now()` | |
@@ -341,7 +376,7 @@ stage ends. Read by `getTaskRunLog` (lib/agent-runs.ts) for the board's "View ag
 | --- | --- | --- | --- | --- |
 | `id` | serial | no | | Primary key. |
 | `run_id` | integer | no | | → `agent_runs.id`, cascade. |
-| `stage`, `round`, `turn`, `seq` | text / int / int / int | no | | Position. **Unique together with `run_id`**: a retried Inngest step rewrites its rows. The stage's end row uses `seq` 1000. |
+| `stage`, `round`, `turn`, `seq` | text / int / int / int | no | | Position. `stage` is the agent stage (`AGENT_STAGES`: `analysis`, `development`, `review`, `security`, `approval`, `testing`), so the parallel Reviewer and Security never share a position. **Unique together with `run_id`**: a retried Inngest step rewrites its rows. The stage's end row uses `seq` 1000. |
 | `tool` | text | no | | Tool name (`read_file`, `write_file` …), or `result` / `stopped`. |
 | `target` | text | yes | | The path, prefix or query the call was about. |
 | `ok` | boolean | no | | False when the tool answered with an error, or the stage stopped. |
@@ -378,7 +413,8 @@ Pull requests the Developer opened. One per run; rework rounds push to the same 
 | `number`, `github_id`, `url` | int / bigint / text | no | | The GitHub PR. |
 | `title`, `head_branch`, `base_branch` | text | no | | |
 | `state` | text | no | | `open`, `merged`, `closed`. Refreshed from GitHub on the Pull Requests page. |
-| `review_status` | text | no | `pending` | `pending`, `approved`, `changes_requested`. Reset to `pending` on rework. |
+| `review_status` | text | no | `pending` | The Lead's decision: `pending`, `approved`, `changes_requested`. Reset to `pending` on rework. |
+| `risk` | text | yes | | The Lead's final risk: `low`, `medium`, `high`. Null until approval; reset on rework. |
 | `test_status` | text | no | `pending` | `pending`, `passed`, `failed`. |
 | `merge_error` | text | yes | | Why the last merge attempt was blocked; cleared on merge. |
 | `follow_up_task_id` | integer | yes | | → `tasks.id`, `SET NULL`. The Tester's card for a blocked merge (one per PR). |
@@ -392,7 +428,7 @@ enforced by the server-side validators in `lib/board.ts` (`parseCardInput`, `par
 an unknown `status` (e.g. after renaming a column), `getBoardData` shows it in **Todo** rather than hiding it.
 
 Agent ids (`assignee_agent_id`, `agents.key`) are the role keys in `AGENT_KEYS`
-([`lib/agent-config.ts`](../lib/agent-config.ts)): `analyst`, `developer`, `reviewer`, `tester`. An unknown id renders
+([`lib/agent-config.ts`](../lib/agent-config.ts)): `analyst`, `developer`, `reviewer`, `security`, `lead`, `tester`. An unknown id renders
 as unassigned. `model` and `skills` are validated against `AGENT_MODELS` / `SKILLS` by `parseAgentConfigInput`.
 
 ## Behaviors worth knowing

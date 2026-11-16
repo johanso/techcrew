@@ -17,7 +17,7 @@ export default async function AiTeamPage({ params }: PageProps<"/dashboard/[work
     getSwitchConnection(workspace.id),
   ]);
   const { agents, stats } = await getAgentTeam(workspace, scans);
-  // After getAgentTeam, which creates missing agents: the office then shows their real rows.
+  // After getAgentTeam, which creates missing agents: the live status then shows their real rows.
   const team = await getTeamOverview(workspace);
   const providers = keyStatus(keys);
 

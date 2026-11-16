@@ -28,7 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AGENT_MODELS, AGENT_ROLES, formatMicros } from "@/lib/agent-config";
-import { isActiveRun, type RunStage } from "@/lib/agent-run-config";
+import { STAGE_META, TOOL_LABEL, isActiveRun } from "@/lib/agent-run-config";
 import type { RunLog, RunLogStage, RunLogStep } from "@/lib/agent-runs";
 
 type RunLogEnd = NonNullable<RunLogStage["end"]>;
@@ -45,28 +45,20 @@ const STAGE_END: Record<RunLogEnd["kind"], { icon: LucideIcon; tone: string; box
   stopped: { icon: CircleAlertIcon, tone: "text-error", box: "bg-error/6 ring-error/20" },
 };
 
-const STAGE_LABEL: Record<RunStage, string> = {
-  analysis: "Analysis",
-  development: "Development",
-  review: "Review",
-  testing: "Testing",
-  merge: "Merge",
-};
-
-/** How each tool reads in the log: "Read src/app.ts", "Edited README.md" … */
-const TOOL: Record<string, { label: string; icon: LucideIcon }> = {
-  list_files: { label: "Listed", icon: FolderTreeIcon },
-  read_file: { label: "Read", icon: FileTextIcon },
-  search_code: { label: "Searched", icon: SearchIcon },
-  write_file: { label: "Wrote", icon: FilePlusIcon },
-  replace_in_file: { label: "Edited", icon: FilePenIcon },
-  delete_file: { label: "Deleted", icon: FileXIcon },
-  get_diff: { label: "Checked the diff", icon: FileDiffIcon },
-  get_checks: { label: "Checked CI", icon: ListChecksIcon },
+/** How each tool reads in the log: "Read src/app.ts", "Edited README.md" … (labels shared with the live process). */
+const TOOL_ICON: Record<string, LucideIcon> = {
+  list_files: FolderTreeIcon,
+  read_file: FileTextIcon,
+  search_code: SearchIcon,
+  write_file: FilePlusIcon,
+  replace_in_file: FilePenIcon,
+  delete_file: FileXIcon,
+  get_diff: FileDiffIcon,
+  get_checks: ListChecksIcon,
 };
 
 function Step({ step }: { step: RunLogStep }) {
-  const meta = TOOL[step.tool] ?? { label: step.tool, icon: WrenchIcon };
+  const meta = { label: TOOL_LABEL[step.tool] ?? step.tool, icon: TOOL_ICON[step.tool] ?? WrenchIcon };
   return (
     <li className="flex min-w-0 gap-2.5 py-1.5">
       <meta.icon aria-hidden className={cn("mt-0.5 size-3.5 shrink-0", step.ok ? "text-muted-foreground" : "text-error")} />
@@ -87,20 +79,20 @@ function Step({ step }: { step: RunLogStep }) {
 }
 
 function StageBlock({ stage, live }: { stage: RunLogStage; live: boolean }) {
-  const role = stage.agent ? AGENT_ROLES[stage.agent] : null;
+  const role = AGENT_ROLES[stage.agent];
   const model = AGENT_MODELS.find((m) => m.id === stage.model);
   const end = stage.end ? STAGE_END[stage.end.kind] : null;
   return (
     <section className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 last:border-b-0">
       <div className="flex items-center gap-3">
-        {role && stage.agent && <AgentPortrait agent={{ id: stage.agent, name: role.name, tone: role.tone }} size="sm" />}
+        <AgentPortrait agent={role} size="sm" working={live} alt={role.name} />
         <div className="flex min-w-0 flex-1 flex-col">
           <p className="truncate text-sm font-bold">
-            {STAGE_LABEL[stage.stage]}
+            {STAGE_META[stage.stage].label}
             {stage.round > 0 && <span className="font-medium text-muted-foreground"> · rework {stage.round}</span>}
           </p>
           <p className="truncate text-xs text-muted-foreground">
-            {role?.name}
+            {role.name}
             {model && ` · ${model.label}`}
             {stage.turns > 0 && ` · ${stage.turns} turn${stage.turns === 1 ? "" : "s"}`}
           </p>
@@ -121,7 +113,7 @@ function StageBlock({ stage, live }: { stage: RunLogStage; live: boolean }) {
         live && (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
             <LoaderCircleIcon aria-hidden className="size-3.5 animate-spin text-action" />
-            {role?.name} is working…
+            {role.name} is working…
           </p>
         )
       )}
@@ -263,7 +255,13 @@ export function RunLogSheet({
               <StageBlock
                 key={`${stage.stage}-${stage.round}`}
                 stage={stage}
-                live={isActiveRun(data.run.status) && data.run.stage === stage.stage && data.run.reworkRounds === stage.round}
+                // Two blocks can be live at once: Reviewer and Security work the review phase in parallel.
+                live={
+                  isActiveRun(data.run.status) &&
+                  !stage.end &&
+                  data.run.stage === STAGE_META[stage.stage].phase &&
+                  data.run.reworkRounds === stage.round
+                }
               />
             ))
           )}

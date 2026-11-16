@@ -11,7 +11,7 @@ async function authorize(workspaceId: number) {
   return workspace ? { user, workspace } : null;
 }
 
-/** Live team status, polled by the office and the AI team card while the page is open. Read-only. */
+/** Live team status, polled by the AI Team page (cards, live process) and the Overview's AI team card while the page is open. Read-only. */
 export async function getTeamStatusAction(workspaceId: number): Promise<TeamOverview | null> {
   const auth = await authorize(workspaceId);
   return auth ? getTeamOverview(auth.workspace) : null;

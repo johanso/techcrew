@@ -1,22 +1,30 @@
+import { AgentFace } from "@/components/ai-team/agent-face";
 import type { Agent, AgentTone } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 
-/** Text-color class per agent tone; tints `icon-tile` and agent accents. */
+/** Text-color class per agent tone; tints `icon-tile`, agent accents and the fallback initial of a face. */
 export const AGENT_TONE_CLASS: Record<AgentTone, string> = {
   brand: "text-brand-emphasis",
   action: "text-action",
   success: "text-success",
   warning: "text-warning",
+  error: "text-error",
+  neutral: "text-foreground",
 };
 
-/** Round, tinted initial for an AI agent. */
-export function AgentAvatar({ agent, className }: { agent: Pick<Agent, "name" | "tone">; className?: string }) {
+/** Small round face of an AI agent (board assignee, activity rows). Labeled with the name unless `alt` says otherwise. */
+export function AgentAvatar({
+  agent,
+  alt = agent.name,
+  className,
+}: {
+  agent: Pick<Agent, "id" | "name" | "tone">;
+  alt?: string;
+  className?: string;
+}) {
   return (
-    <span
-      title={agent.name}
-      className={cn("icon-tile size-7 rounded-full text-xs font-bold", AGENT_TONE_CLASS[agent.tone], className)}
-    >
-      {agent.name[0]}
+    <span title={agent.name} className="inline-flex shrink-0">
+      <AgentFace agent={agent} alt={alt} toneClass={AGENT_TONE_CLASS[agent.tone]} className={cn("size-7 text-xs", className)} />
     </span>
   );
 }
