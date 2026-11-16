@@ -5,6 +5,7 @@ import { useState } from "react";
 import { AgentActivitySheet } from "@/components/ai-team/agent-activity-sheet";
 import { AgentCard } from "@/components/ai-team/agent-card";
 import { AgentConfigDialog } from "@/components/ai-team/agent-config-dialog";
+import { useLiveTeam } from "@/components/ai-team/live-team";
 import type { AgentKey, AgentProvider, ProviderStatus } from "@/lib/agent-config";
 import type { AgentView } from "@/lib/agents";
 import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
@@ -36,6 +37,8 @@ export function AgentRoster({
   const [lastConfigured, setLastConfigured] = useState<AgentKey | null>(null);
   const [lastViewed, setLastViewed] = useState<AgentKey | null>(null);
 
+  const { team } = useLiveTeam();
+
   const configAgent = agents.find((a) => a.id === (configuring ?? lastConfigured));
   const activityAgent = agents.find((a) => a.id === (viewing ?? lastViewed));
 
@@ -46,6 +49,7 @@ export function AgentRoster({
           <AgentCard
             key={agent.id}
             agent={agent}
+            live={team.members.find((m) => m.id === agent.id) ?? null}
             onConfigure={() => {
               setConfiguring(agent.id);
               setLastConfigured(agent.id);

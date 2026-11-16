@@ -4,27 +4,49 @@ import { AgentPortrait, AgentStatusBadge, BudgetMeter, TrustChip } from "@/compo
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { AGENT_MODELS } from "@/lib/agent-config";
-import type { AgentView } from "@/lib/agents";
+import type { AgentView, TeamMember } from "@/lib/agents";
 import { isPendingScan } from "@/lib/switch-trust-config";
+import { cn } from "@/lib/utils";
 
-/** One agent on the AI Team page: identity, status, what it's set up with, budget use and its two actions. */
+/** "Working…" dots: each fades in turn (static under reduced motion). */
+function WorkingDots() {
+  return (
+    <span aria-hidden className="inline-flex gap-0.5">
+      {[0, 150, 300].map((delay) => (
+        <span key={delay} className="working-dot size-1 rounded-full bg-current" style={{ animationDelay: `${delay}ms` }} />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * One agent on the AI Team page: identity, status, what it's set up with, budget use and its two actions. `live` is
+ * the polled status (LiveTeamProvider): while the agent works, the card says on which card and what it's doing.
+ */
 export function AgentCard({
   agent,
+  live,
   onConfigure,
   onViewActivity,
 }: {
   agent: AgentView;
+  live: TeamMember | null;
   onConfigure: () => void;
   onViewActivity: () => void;
 }) {
   const model = AGENT_MODELS.find((m) => m.id === agent.model);
+  const status = live?.status ?? agent.status;
+  const working = status === "working";
 
   return (
-    <article className="surface flex min-w-0 flex-col" aria-labelledby={`agent-${agent.id}-name`}>
+    <article
+      className={cn("surface flex min-w-0 flex-col transition-colors", working && "border-brand/45")}
+      aria-labelledby={`agent-${agent.id}-name`}
+    >
       <div className="flex flex-1 flex-col gap-5 p-5">
         <div className="flex items-start justify-between gap-3">
-          <AgentPortrait agent={agent} status={agent.status} size="lg" />
-          <AgentStatusBadge status={agent.status} />
+          <AgentPortrait agent={agent} status={status} working={working} size="lg" />
+          <AgentStatusBadge status={status} />
         </div>
 
         <div className="flex min-w-0 flex-col gap-1.5">
@@ -36,6 +58,16 @@ export function AgentCard({
           </div>
           <p className="line-clamp-2 min-h-10 text-sm text-muted-foreground">{agent.description}</p>
         </div>
+
+        {working && live?.task && (
+          <div className="flex flex-col gap-1 rounded-lg bg-brand/5 px-3 py-2.5 ring-1 ring-brand/20">
+            <p className="flex items-center gap-1.5 text-xs font-bold text-brand-emphasis">
+              Working on {live.task.key}
+              <WorkingDots />
+            </p>
+            <p className="line-clamp-2 text-sm">{live.doing ?? live.currentTask}</p>
+          </div>
+        )}
 
         <ul className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground" aria-label="Setup">
           <li className="flex items-center gap-1.5" title="Model">

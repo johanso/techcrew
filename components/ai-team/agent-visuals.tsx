@@ -7,12 +7,13 @@ import { cn } from "@/lib/utils";
 
 export const AGENT_STATUS: Record<AgentStatus, { label: string; dot: string; hint: string }> = {
   ready: { label: "Ready", dot: "bg-success", hint: "Waiting for work" },
-  working: { label: "Working", dot: "bg-brand-emphasis animate-pulse", hint: "Has open cards" },
+  working: { label: "Working", dot: "bg-brand-emphasis animate-pulse", hint: "Working on a card" },
   paused: { label: "Paused", dot: "bg-muted-foreground", hint: "Won't pick up new work" },
   over_budget: { label: "Over budget", dot: "bg-error", hint: "Monthly budget used" },
 };
 
 const PORTRAIT_SIZE = {
+  xs: "size-6.5 text-[11px]",
   sm: "size-8 text-sm",
   md: "size-11 text-base",
   lg: "size-16 text-xl",

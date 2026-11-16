@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BotIcon, CoinsIcon, ShieldCheckIcon, SparklesIcon } from "lucide-react";
 
 import { AgentRoster } from "@/components/ai-team/agent-roster";
+import { LiveProcess } from "@/components/ai-team/live-process";
 import { LiveTeamProvider } from "@/components/ai-team/live-team";
 import { TrustScanWatcher } from "@/components/ai-team/trust-scan-watcher";
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -118,6 +119,7 @@ export function AiTeamView({
           provider={provider}
           switchTrust={switchTrust}
         />
+        <LiveProcess workspaceId={workspace.id} />
       </LiveTeamProvider>
       <TrustScanWatcher pending={scanning > 0} />
     </>
