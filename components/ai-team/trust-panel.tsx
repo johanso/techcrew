@@ -77,7 +77,7 @@ export function TrustPanel({
       <div className="flex items-center gap-2 border-b border-border/70 px-5 py-3.5">
         <ShieldCheckIcon className="size-4 text-brand-emphasis" />
         <h3 id="trust-title" className="text-sm font-bold">
-          {switchTrust.connected ? "Switch Trust Score" : "Skill Trust Score"}
+          {switchTrust.connected ? "Switch Trust Score" : "Trust Score"}
         </h3>
         {report?.mode === "switch" ? (
           <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-brand-emphasis">

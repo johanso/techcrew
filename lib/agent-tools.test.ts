@@ -32,8 +32,8 @@ describe("toolStep (agent log)", () => {
 });
 
 describe("toolsFor", () => {
-  const names = (stage: Parameters<typeof toolsFor>[0]["stage"], skills: Parameters<typeof toolsFor>[0]["skills"]) =>
-    toolsFor({ stage, skills, branch: "agent/acm-1-x" }).map((tool) => tool.name);
+  const names = (stage: Parameters<typeof toolsFor>[0]["stage"], permissions: Parameters<typeof toolsFor>[0]["permissions"]) =>
+    toolsFor({ stage, permissions, branch: "agent/acm-1-x" }).map((tool) => tool.name);
 
   it("gives the security reviewer and the lead the diff and CI, never writes", () => {
     for (const stage of ["security", "approval"] as const) {
@@ -41,12 +41,12 @@ describe("toolsFor", () => {
     }
   });
 
-  it("writes only in development, with the skill", () => {
+  it("writes only in development, with the permission", () => {
     expect(names("development", ["repo.read", "code.write"])).toContain("write_file");
     expect(names("development", ["repo.read"])).not.toContain("write_file");
   });
 
   it("has no diff before the branch exists", () => {
-    expect(toolsFor({ stage: "review", skills: ["repo.read"], branch: null }).map((tool) => tool.name)).not.toContain("get_diff");
+    expect(toolsFor({ stage: "review", permissions: ["repo.read"], branch: null }).map((tool) => tool.name)).not.toContain("get_diff");
   });
 });

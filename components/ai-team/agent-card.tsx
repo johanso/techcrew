@@ -74,10 +74,10 @@ export function AgentCard({
             <CpuIcon className="size-3.5" />
             <span className="font-medium text-foreground">{model?.label ?? agent.model}</span>
           </li>
-          <li className="flex items-center gap-1.5" title="Attached skills">
+          <li className="flex items-center gap-1.5" title="Attached permissions">
             <BlocksIcon className="size-3.5" />
             <span>
-              <span className="font-medium text-foreground tabular-nums">{agent.skills.length}</span> skills
+              <span className="font-medium text-foreground tabular-nums">{agent.permissions.length}</span> permissions
             </span>
           </li>
           <li>

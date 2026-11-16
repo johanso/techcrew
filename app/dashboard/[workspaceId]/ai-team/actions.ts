@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { PROVIDERS, isAgentKey, isSkillId, modelInfo, workspaceProvider, type AgentKey } from "@/lib/agent-config";
+import { PROVIDERS, isAgentKey, isPermissionId, modelInfo, workspaceProvider, type AgentKey } from "@/lib/agent-config";
 import { configAIErrorMessage, generateAgentConfig, getWorkspaceConfigAI, scanAgentWithAI } from "@/lib/agent-ai";
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
 import {
@@ -71,7 +71,7 @@ export async function scanAgentAction(workspaceId: number, key: string): Promise
     key: auth.key,
     description: agent.description,
     instructions: agent.instructions,
-    skills: agent.skills.filter(isSkillId),
+    permissions: agent.permissions.filter(isPermissionId),
     monthlyBudgetCents: agent.monthlyBudgetCents,
   };
 
@@ -119,7 +119,7 @@ export type GenerateAgentResult =
   | Failure;
 
 /**
- * Drafts a description and instructions with AI for the dialog's current skills and budget. Nothing is saved
+ * Drafts a description and instructions with AI for the dialog's current permissions and budget. Nothing is saved
  * until the user saves the dialog, but the model cost is logged right away (it was spent).
  */
 export async function generateAgentAction(workspaceId: number, key: string, raw: unknown): Promise<GenerateAgentResult> {
@@ -129,17 +129,17 @@ export async function generateAgentAction(workspaceId: number, key: string, raw:
   if (!ai) return { ok: false, error: "Add an OpenAI or Anthropic API key in Settings → AI providers to generate with AI." };
 
   const input = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
-  const skills = Array.isArray(input.skills) ? [...new Set(input.skills.filter(isSkillId))] : [];
+  const permissions = Array.isArray(input.permissions) ? [...new Set(input.permissions.filter(isPermissionId))] : [];
   const budgetUsd = typeof input.monthlyBudgetUsd === "number" && Number.isFinite(input.monthlyBudgetUsd) ? input.monthlyBudgetUsd : 0;
   const focus = typeof input.focus === "string" ? input.focus.trim().slice(0, 300) : "";
-  if (!skills.length) return { ok: false, error: "Attach at least one skill first, so the instructions match what the agent can do." };
+  if (!permissions.length) return { ok: false, error: "Grant at least one permission first, so the instructions match what the agent can do." };
 
   try {
     const result = await generateAgentConfig({
       ai,
       key: auth.key,
       workspace: auth.workspace,
-      skills,
+      permissions,
       monthlyBudgetCents: Math.round(Math.max(0, budgetUsd) * 100) || auth.agent.monthlyBudgetCents,
       focus,
     });

@@ -80,7 +80,7 @@ export function AiTeamView({
         />
         <StatTile
           icon={ShieldCheckIcon}
-          label={switchTrust.connected ? "Switch Trust Score" : "Skill Trust Score"}
+          label={switchTrust.connected ? "Switch Trust Score" : "Trust Score"}
           value={
             stats.trustAverage === null ? (
               "—"

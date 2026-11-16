@@ -2,7 +2,7 @@ import "server-only";
 
 import type { FunctionTool } from "openai/resources/responses/responses";
 
-import type { SkillId } from "@/lib/agent-config";
+import type { PermissionId } from "@/lib/agent-config";
 import type { AgentStage } from "@/lib/agent-run-config";
 import {
   GithubError,
@@ -18,7 +18,7 @@ import {
 
 /**
  * The tools an agent can call while it works a stage, backed by the GitHub API with the workspace owner's token.
- * What an agent gets depends on its stage and its attached skills, so skills are enforced, not just declared.
+ * What an agent gets depends on its stage and its granted permissions, so permissions are enforced, not just declared.
  * Every result is a string for the model; recoverable errors are returned as text so the agent can adjust.
  */
 
@@ -29,7 +29,7 @@ export type ToolContext = {
   /** The run's working branch (null before the developer creates it). */
   branch: string | null;
   stage: AgentStage;
-  skills: SkillId[];
+  permissions: PermissionId[];
 };
 
 const OUTPUT_MAX = 24_000;
@@ -39,7 +39,7 @@ const WRITE_BYTES_MAX = 200_000;
 
 // Files no agent may write: CI definitions (could exfiltrate secrets), env files (.env.example is fine), git internals.
 const PROTECTED = [/^\.github\/workflows\//, /(^|\/)\.env(\.(?!example$)[^/]*)?$/, /(^|\/)\.git\//];
-// Dependency manifests and lockfiles need the "Manage dependencies" skill.
+// Dependency manifests and lockfiles need the "Manage dependencies" permission.
 const MANIFESTS =
   /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|requirements[^/]*\.txt|pyproject\.toml|poetry\.lock|Pipfile(\.lock)?|go\.(mod|sum)|Cargo\.(toml|lock)|Gemfile(\.lock)?|composer\.(json|lock)|pom\.xml|build\.gradle(\.kts)?)$/;
 
@@ -54,8 +54,8 @@ function cleanPath(path: unknown) {
 
 function writeRefusal(ctx: ToolContext, path: string) {
   if (PROTECTED.some((pattern) => pattern.test(path))) return `Refused: ${path} is protected (CI workflows, env files and git internals can't be changed by agents).`;
-  if (MANIFESTS.test(path) && !ctx.skills.includes("deps.manage")) {
-    return `Refused: ${path} is a dependency manifest and this agent doesn't have the "Manage dependencies" skill. Solve it without new dependencies, or explain in your result that a dependency is needed.`;
+  if (MANIFESTS.test(path) && !ctx.permissions.includes("deps.manage")) {
+    return `Refused: ${path} is a dependency manifest and this agent doesn't have the "Manage dependencies" permission. Solve it without new dependencies, or explain in your result that a dependency is needed.`;
   }
   return null;
 }
@@ -105,9 +105,9 @@ export type ToolName = keyof typeof TOOLS;
 // Stages that judge the work on the branch: they read its diff and CI but never write.
 const BRANCH_READERS: AgentStage[] = ["review", "security", "approval", "testing"];
 
-/** Tools for this stage, filtered by the agent's skills. */
-export function toolsFor(ctx: Pick<ToolContext, "stage" | "skills" | "branch">): FunctionTool[] {
-  const has = (skill: SkillId) => ctx.skills.includes(skill);
+/** Tools for this stage, filtered by the agent's permissions. */
+export function toolsFor(ctx: Pick<ToolContext, "stage" | "permissions" | "branch">): FunctionTool[] {
+  const has = (permission: PermissionId) => ctx.permissions.includes(permission);
   const names: ToolName[] = [];
   if (has("repo.read")) names.push("list_files", "read_file", "search_code");
   if (ctx.stage === "development" && has("code.write") && ctx.branch) names.push("write_file", "replace_in_file", "delete_file");

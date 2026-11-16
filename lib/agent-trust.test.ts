@@ -4,8 +4,8 @@ import { AGENT_ROLES } from "@/lib/agent-config";
 import { scanAgentRules, trustGrade } from "@/lib/agent-trust";
 
 const defaults = (key: keyof typeof AGENT_ROLES) => {
-  const { instructions, skills, monthlyBudgetUsd } = AGENT_ROLES[key].defaults;
-  return { key, instructions, skills: [...skills], monthlyBudgetCents: monthlyBudgetUsd * 100 };
+  const { instructions, permissions, monthlyBudgetUsd } = AGENT_ROLES[key].defaults;
+  return { key, instructions, permissions: [...permissions], monthlyBudgetCents: monthlyBudgetUsd * 100 };
 };
 
 describe("trustGrade", () => {
@@ -31,9 +31,9 @@ describe("scanAgentRules", () => {
     expect(report.findings.some((f) => f.title.includes("too short"))).toBe(true);
   });
 
-  it("costs more for riskier skills", () => {
+  it("costs more for riskier permissions", () => {
     const base = defaults("developer");
-    const withMerge = scanAgentRules({ ...base, skills: [...base.skills, "pr.merge"] });
+    const withMerge = scanAgentRules({ ...base, permissions: [...base.permissions, "pr.merge"] });
     expect(withMerge.score).toBeLessThan(scanAgentRules(base).score);
   });
 

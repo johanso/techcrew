@@ -1,7 +1,7 @@
-import { AGENT_ROLES, SKILL_BY_ID, type AgentKey, type SkillId, type SkillRisk } from "@/lib/agent-config";
+import { AGENT_ROLES, PERMISSION_BY_ID, type AgentKey, type PermissionId, type PermissionRisk } from "@/lib/agent-config";
 
 /**
- * Skill Trust Score: a 0–100 rating of how safely an agent is configured, from its skills, instructions and budget.
+ * Trust Score: a 0–100 rating of how safely an agent is configured, from its permissions, instructions and budget.
  * `scanAgentRules` is deterministic and free; lib/agent-ai.ts adds an optional OpenAI review on top.
  * Pure module (no DB, no secrets): the dialog can import the types and `trustGrade`.
  */
@@ -34,12 +34,12 @@ export type TrustReport = {
 export type TrustScanInput = {
   key: AgentKey;
   instructions: string;
-  skills: SkillId[];
+  permissions: PermissionId[];
   monthlyBudgetCents: number;
 };
 
-/** Points every granted skill costs, even when well guarded: more power is more risk. */
-const INHERENT_RISK: Record<SkillRisk, number> = { low: 0, medium: 2, high: 5, critical: 15 };
+/** Points every granted permission costs, even when well guarded: more power is more risk. */
+const INHERENT_RISK: Record<PermissionRisk, number> = { low: 0, medium: 2, high: 5, critical: 15 };
 
 /** Points an unresolved finding costs on top of that. */
 export const SEVERITY_PENALTY: Record<TrustSeverity, number> = { critical: 25, high: 10, medium: 6, low: 2, info: 1 };
@@ -63,8 +63,8 @@ function riskyLine(instructions: string, pattern: RegExp) {
 type Check = { id: string; failed: boolean; finding: Omit<TrustFinding, "id" | "source"> };
 
 export function scanAgentRules(input: TrustScanInput): TrustReport {
-  const { key, instructions, skills, monthlyBudgetCents } = input;
-  const has = (id: SkillId) => skills.includes(id);
+  const { key, instructions, permissions, monthlyBudgetCents } = input;
+  const has = (id: PermissionId) => permissions.includes(id);
   const text = instructions.toLowerCase();
   const role = AGENT_ROLES[key];
 
@@ -134,7 +134,7 @@ export function scanAgentRules(input: TrustScanInput): TrustReport {
       },
     },
 
-    // ── Skills ──
+    // ── Permissions ──
     {
       id: "merge-without-review",
       failed: has("pr.merge"),
@@ -192,15 +192,15 @@ export function scanAgentRules(input: TrustScanInput): TrustReport {
       },
     },
     {
-      id: "off-role-skills",
-      failed: skills.some((s) => !role.defaults.skills.includes(s) && SKILL_BY_ID[s].risk !== "low"),
+      id: "off-role-permissions",
+      failed: permissions.some((s) => !role.defaults.permissions.includes(s) && PERMISSION_BY_ID[s].risk !== "low"),
       finding: {
         severity: "low",
-        title: `Skills beyond the ${role.name} role`,
-        detail: `${skills
-          .filter((s) => !role.defaults.skills.includes(s) && SKILL_BY_ID[s].risk !== "low")
-          .map((s) => SKILL_BY_ID[s].name)
-          .join(", ")} ${skills.length > 1 ? "aren't" : "isn't"} part of this role's defaults. Make sure the agent needs them.`,
+        title: `Permissions beyond the ${role.name} role`,
+        detail: `${permissions
+          .filter((s) => !role.defaults.permissions.includes(s) && PERMISSION_BY_ID[s].risk !== "low")
+          .map((s) => PERMISSION_BY_ID[s].name)
+          .join(", ")} ${permissions.length > 1 ? "aren't" : "isn't"} part of this role's defaults. Make sure the agent needs them.`,
       },
     },
 
@@ -220,13 +220,13 @@ export function scanAgentRules(input: TrustScanInput): TrustReport {
     .filter((c) => c.failed)
     .map((c) => ({ id: c.id, source: "rules", ...c.finding }));
 
-  const inherent = skills.reduce((sum, s) => sum + INHERENT_RISK[SKILL_BY_ID[s].risk], 0);
+  const inherent = permissions.reduce((sum, s) => sum + INHERENT_RISK[PERMISSION_BY_ID[s].risk], 0);
   const penalty = findings.reduce((sum, f) => sum + SEVERITY_PENALTY[f.severity], 0);
   const score = Math.max(0, Math.min(100, 100 - inherent - penalty));
 
   return {
     score,
-    summary: summarize(findings, skills),
+    summary: summarize(findings, permissions),
     findings: sortFindings(findings),
     checksPassed: checks.length - findings.length,
     checksTotal: checks.length,
@@ -240,9 +240,9 @@ export function sortFindings(findings: TrustFinding[]) {
   return [...findings].sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
 }
 
-function summarize(findings: TrustFinding[], skills: SkillId[]) {
-  const risky = skills.filter((s) => ["high", "critical"].includes(SKILL_BY_ID[s].risk)).length;
-  const exposure = `${skills.length} skill${skills.length === 1 ? "" : "s"}${risky ? `, ${risky} high-risk` : ""}`;
+function summarize(findings: TrustFinding[], permissions: PermissionId[]) {
+  const risky = permissions.filter((s) => ["high", "critical"].includes(PERMISSION_BY_ID[s].risk)).length;
+  const exposure = `${permissions.length} permission${permissions.length === 1 ? "" : "s"}${risky ? `, ${risky} high-risk` : ""}`;
   if (!findings.length) return `No issues found. ${exposure}, all guarded by the instructions.`;
   const worst = sortFindings(findings)[0]!;
   return `${findings.length} issue${findings.length === 1 ? "" : "s"} to review (worst: ${worst.severity}). ${exposure}.`;

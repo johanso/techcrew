@@ -153,7 +153,7 @@ export function TrustChip({ score }: { score: number | null }) {
   if (score === null) return <span className="text-xs text-muted-foreground">Not scanned</span>;
   const grade = trustGrade(score);
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-medium" title={`Skill Trust Score: ${grade.label}`}>
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium" title={`Trust Score: ${grade.label}`}>
       <span aria-hidden className={cn("size-1.5 rounded-full bg-current", grade.tone)} />
       <span className="font-semibold tabular-nums">{score}</span>
       <span className="text-muted-foreground">trust</span>

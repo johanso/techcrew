@@ -174,14 +174,15 @@ export const agents = pgTable(
     model: text("model").notNull(),
     // The model this agent uses on each provider, so switching provider and back restores the user's choice.
     providerModels: jsonb("provider_models").$type<Partial<Record<AgentProvider, AgentModelId>>>().notNull().default({}),
-    // Skill ids from SKILLS.
-    skills: text("skills").array().notNull().default(sql`'{}'::text[]`),
+    // Permission ids from PERMISSIONS (lib/agent-config.ts). The column kept its v0.1 name "skills"; "skills" now
+    // means the installable knowledge packs in agent_skills.
+    permissions: text("skills").array().notNull().default(sql`'{}'::text[]`),
     monthlyBudgetCents: integer("monthly_budget_cents").notNull(),
     // Model turns allowed per stage before the agent must submit its result. Null = the role's default.
     maxTurns: integer("max_turns"),
     // Paused agents don't pick up work (Run refuses).
     enabled: boolean("enabled").default(true).notNull(),
-    // Latest Skill Trust Score scan (lib/agent-trust.ts). Score is duplicated out of the report for queries.
+    // Latest Trust Score scan (lib/agent-trust.ts). Score is duplicated out of the report for queries.
     trustScore: integer("trust_score"),
     trustReport: jsonb("trust_report").$type<TrustReport>(),
     trustScannedAt: timestamp("trust_scanned_at"),
