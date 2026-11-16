@@ -1,18 +1,9 @@
-import { CodeXmlIcon, FlaskConicalIcon, ScanEyeIcon, ScanSearchIcon, type LucideIcon } from "lucide-react";
-
+import { AgentFace } from "@/components/ai-team/agent-face";
 import { AGENT_TONE_CLASS } from "@/components/dashboard/agent-avatar";
 import { MICROS_PER_USD, formatCents, formatMicros, type AgentKey, type AgentTone } from "@/lib/agent-config";
 import { trustGrade } from "@/lib/agent-trust";
 import type { AgentStatus } from "@/lib/agents";
 import { cn } from "@/lib/utils";
-
-/** One icon per role: the agent's "face" on the AI Team page. */
-export const AGENT_ICON: Record<AgentKey, LucideIcon> = {
-  analyst: ScanSearchIcon,
-  developer: CodeXmlIcon,
-  reviewer: ScanEyeIcon,
-  tester: FlaskConicalIcon,
-};
 
 export const AGENT_STATUS: Record<AgentStatus, { label: string; dot: string; hint: string }> = {
   ready: { label: "Ready", dot: "bg-success", hint: "Waiting for work" },
@@ -22,29 +13,36 @@ export const AGENT_STATUS: Record<AgentStatus, { label: string; dot: string; hin
 };
 
 const PORTRAIT_SIZE = {
-  sm: "size-8 rounded-lg [&_svg]:size-4",
-  md: "size-11 rounded-xl [&_svg]:size-5",
-  lg: "size-14 rounded-2xl [&_svg]:size-6.5",
+  sm: "size-8 text-sm",
+  md: "size-11 text-base",
+  lg: "size-16 text-xl",
 };
 
-/** Agent avatar: a tinted tile with the role's icon and an optional status dot on its corner. */
+/**
+ * Agent avatar: the agent's face with an optional status dot on its corner. `working` adds a brand ring that pulses
+ * (still under reduced motion). `alt` stays empty when the agent's name is shown next to it.
+ */
 export function AgentPortrait({
   agent,
   status,
+  working = false,
   size = "md",
+  alt = "",
   className,
 }: {
   agent: { id: AgentKey; name: string; tone: AgentTone };
   status?: AgentStatus;
+  working?: boolean;
   size?: keyof typeof PORTRAIT_SIZE;
+  alt?: string;
   className?: string;
 }) {
-  const Icon = AGENT_ICON[agent.id];
   return (
     <span className={cn("relative inline-flex shrink-0", className)}>
-      <span role="img" aria-label={agent.name} className={cn("icon-tile", PORTRAIT_SIZE[size], AGENT_TONE_CLASS[agent.tone])}>
-        <Icon aria-hidden />
-      </span>
+      <AgentFace agent={agent} alt={alt} toneClass={AGENT_TONE_CLASS[agent.tone]} className={PORTRAIT_SIZE[size]} />
+      {working && (
+        <span aria-hidden className="pointer-events-none absolute -inset-1 rounded-full ring-2 ring-brand-emphasis motion-safe:animate-pulse" />
+      )}
       {status && (
         <span
           aria-hidden

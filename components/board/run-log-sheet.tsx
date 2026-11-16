@@ -93,7 +93,7 @@ function StageBlock({ stage, live }: { stage: RunLogStage; live: boolean }) {
   return (
     <section className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 last:border-b-0">
       <div className="flex items-center gap-3">
-        {role && stage.agent && <AgentPortrait agent={{ id: stage.agent, name: role.name, tone: role.tone }} size="sm" />}
+        {role && stage.agent && <AgentPortrait agent={{ id: stage.agent, name: role.name, tone: role.tone }} size="sm" alt={role.name} />}
         <div className="flex min-w-0 flex-1 flex-col">
           <p className="truncate text-sm font-bold">
             {STAGE_LABEL[stage.stage]}

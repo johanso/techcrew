@@ -3,7 +3,7 @@
  * agent can use, and each role's default configuration. No React, no DB — safe to import anywhere.
  */
 
-export type AgentTone = "brand" | "action" | "success" | "warning";
+export type AgentTone = "brand" | "action" | "success" | "warning" | "error" | "neutral";
 
 export const AGENT_KEYS = ["analyst", "developer", "reviewer", "tester"] as const;
 export type AgentKey = (typeof AGENT_KEYS)[number];
