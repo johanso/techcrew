@@ -1,7 +1,8 @@
 # Background jobs (Inngest)
 
 Long-running and retryable work runs as [Inngest](https://www.inngest.com) functions, outside the request that
-triggered it. Code: [`lib/inngest/`](../lib/inngest), served by [`app/api/inngest/route.ts`](../app/api/inngest/route.ts).
+triggered it. SwitchAgent scans are the exception: they run on **Cloudhike Jobs** (HTTP jobs that call the app back),
+see [switch-trust.md](switch-trust.md#background-jobs-cloudhike). Code: [`lib/inngest/`](../lib/inngest), served by [`app/api/inngest/route.ts`](../app/api/inngest/route.ts).
 
 - [How it fits together](#how-it-fits-together)
 - [Registered functions](#registered-functions)

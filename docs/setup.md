@@ -56,6 +56,9 @@ All variables live in `.env`. Restart `npm run dev` after changing them.
 | `OPENAI_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback; workspaces normally save their own key in Settings → AI providers. Agents on GPT models; **Draft with AI** and AI-assisted trust scans (on `gpt-6.1-sol`). Without any provider key the page works with default instructions and rule-based scans. Model cost is charged to the agent's monthly budget. |
 | `ANTHROPIC_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback, as above. Agents on Claude models (Opus / Sonnet / Haiku 5.5). Also drafting and trust scans (on `claude-sonnet-5-5`) when `OPENAI_API_KEY` isn't set. A Console API key (pay as you go); a Claude.ai subscription can't be used. |
 | `AGENTS_SIMULATED` | no | `lib/agent-simulated.ts` | Local testing. `true` runs the agent pipeline with scripted agents: no model calls and no spend, but real GitHub work on the linked repo (a branch, one note file `agent-simulations/<branch>.md`, a pull request). Each turn waits 4 s so you can watch the card move. Leave `false` in production. |
+| `JOBS_API_URL`, `JOBS_API_KEY` | for Switch scans | `lib/jobs.ts` | Cloudhike Jobs project (`https://cloudhike.dev/api/jobs-service/<project>`) and its server-only key. SwitchAgent scans run on it. |
+| `PUBLIC_APP_URL` | for Switch scans | `lib/jobs.ts` | The app's internet-reachable origin, called back by Cloudhike jobs and Switch evaluations. Defaults to `NEXT_PUBLIC_APP_URL`; a local address disables scans, so in dev use a tunnel (`ngrok http 3000`). |
+| `SWITCH_AGENT_AI_API_KEY` | optional | `lib/switch-trust.ts` | Server-wide Switch Trust key (Editor role) for workspaces that connect without their own. See [switch-trust.md](switch-trust.md). |
 | `INNGEST_EVENT_KEY` | production | `lib/inngest/client.ts` | Inngest Cloud event key. Not needed locally (the Dev Server is used). |
 | `INNGEST_SIGNING_KEY` | production | Inngest `serve()` | Verifies requests from Inngest Cloud to `/api/inngest`. Not needed locally. |
 | `INNGEST_DEV` | no | Inngest SDK | Set to `1` to force Dev Mode, `0` to force Cloud Mode. If unset, the SDK (v3) infers Dev Mode unless the environment looks like production (`NODE_ENV=production`, Vercel/Netlify production, …). |
@@ -119,6 +122,12 @@ under `workspace-logos/<ownerId>/<uuid>.<ext>` and streamed to their owner by `/
 Locally nothing to configure: run `npm run inngest:dev`. It starts the Inngest Dev Server (UI on
 <http://localhost:8288>) and points it at `http://localhost:3000/api/inngest`, where the app's functions are
 served. For production see [docs/background-jobs.md](background-jobs.md#production).
+
+### Switch Trust and Cloudhike Jobs (optional)
+
+For SwitchAgent scans: create a Jobs project on Cloudhike (`JOBS_API_URL`, `JOBS_API_KEY`), an API key with the
+Editor role in Switch Trust (Settings → API keys), and expose the app publicly (`PUBLIC_APP_URL`). Then Settings →
+Switch Trust → **Connect securely**. Details: [switch-trust.md](switch-trust.md).
 
 ## 4. Create the database tables
 

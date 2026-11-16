@@ -36,6 +36,7 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | AI Team: default agents, configure dialog, Skill Trust Score, spending, activity drawer | ✅ Real, persisted | `components/ai-team`, `lib/agents.ts` |
 | Live Agent Office (AI Team page): agents at desks, typing while working, status bubbles, hover cards, live polling | ✅ Real | `components/office`, `lib/office-scene.json` |
 | AI drafting of instructions + AI-assisted trust scans | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | `lib/agent-ai.ts` |
+| Switch Trust: connect a Switch account, SwitchAgent scans (register agents, one evaluation each, health score + OWASP coverage) in the background via Cloudhike jobs | 🟡 Built and unit-tested; the agent endpoint verified with a real OpenAI call; never run against a real Switch instance (needs a public URL) | `lib/switch-trust.ts`, `docs/switch-trust.md` |
 | Pull Requests page (agent PRs, verdicts, Merge) | ✅ Real | `components/pull-requests`, `lib/pull-requests.ts` |
 | Activity page (workspace timeline) | ✅ Real | `lib/activity.ts`, `components/activity` |
 | Notifications (header bell): PR ready, merged, merge blocked, needs info, run stopped, out of credit, provider switched | ✅ Real (polled every 30 s) | `lib/notifications.ts`, `components/dashboard/notifications-menu.tsx` |
@@ -91,8 +92,8 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 1. **Try the pipeline with a real OpenAI or Anthropic key** on a test repository and tune the stage prompts and default
    max turns. Work through the open rows of the [test plan](testing.md#test-plan-and-status).
 2. **Sandboxed execution** (container/VM) so the Developer and Tester can install, build and run tests before the PR.
-3. **Switch AI integration** (switchagents.ai): Trust runtime guardrails and evaluations, ROI, Rooms. Planned; see
-   the plan agreed on 2026-11-04 (phase 0: account + API key, SDK compatibility spike).
+3. **Switch AI integration** (switchagents.ai): Trust evaluations are in ([switch-trust.md](switch-trust.md)); first
+   live scan pending. Next: ROI (SDK usage tracking, cost caps), weekly scheduled evaluations, runtime guardrails, Rooms.
 4. **GitHub webhooks** for real-time issues, and optional write-back (close the issue when a card reaches Done).
 5. **Integration tests** (database + pipeline in simulated mode) and a CI workflow running `npm run check`.
 6. **Activity for people's actions** (card moves, edits, removals, syncs) and email notifications.
@@ -109,6 +110,8 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 | `463701d` | GitHub issue sync; demo data removed. |
 | `15e1257` | Card Run (Analyst + Inngest job) and Remove actions. |
 | `d6f030e` | AI Team page: configurable agents, Skill Trust Score, spending, activity. |
+| `feat/ai-agents` (5) | Switch Trust: connect a Switch account in Settings, SwitchAgent scans (agents registered in Switch, one evaluation each, health score + OWASP coverage) on connect and on demand, run in the background on Cloudhike jobs; OpenAI-compatible endpoint per agent for Switch's tests. |
+| `feat/ai-agents` (4) | Answer the analyst from the board, converging reviews, session cache and lighter board polling, accent-free branch names. |
 | `feat/ai-agents` (3) | Out-of-credit notice with switch-and-retry and opt-in automatic switch, agent log per card, notifications bell, model picker fix, header shows the repo name, sidebar account menu removed. Production prep: ESLint, Vitest (33 tests), Drizzle migrations (baseline), renamed to TechTeam, starter leftovers and 40 unused shadcn components + 9 dependencies removed. |
 | `feat/ai-agents` (2) | Overview and Activity on real data (no fixtures left, empty states), AI team card, cost per step on Activity, Live Agent Office on the AI Team page (sprites from the office editor's scene bundle, live status polling). |
 | `feat/ai-agents` | Agent pipeline on the board (Analysis column, stages, PRs, merge, follow-ups, auto pickup), simulated agents, Anthropic as a second provider, provider keys and company switch in Settings, a model per agent per company, Merge / rerun on cards, testing guide. |

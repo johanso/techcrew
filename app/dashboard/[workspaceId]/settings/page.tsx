@@ -1,17 +1,19 @@
 import type { Metadata } from "next";
 import { format } from "date-fns";
-import { BadgeCheckIcon, BotIcon, ExternalLinkIcon, KeyRoundIcon } from "lucide-react";
+import { BadgeCheckIcon, BotIcon, ExternalLinkIcon, KeyRoundIcon, ShieldCheckIcon } from "lucide-react";
 
 import { DetailGrid, PageHeader, SurfaceHeader } from "@/components/dashboard/page-header";
 import { AgentAutomationForm } from "@/components/settings/agent-automation-form";
 import { AutoFailoverToggle } from "@/components/settings/auto-failover-toggle";
 import { ProviderKeyForm } from "@/components/settings/provider-key-form";
 import { ProviderSwitchForm } from "@/components/settings/provider-switch-form";
+import { SwitchConnectionForm } from "@/components/settings/switch-connection-form";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { WorkspaceAvatar, workspaceLogoSrc } from "@/components/workspace/workspace-avatar";
 import { workspaceProvider } from "@/lib/agent-config";
 import { getProviderKeyViews } from "@/lib/ai-keys";
+import { getSwitchConnectionView } from "@/lib/switch-trust";
 import { initials } from "@/lib/utils";
 import { getDashboardContext } from "@/lib/workspaces";
 
@@ -19,7 +21,7 @@ export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage({ params }: PageProps<"/dashboard/[workspaceId]/settings">) {
   const { user, workspace } = await getDashboardContext((await params).workspaceId);
-  const keys = await getProviderKeyViews(workspace.id);
+  const [keys, switchView] = await Promise.all([getProviderKeyViews(workspace.id), getSwitchConnectionView(workspace.id)]);
   const provider = workspaceProvider(workspace);
 
   return (
@@ -112,6 +114,22 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
             <ProviderKeyForm workspaceId={workspace.id} provider="openai" view={keys.openai} />
             <ProviderKeyForm workspaceId={workspace.id} provider="anthropic" view={keys.anthropic} />
           </div>
+        </div>
+      </section>
+
+      <section id="switch" className="surface scroll-mt-24">
+        <SurfaceHeader
+          icon={
+            <span className="icon-tile text-brand-emphasis">
+              <ShieldCheckIcon />
+            </span>
+          }
+          title="Switch Trust"
+          description="Connect your Switch account: your agents are registered there and SwitchAgent scans score them with one evaluation each."
+          actions={<span className="eyebrow text-muted-foreground">Trust</span>}
+        />
+        <div className="border-t border-border/70 p-6">
+          <SwitchConnectionForm workspaceId={workspace.id} view={switchView} />
         </div>
       </section>
 

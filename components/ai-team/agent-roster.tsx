@@ -7,6 +7,7 @@ import { AgentCard } from "@/components/ai-team/agent-card";
 import { AgentConfigDialog } from "@/components/ai-team/agent-config-dialog";
 import type { AgentKey, AgentProvider, ProviderStatus } from "@/lib/agent-config";
 import type { AgentView } from "@/lib/agents";
+import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
 
 /**
  * The agent cards plus the configure dialog and activity drawer they open. Both overlays read the agent from
@@ -19,6 +20,7 @@ export function AgentRoster({
   aiEnabled,
   providers,
   provider,
+  switchTrust,
 }: {
   agents: AgentView[];
   workspaceId: number;
@@ -26,6 +28,7 @@ export function AgentRoster({
   aiEnabled: boolean;
   providers: ProviderStatus;
   provider: AgentProvider;
+  switchTrust: SwitchTrustStatus;
 }) {
   const [configuring, setConfiguring] = useState<AgentKey | null>(null);
   const [viewing, setViewing] = useState<AgentKey | null>(null);
@@ -67,6 +70,7 @@ export function AgentRoster({
           aiEnabled={aiEnabled}
           providers={providers}
           provider={provider}
+          switchTrust={switchTrust}
         />
       )}
       {activityAgent && (

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BotIcon, CoinsIcon, ShieldCheckIcon, SparklesIcon } from "lucide-react";
 
 import { AgentRoster } from "@/components/ai-team/agent-roster";
+import { TrustScanWatcher } from "@/components/ai-team/trust-scan-watcher";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatTile } from "@/components/dashboard/stat-tile";
 import { AgentOffice } from "@/components/office/agent-office";
@@ -9,6 +10,7 @@ import { LiveTeamProvider } from "@/components/office/live-team";
 import { MICROS_PER_USD, formatCents, formatMicros, type AgentProvider, type ProviderStatus } from "@/lib/agent-config";
 import { trustGrade } from "@/lib/agent-trust";
 import type { AgentTeamStats, AgentView, TeamOverview } from "@/lib/agents";
+import { isPendingScan, type SwitchTrustStatus } from "@/lib/switch-trust-config";
 
 /** AI Team content. Presentational: the page loads the data. */
 export function AiTeamView({
@@ -19,6 +21,7 @@ export function AiTeamView({
   aiEnabled,
   providers,
   provider,
+  switchTrust,
 }: {
   workspace: { id: number; githubRepoFullName: string };
   agents: AgentView[];
@@ -28,7 +31,9 @@ export function AiTeamView({
   aiEnabled: boolean;
   providers: ProviderStatus;
   provider: AgentProvider;
+  switchTrust: SwitchTrustStatus;
 }) {
+  const scanning = agents.filter((a) => a.scan && isPendingScan(a.scan.status)).length;
   const budgetMicros = stats.monthBudgetCents * (MICROS_PER_USD / 100);
   const usedPercent = budgetMicros > 0 ? (stats.monthSpendMicros / budgetMicros) * 100 : 0;
   const paused = stats.total - stats.active;
@@ -75,7 +80,7 @@ export function AiTeamView({
         />
         <StatTile
           icon={ShieldCheckIcon}
-          label="Skill Trust Score"
+          label={switchTrust.connected ? "Switch Trust Score" : "Skill Trust Score"}
           value={
             stats.trustAverage === null ? (
               "—"
@@ -87,9 +92,11 @@ export function AiTeamView({
             )
           }
           hint={
-            grade && stats.lowestTrust
-              ? `${grade.label} · lowest: ${stats.lowestTrust.name} ${stats.lowestTrust.score}`
-              : "Scan an agent to get a score"
+            scanning
+              ? `SwitchAgent is scanning ${scanning} agent${scanning === 1 ? "" : "s"}…`
+              : grade && stats.lowestTrust
+                ? `${grade.label} · lowest: ${stats.lowestTrust.name} ${stats.lowestTrust.score}`
+                : "Scan an agent to get a score"
           }
           tone={grade?.tone ?? "text-success"}
         />
@@ -109,7 +116,9 @@ export function AiTeamView({
         aiEnabled={aiEnabled}
         providers={providers}
         provider={provider}
+        switchTrust={switchTrust}
       />
+      <TrustScanWatcher pending={scanning > 0} />
 
       <LiveTeamProvider workspaceId={workspace.id} initial={team}>
         <AgentOffice workspaceId={workspace.id} title="Live Agent Office Workspace" description="Watch your agents work in real time" />

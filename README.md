@@ -21,9 +21,11 @@ cards from analysis to a merged pull request.
 | Agent pipeline | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (or `AGENTS_SIMULATED=true` to try it free) | Analyst plans → Developer commits on a branch and opens a PR → Reviewer → Tester → merge (manual or automatic). Rework loops, max turns per agent, skills enforced as tools, follow-up card on merge conflicts or failing builds. Auto pickup of Todo cards (optional). Out of credit: the board says so and switches company with one click (or automatically, opt-in). No code execution: verification is static plus CI. |
 | Overview page | ✅ Real | Stats, upcoming tasks and recent activity from the board and the activity feed; empty states when there is nothing yet. |
 | AI Team | ✅ Real | Four default agents (Analyst, Developer, Reviewer, Tester) per workspace: configure instructions, skills, model and budget; Skill Trust Score with **Scan again**; spending; activity drawer. Each agent runs on an OpenAI or Claude model. AI drafts instructions and reviews configs (optional). |
+| Switch Trust (SwitchAgent scans) | 🟡 Built, first live scan pending | Settings → Switch Trust connects a Switch account; the four agents are registered there and each runs **one** Switch evaluation (on connect, and on demand with **SwitchAgent Scan**). Runs in the background on Cloudhike jobs; health score, tests held and OWASP coverage update on their own. Needs a public URL (`PUBLIC_APP_URL`). See [docs/switch-trust.md](docs/switch-trust.md). |
 | Live Agent Office | ✅ Real | AI Team page: the agents at their desks in an illustrated office, typing while they work, with live status bubbles and hover cards (`npm run office:assets` builds the sprites). |
 | Pull Requests page | ✅ Real | Agent PRs with review/test verdicts and **Merge**. |
 | Settings → Agent automation | ✅ Real | Task pickup and merge mode per workspace. |
+| Settings → AI providers | ✅ Real | Encrypted OpenAI / Anthropic keys per workspace, provider switch, optional automatic switch when out of credit. |
 | Activity page | ✅ Real | Workspace timeline (agent events + cards people created), grouped by day. |
 | Notifications (header bell) | ✅ Real | PR ready to merge, analyst questions, stopped runs, out of credit, provider switched, merges and blocked merges. |
 | Landing page (`/`) | ➖ None yet | Redirects to the dashboard (signed in) or to sign-in. |
@@ -43,7 +45,9 @@ npm run inngest:dev           # in a second terminal — needed for the agent pi
 ```
 
 You need: Node.js 22+, a PostgreSQL database, a CloudHike auth project, a GitHub OAuth App, and (optionally) an
-S3 bucket for workspace logos and an OpenAI and/or Anthropic API key for the agents, AI drafting and AI-assisted trust scans. Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
+S3 bucket for workspace logos, an OpenAI and/or Anthropic API key for the agents, AI drafting and AI-assisted trust scans,
+and for SwitchAgent scans a Switch Trust key, a Cloudhike Jobs project and a public URL (a tunnel such as ngrok locally).
+Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 
 ---
 
@@ -78,6 +82,7 @@ S3 bucket for workspace logos and an OpenAI and/or Anthropic API key for the age
 | [docs/features.md](docs/features.md) | See how each feature behaves, screen by screen. |
 | [docs/github-integration.md](docs/github-integration.md) | Understand the GitHub OAuth connection, repository linking and issue sync rules. |
 | [docs/background-jobs.md](docs/background-jobs.md) | Work with Inngest: the agent job, local dev server, production keys. |
+| [docs/switch-trust.md](docs/switch-trust.md) | Connect Switch Trust and run SwitchAgent scans (one evaluation per agent, in the background on Cloudhike jobs). |
 | [docs/security.md](docs/security.md) | Know how sessions, authorization, secrets and uploads are protected — and the known gaps. |
 | [docs/status.md](docs/status.md) | See what's real, dummy or placeholder, known limitations, and suggested next steps. |
 | [docs/testing.md](docs/testing.md) | Test the AI agents: simulated mode, providers and models, the test plan with what's verified, techniques and gotchas. |

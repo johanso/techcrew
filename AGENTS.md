@@ -80,6 +80,9 @@ app/
     github/callback/          Finishes it; stores the encrypted token.
     workspaces/[id]/logo/     Streams a workspace logo from S3 to its owner.
     inngest/                  Inngest handler (serves the agent pipeline and auto pickup).
+    switch-trust/scans/[scanId]/  Cloudhike job target: advances one SwitchAgent scan (single-use bearer token).
+    switch-trust/agents/[agentId]/  OpenAI-compatible endpoint Switch evaluates an agent through (+ v1/chat/completions,
+                              chat/completions aliases); derived per-agent bearer credential.
   workspaces/
     page.tsx              Workspace picker (post-sign-in landing). Redirects to /new if empty.
     new/page.tsx          Create-workspace page.
@@ -92,14 +95,15 @@ app/
       actions.ts          Workspace-wide reads: getTeamStatusAction (live team), getNotificationsAction,
                           markNotificationsReadAction.
       board/ ai-team/ pull-requests/ activity/   One page.tsx per sidebar section.
-      ai-team/actions.ts  saveAgentAction, scanAgentAction, generateAgentAction (auth + validation).
+      ai-team/actions.ts  saveAgentAction, scanAgentAction, switchScanAgentAction (SwitchAgent Scan), generateAgentAction
+                          (auth + validation).
       board/actions.ts    createCardAction, updateCardAction, moveCardsAction, removeCardAction, runCardAction,
                           answerCardAction (answer the analyst + run again), stopCardAction, mergeCardAction, switchProviderAndRetryAction (out of credit), getRunLogAction
                           (agent log), syncIssuesAction (also refreshes agent PRs) (auth + validation).
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
-      settings/           Account (#account), workspace (#workspace), AI providers (#ai: keys + provider switch) and agent
-                          automation (#agents). actions.ts: automation, provider switch, auto failover toggle,
-                          save/remove provider key.
+      settings/           Account (#account), workspace (#workspace), AI providers (#ai: keys + provider switch), Switch
+                          Trust (#switch) and agent automation (#agents). actions.ts: automation, provider switch, auto
+                          failover toggle, save/remove provider key, connect/disconnect Switch.
   globals.css             THE theme: palette, semantic tokens, Tailwind mapping.
   layout.tsx              Root layout; loads Plus Jakarta Sans, ThemeProvider.
   page.tsx                `/`: redirects to /dashboard (signed in) or /sign-in. No landing page yet.
@@ -121,10 +125,12 @@ components/
   activity/               activity-timeline (Activity page: events grouped by day, Show older).
   settings/               agent-automation-form (task pickup + merge mode), provider-switch-form, auto-failover-toggle,
                           provider-key-form
-                          (masked key + show/hide), option-cards (radio cards shared by the settings forms).
+                          (masked key + show/hide), switch-connection-form (Switch Trust account), option-cards (radio
+                          cards shared by the settings forms).
   ai-team/                AI Team: ai-team-view (page markup), agent-roster (cards + open overlay state), agent-card,
                           agent-config-dialog (form + SkillPicker + Draft with AI), trust-panel, spending-panel,
-                          agent-activity-sheet, agent-visuals (AgentPortrait, AgentStatusBadge, BudgetMeter, TrustRing).
+                          agent-activity-sheet, agent-visuals (AgentPortrait, AgentStatusBadge, BudgetMeter, TrustRing),
+                          trust-scan-watcher (refreshes the page while a SwitchAgent scan is pending).
   dashboard/              Overview sections: stat-tile, upcoming-tasks, team-status (AI team card, live), recent-activity,
                           agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS), activity-kind (ACTIVITY_KIND,
                           ActivityAvatar).
@@ -151,6 +157,13 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   agent-config.ts         AI Team vocabulary shared by server + client: roles + defaults (models per provider), SKILLS,
                           AGENT_MODELS (provider + pricing), PROVIDERS, EQUIVALENT_MODEL, agentModelFor, limits.
   agent-trust.ts          Skill Trust Score: scanAgentRules() (deterministic), trustGrade(). Pure.
+  switch-trust.ts         Switch Trust: connection (encrypted key, connectSwitch/disconnectSwitch), SwitchAgent scans
+                          (requestSwitchScans → Cloudhike job → advanceTrustScan: register, 1 evaluation, poll, save),
+                          getLatestTrustScans, agent endpoint credential. See docs/switch-trust.md.
+  switch-api.ts           Switch Trust REST client (identity, register agent, endpoint, assignment, trigger, run, summary).
+  switch-trust-config.ts  Pure: scan statuses, pickFastEvaluation, runPhase, buildSwitchReport, parseEvalMessages.
+  switch-eval.ts          answerEvaluation(): an agent answers one Switch test with its model + instructions, cost logged.
+  jobs.ts                 Cloudhike Jobs: enqueueJob, getJobRun, publicAppUrl (null for local addresses).
   agent-ai.ts             Config AI (OpenAI if configured, else Anthropic): generateAgentConfig() (repo-aware instructions),
                           scanAgentWithAI(), isConfigAIAvailable().
   openai.ts               OpenAI client (null without a key), responseCostMicros().
@@ -451,6 +464,13 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     instructions, skills or budget re-runs the rule scan, so the stored score always matches the saved config.
     **Scan again** scores the saved config (disabled while the dialog is dirty) and adds an AI review when a provider is configured.
   - **Run** refuses when the analyst is paused or over budget (`checkAgentCanRun`) and logs `task_assigned`.
+  - **SwitchAgent scans** (`lib/switch-trust.ts`, [`docs/switch-trust.md`](docs/switch-trust.md)): with a Switch account
+    connected (Settings → `#switch`), the score comes from Switch. Connecting (and saving a provider key) scans all four
+    agents; **SwitchAgent Scan** in the dialog scans one, on demand. Always **one** evaluation per agent (the fastest
+    built-in, saved on the connection), never the catalog. Work runs on Cloudhike jobs, never in the user's request;
+    the page polls with `TrustScanWatcher` while a scan is pending. Saving a config keeps a Switch report (flagged as
+    older than the change) instead of overwriting it with the rule scan. Never copy test conversations: they're
+    attacker-written.
   - **Max turns** (`agents.max_turns`, null = role default from `AGENT_ROLES`) caps model turns per pipeline stage.
   - **Working** status = a `running` run is at that agent's stage (`STAGE_META`), not "has assigned cards".
   - Server actions call `revalidatePath` so cards, stats and open overlays show fresh data; dialog form state survives.
@@ -560,4 +580,7 @@ See `.env.example` for the full list with comments. Feature-specific:
 | `TOKEN_ENCRYPTION_KEY` | Encrypting GitHub tokens and AI provider keys (`openssl rand -base64 32`). Rotating it forces every user to reconnect GitHub and re-enter their AI keys. |
 | `S3_*` | Workspace logo uploads. Without them the upload button is disabled; icons still work. |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Optional server-wide fallback for workspaces that haven't saved their own key in Settings → AI providers. |
+| `JOBS_API_URL`, `JOBS_API_KEY` | Cloudhike Jobs: runs SwitchAgent scans in the background. |
+| `PUBLIC_APP_URL` | The app's internet-reachable URL for callbacks (jobs, Switch evaluations); defaults to `NEXT_PUBLIC_APP_URL`. A tunnel in local dev. |
+| `SWITCH_AGENT_AI_API_KEY` | Optional server-wide Switch Trust key (Editor role) for workspaces that connect without their own. |
 | `AGENTS_SIMULATED` | Local testing: `true` runs the pipeline with scripted agents (`lib/agent-simulated.ts`) — no model calls or spend, but real GitHub work (branch, `agent-simulations/<branch>.md`, PR). |

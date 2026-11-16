@@ -40,6 +40,7 @@ import {
 } from "@/lib/agent-config";
 import { MAX_TURNS_MAX, MAX_TURNS_MIN } from "@/lib/agent-run-config";
 import type { AgentConfigField, AgentView } from "@/lib/agents";
+import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
 import { cn } from "@/lib/utils";
 
 const RISK: Record<SkillRisk, { label: string; dot: string; text: string }> = {
@@ -60,6 +61,7 @@ export function AgentConfigDialog({
   aiEnabled,
   providers,
   provider,
+  switchTrust,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -69,6 +71,7 @@ export function AgentConfigDialog({
   aiEnabled: boolean;
   providers: ProviderStatus;
   provider: AgentProvider;
+  switchTrust: SwitchTrustStatus;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -81,6 +84,7 @@ export function AgentConfigDialog({
           aiEnabled={aiEnabled}
           providers={providers}
           provider={provider}
+          switchTrust={switchTrust}
           onSaved={() => onOpenChange(false)}
         />
       </DialogContent>
@@ -95,6 +99,7 @@ function ConfigForm({
   aiEnabled,
   providers,
   provider,
+  switchTrust,
   onSaved,
 }: {
   agent: AgentView;
@@ -103,6 +108,7 @@ function ConfigForm({
   aiEnabled: boolean;
   providers: ProviderStatus;
   provider: AgentProvider;
+  switchTrust: SwitchTrustStatus;
   onSaved: () => void;
 }) {
   const defaults = AGENT_ROLES[agent.id].defaults;
@@ -360,7 +366,7 @@ function ConfigForm({
         </div>
 
         <aside className="flex min-w-0 flex-col gap-4 border-t border-border/70 bg-canvas px-5 py-6 lg:border-t-0 lg:border-l">
-          <TrustPanel agent={agent} workspaceId={workspaceId} dirty={dirty} aiEnabled={aiEnabled} />
+          <TrustPanel agent={agent} workspaceId={workspaceId} dirty={dirty} aiEnabled={aiEnabled} switchTrust={switchTrust} />
           <SpendingPanel spend={agent.spend} budgetCents={budgetCents} />
         </aside>
       </div>

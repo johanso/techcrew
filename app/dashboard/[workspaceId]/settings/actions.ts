@@ -6,6 +6,8 @@ import { PROVIDERS, isAgentProvider } from "@/lib/agent-config";
 import { getAIKeys, keyStatus, removeProviderKey, saveProviderKey, verifyProviderKey } from "@/lib/ai-keys";
 import { switchAgentsToProvider } from "@/lib/agents";
 import { requireUser } from "@/lib/current-user";
+import { connectSwitch, disconnectSwitch, getSwitchConnection, requestSwitchScans, type ConnectSwitchField } from "@/lib/switch-trust";
+import { normalizeInstanceUrl } from "@/lib/switch-trust-config";
 import { getOwnedWorkspace, updateAgentAutomation, updateAIProvider, updateAutoFailover } from "@/lib/workspaces";
 
 export type AutomationFormState = { ok?: boolean; message?: string; savedAt?: number };
@@ -71,7 +73,7 @@ export async function switchProviderAction(workspaceId: number, _prev: ProviderS
   }
 }
 
-export type ProviderKeyState = { ok?: boolean; errors?: { apiKey?: string }; message?: string; savedAt?: number };
+export type ProviderKeyState = { ok?: boolean; errors?: { apiKey?: string }; message?: string; savedAt?: number; scansQueued?: number };
 
 /**
  * Saves a workspace API key after checking it with the provider. The key is encrypted at rest and never sent back:
@@ -101,8 +103,15 @@ export async function saveProviderKeyAction(
     console.error("[settings] key save failed", error);
     return { message: "We couldn't save the key. Please try again." };
   }
+  // Switch evaluates the agents through their models, so a new key is a good moment to score them again.
+  let scansQueued = 0;
+  if (await getSwitchConnection(workspace.id)) {
+    const user = await requireUser(`/dashboard/${workspaceId}/settings`);
+    const scans = await requestSwitchScans({ workspaceId: workspace.id, trigger: "connected", userId: user.id });
+    if (scans.ok) scansQueued = scans.queued;
+  }
   refresh(workspaceId);
-  return { ok: true, savedAt: Date.now() };
+  return { ok: true, savedAt: Date.now(), scansQueued };
 }
 
 export async function removeProviderKeyAction(workspaceId: number, provider: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -114,6 +123,74 @@ export async function removeProviderKeyAction(workspaceId: number, provider: unk
   } catch (error) {
     console.error("[settings] key remove failed", error);
     return { ok: false, error: "We couldn't remove the key. Please try again." };
+  }
+  refresh(workspaceId);
+  return { ok: true };
+}
+
+export type SwitchConnectionState = {
+  ok?: boolean;
+  errors?: Partial<Record<ConnectSwitchField, string>>;
+  message?: string;
+  savedAt?: number;
+  /** Agents queued for a SwitchAgent scan by this connect, and why the rest weren't. */
+  scansQueued?: number;
+  scanError?: string;
+};
+
+const SWITCH_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+/**
+ * Settings → Switch Trust: checks the key with Switch, saves the connection (key encrypted) and queues a SwitchAgent
+ * scan of every agent. An empty key keeps the saved one, or uses the server's.
+ */
+export async function connectSwitchAction(workspaceId: number, _prev: SwitchConnectionState, formData: FormData): Promise<SwitchConnectionState> {
+  const user = await requireUser(`/dashboard/${workspaceId}/settings`);
+  const workspace = await getOwnedWorkspace(user.id, workspaceId);
+  if (!workspace) return { message: "Workspace not found." };
+
+  const text = (name: string) => {
+    const value = formData.get(name);
+    return typeof value === "string" ? value.trim() : "";
+  };
+  const apiKey = text("apiKey");
+  const tenantId = text("tenantId");
+  const switchWorkspaceId = text("switchWorkspaceId");
+  const errors: SwitchConnectionState["errors"] = {};
+  if (apiKey && (apiKey.length < 16 || apiKey.length > 512 || /\s/.test(apiKey))) errors.apiKey = "That doesn't look like a Switch API key.";
+  const instance = normalizeInstanceUrl(text("instanceUrl"));
+  if (!instance.ok) errors.instanceUrl = instance.error;
+  if (tenantId && !SWITCH_ID.test(tenantId)) errors.tenantId = "Check the tenant ID.";
+  if (switchWorkspaceId && !SWITCH_ID.test(switchWorkspaceId)) errors.switchWorkspaceId = "Check the workspace ID.";
+  if (Object.keys(errors).length || !instance.ok) return { errors };
+
+  let connected: Awaited<ReturnType<typeof connectSwitch>>;
+  try {
+    connected = await connectSwitch(workspace.id, { apiKey: apiKey || null, instanceUrl: instance.value, tenantId, switchWorkspaceId });
+  } catch (error) {
+    console.error("[settings] switch connect failed", error);
+    return { message: "We couldn't save the connection. Please try again." };
+  }
+  if (!connected.ok) return connected.field ? { errors: { [connected.field]: connected.error } } : { message: connected.error };
+
+  const scans = await requestSwitchScans({ workspaceId: workspace.id, trigger: "connected", userId: user.id });
+  refresh(workspaceId);
+  return {
+    ok: true,
+    savedAt: Date.now(),
+    scansQueued: scans.ok ? scans.queued : 0,
+    scanError: scans.error,
+  };
+}
+
+export async function disconnectSwitchAction(workspaceId: number): Promise<{ ok: true } | { ok: false; error: string }> {
+  const workspace = await authorize(workspaceId);
+  if (!workspace) return { ok: false, error: "Workspace not found." };
+  try {
+    await disconnectSwitch(workspace.id);
+  } catch (error) {
+    console.error("[settings] switch disconnect failed", error);
+    return { ok: false, error: "We couldn't disconnect Switch Trust. Please try again." };
   }
   refresh(workspaceId);
   return { ok: true };

@@ -77,6 +77,17 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 - Decrypted only server-side, per call (`getAIKeys`), and passed to the SDK client for that call.
 - Without a workspace key, the server's `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` is used, if set.
 
+## Switch Trust
+
+- The Switch key is stored like the AI provider keys (encrypted, masked hint only, checked with Switch before saving).
+- Switch reaches each agent at a public endpoint (`/api/switch-trust/agents/<id>/…`) protected by a per-agent bearer
+  credential derived from `TOKEN_ENCRYPTION_KEY` (HMAC), compared in constant time. Only Switch receives it. The
+  endpoint answers with the agent's own instructions as the system prompt (tests can't replace it), no tools, capped
+  output, and refuses an agent over its monthly budget.
+- Cloudhike jobs call `/api/switch-trust/scans/<id>` with a random single-use token; only its sha256 is stored and it
+  is rotated per job and cleared when the scan ends.
+- Test conversations are attacker-written: they're never stored or shown, only counts and Switch's categories.
+
 ## Agents
 
 The pipeline acts on the repository with the workspace owner's token, so its guardrails live in code, not prompts:

@@ -31,6 +31,7 @@ import {
 import { MAX_TURNS_MAX, MAX_TURNS_MIN, RUN_STAGES, STAGE_META, type RunStage } from "@/lib/agent-run-config";
 import { getWorkingStages } from "@/lib/agent-runs";
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
+import type { TrustScanView } from "@/lib/switch-trust-config";
 
 /**
  * AI agents of a workspace: the four roles from lib/agent-config.ts, persisted in `agents` and created on first use.
@@ -233,6 +234,10 @@ export type AgentView = Agent & {
     resetsAt: string;
   };
   trust: TrustReport | null;
+  /** Latest SwitchAgent scan (lib/switch-trust.ts), pending or finished; null when never scanned with Switch. */
+  scan: TrustScanView | null;
+  /** Last configuration change: a Switch report older than this describes an earlier configuration. */
+  configuredAt: string;
   activity: AgentActivityView[];
 };
 
@@ -248,8 +253,14 @@ export type AgentTeamStats = {
 
 const ACTIVITY_PER_AGENT = 50;
 
-/** Everything the AI Team page shows. Creates the default agents on first visit. */
-export async function getAgentTeam(workspace: Pick<Workspace, "id" | "aiProvider">): Promise<{ agents: AgentView[]; stats: AgentTeamStats }> {
+/**
+ * Everything the AI Team page shows. Creates the default agents on first visit. `scans` are the latest SwitchAgent
+ * scans by agent row id (getLatestTrustScans), read by the page.
+ */
+export async function getAgentTeam(
+  workspace: Pick<Workspace, "id" | "aiProvider">,
+  scans: Map<number, TrustScanView> = new Map()
+): Promise<{ agents: AgentView[]; stats: AgentTeamStats }> {
   const provider = workspaceProvider(workspace);
   await ensureDefaultAgents(workspace.id);
   const { start, end } = monthWindow();
@@ -318,6 +329,8 @@ export async function getAgentTeam(workspace: Pick<Workspace, "id" | "aiProvider
           resetsAt: end.toISOString(),
         },
         trust: row.trustReport ?? null,
+        scan: scans.get(row.id) ?? null,
+        configuredAt: row.updatedAt.toISOString(),
         activity: activityRows
           .filter((a) => a.agentId === row.id)
           .slice(0, ACTIVITY_PER_AGENT)
@@ -544,7 +557,9 @@ export async function updateAgentConfig(workspaceId: number, key: AgentKey, inpu
     row.instructions !== input.instructions ||
     row.monthlyBudgetCents !== input.monthlyBudgetCents ||
     row.skills.join() !== input.skills.join();
-  const report = trustInputsChanged ? scanAgentRules({ key, ...input }) : null;
+  // A Switch evaluation stays until the next SwitchAgent scan (the panel flags it as older than the change); a rule
+  // or AI score is recomputed so it never describes a configuration that no longer exists.
+  const report = trustInputsChanged && row.trustReport?.mode !== "switch" ? scanAgentRules({ key, ...input }) : null;
   const now = new Date();
 
   await db
@@ -621,7 +636,7 @@ export async function saveTrustScan(row: AgentRow, report: TrustReport, costMicr
     workspaceId: row.workspaceId,
     agentId: row.id,
     kind: "scan",
-    title: `Trust scan: ${report.score}/100${report.mode === "ai" ? " (AI-assisted)" : ""}`,
+    title: report.mode === "switch" ? `SwitchAgent scan: ${report.score}/100` : `Trust scan: ${report.score}/100${report.mode === "ai" ? " (AI-assisted)" : ""}`,
     detail: report.summary,
     costMicros,
   });

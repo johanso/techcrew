@@ -215,9 +215,45 @@ first use by `ensureDefaultAgents()` with the defaults in [`lib/agent-config.ts`
 | `max_turns` | integer | yes | | Model turns per pipeline stage (3–100). `null` = role default (`AGENT_ROLES[key].defaults.maxTurns`: 12/40/15/12). |
 | `enabled` | boolean | no | `true` | Paused agents can't be Run; a running stage stops at its next turn. |
 | `trust_score` | integer | yes | | Latest Skill Trust Score (0–100), duplicated from the report for queries. |
-| `trust_report` | jsonb | yes | | `TrustReport` (`lib/agent-trust.ts`): findings, checks, mode (`rules` \| `ai`), model, time. |
+| `trust_report` | jsonb | yes | | `TrustReport` (`lib/agent-trust.ts`): findings, checks, mode (`rules` \| `ai` \| `switch`), model, time; Switch reports add `evaluation` and `coverage`. |
 | `trust_scanned_at` | timestamp | yes | | |
+| `switch_agent_id` | text | yes | | Agent fingerprint in Switch Trust (`agn_…`), set on its first SwitchAgent scan; cleared when the account changes. |
 | `created_at`, `updated_at` | timestamp | no | `now()` | |
+
+## switch_connections
+
+A workspace's Switch Trust account (Settings → Switch Trust). See [switch-trust.md](switch-trust.md).
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | serial | no | | Primary key. |
+| `workspace_id` | integer | no | | → `workspaces.id`, cascade. **Unique.** |
+| `api_key` | text | yes | | AES-256-GCM ciphertext. `null` = the server's `SWITCH_AGENT_AI_API_KEY`. Never sent to the client. |
+| `hint` | text | yes | | Masked key for display. |
+| `auth_scheme` | text | no | | `ApiKey` or `Bearer`, whichever the instance accepted. |
+| `instance_url` | text | no | | API base, e.g. `https://api.switchagents.ai/api/v1`. |
+| `tenant_id`, `switch_workspace_id` | text | no | | Scope of every Switch call. |
+| `evaluation_id`, `evaluation_name` | text | yes | | The one evaluation every agent runs, picked on the first scan. |
+| `created_at`, `updated_at` | timestamp | no | `now()` | |
+
+## trust_scans
+
+One SwitchAgent scan of one agent, advanced in the background by Cloudhike jobs.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | serial | no | | Primary key. |
+| `workspace_id` | integer | no | | → `workspaces.id`, cascade. |
+| `agent_id` | integer | no | | → `agents.id`, cascade. Index with `created_at`. |
+| `trigger` | text | no | | `connected` (account connected or a provider key saved) or `manual` (SwitchAgent Scan). |
+| `status` | text | no | | `queued`, `running`, `succeeded`, `failed`. |
+| `switch_run_id` | text | yes | | Evaluation run in Switch. |
+| `job_id` | text | yes | | Latest Cloudhike job run. |
+| `token_hash` | text | yes | | sha256 of the current job's token; cleared when the scan ends. |
+| `error` | text | yes | | Why it failed, for the owner. |
+| `cost_micros` | integer | no | `0` | Model spend answering Switch's tests; logged with the result. |
+| `created_by_id` | integer | yes | | → `users.id`, set null. |
+| `created_at`, `updated_at`, `finished_at` | timestamp | | | |
 
 ## agent_activity
 

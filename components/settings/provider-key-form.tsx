@@ -157,7 +157,12 @@ export function ProviderKeyForm({ workspaceId, provider, view }: { workspaceId: 
             </InputGroupAddon>
           </InputGroup>
           <FieldError>{error}</FieldError>
-          {state.ok && !pending && <FieldDescription>Key checked with {label} and saved.</FieldDescription>}
+          {state.ok && !pending && (
+            <FieldDescription>
+              Key checked with {label} and saved.
+              {state.scansQueued ? ` SwitchAgent is scanning ${state.scansQueued} agent${state.scansQueued === 1 ? "" : "s"} again.` : ""}
+            </FieldDescription>
+          )}
         </Field>
         <Button type="submit" variant="outline" className="h-10" disabled={pending}>
           {pending && <Spinner />}

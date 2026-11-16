@@ -181,6 +181,8 @@ export const agents = pgTable(
     trustScore: integer("trust_score"),
     trustReport: jsonb("trust_report").$type<TrustReport>(),
     trustScannedAt: timestamp("trust_scanned_at"),
+    // Agent fingerprint in Switch Trust (agn_…), set the first time the agent is registered there.
+    switchAgentId: text("switch_agent_id"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -220,6 +222,72 @@ export const agentActivity = pgTable(
 );
 
 export type AgentActivityRow = typeof agentActivity.$inferSelect;
+
+/**
+ * A workspace's Switch Trust account (Settings → Switch Trust). Agents are registered there and evaluated by it;
+ * see lib/switch-trust.ts.
+ */
+export const switchConnections = pgTable("switch_connections", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id")
+    .notNull()
+    .unique()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  // AES-256-GCM ciphertext (lib/crypto.ts); null = the server's key (SWITCH_AGENT_AI_API_KEY). Never sent to the client.
+  apiKey: text("api_key"),
+  // Masked form for display; null for the server's key.
+  hint: text("hint"),
+  // "ApiKey" or "Bearer": the Authorization scheme the instance accepted when the account was connected.
+  authScheme: text("auth_scheme").notNull(),
+  // API base URL, e.g. https://api.switchagents.ai/api/v1.
+  instanceUrl: text("instance_url").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  switchWorkspaceId: text("switch_workspace_id").notNull(),
+  // The one evaluation every agent runs (the fastest built-in one, picked on the first scan).
+  evaluationId: text("evaluation_id"),
+  evaluationName: text("evaluation_name"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type SwitchConnectionRow = typeof switchConnections.$inferSelect;
+
+/**
+ * One SwitchAgent scan of one agent: registered in Switch, one evaluation run, health score read back. Advanced in
+ * the background by Cloudhike jobs calling /api/switch-trust/scans/<id>. Values of `status` come from
+ * TRUST_SCAN_STATUSES in lib/switch-trust-config.ts.
+ */
+export const trustScans = pgTable(
+  "trust_scans",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    agentId: integer("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    // "connected" (Switch account connected) or "manual" (SwitchAgent Scan on the AI Team page).
+    trigger: text("trigger").notNull(),
+    status: text("status").notNull(),
+    // Evaluation run in Switch Trust, once triggered.
+    switchRunId: text("switch_run_id"),
+    // Latest Cloudhike job run advancing this scan.
+    jobId: text("job_id"),
+    // sha256 of the token the job sends back; replaced on every job, cleared when the scan ends.
+    tokenHash: text("token_hash"),
+    error: text("error"),
+    // Model spend of the evaluation's attacks on the agent, in micro-dollars (logged with the result).
+    costMicros: integer("cost_micros").notNull().default(0),
+    createdById: integer("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    finishedAt: timestamp("finished_at"),
+  },
+  (table) => [index("trust_scans_agent_created_idx").on(table.agentId, table.createdAt)]
+);
+
+export type TrustScanRow = typeof trustScans.$inferSelect;
 
 /**
  * One pass of a board card through the agent pipeline: analysis → development → review → testing → merge.

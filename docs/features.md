@@ -299,7 +299,11 @@ written instructions, default skills, a model and a monthly budget.
   shows when that company has no key) and monthly budget (presets $25/$50/$100/$250). The side panel shows the **Skill Trust Score** (ring,
   grade — Trusted ≥ 85, Needs review ≥ 70, At risk — summary, checks passed, findings, **Scan again**) and
   **Spending** for the month (spent, budget bar, remaining, projection, reset date, breakdown: task runs, AI drafting,
-  trust scans). Saving logs exactly what changed and re-scores the agent.
+  trust scans). Saving logs exactly what changed and re-scores the agent. With **Switch Trust** connected the panel
+  becomes the **Switch Trust Score**: **SwitchAgent Scan** queues one Switch evaluation of the agent in the background
+  (the card and panel say "Scanning…" and the page refreshes itself until the score lands), shows tests held, OWASP
+  coverage, findings, a failed scan's reason, and a note when the configuration changed after the scan. See
+  [switch-trust.md](switch-trust.md).
 - **View activity** (drawer) — this month's event count and spend, open cards, then events grouped by day: joined,
   configuration changes, pauses, AI drafts and scans (with their cost), cards assigned by Run, each pipeline stage
   (with its cost and turn count), pull requests opened/merged and follow-up issues filed.
@@ -371,6 +375,10 @@ Without `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` the page shows "No AI provider c
   **Remove** (confirmation dialog). The AI Team's "No AI provider connected" chip links here.
 - **Switch automatically when out of credit** (`#ai`, toggle, off by default) — see [Out of credit](#out-of-credit).
   Needs a key for both companies to do anything.
+- **Switch Trust** (`#switch`) — connect the workspace's Switch account: API key (masked, show/hide), instance URL,
+  tenant and workspace IDs (detected from the key), **Connect securely**. Connecting checks the key with Switch and
+  starts a SwitchAgent scan of all four agents; the status line shows the masked key and the evaluation each agent
+  runs; **Disconnect** asks first. A warning explains when this server can't run scans (no jobs config or a local URL).
 - **Agent automation** (`#agents`) — **Task pickup** (Manual: Run on each card / Automatic: the Analyst picks the top
   never-run Todo card every 2 minutes) and **Merging pull requests** (Manual: from the Pull Requests page / Automatic:
   once review, tests and CI pass). Both default to Manual. A note explains that a blocked merge makes the Tester file a

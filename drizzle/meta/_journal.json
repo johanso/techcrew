@@ -15,6 +15,13 @@
       "when": 1793878750803,
       "tag": "0001_special_korath",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793922094937,
+      "tag": "0002_ambitious_kang",
+      "breakpoints": true
     }
   ]
 }

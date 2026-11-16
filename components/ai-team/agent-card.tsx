@@ -2,8 +2,10 @@ import { ActivityIcon, BlocksIcon, CpuIcon, ListTodoIcon, SlidersHorizontalIcon 
 
 import { AgentPortrait, AgentStatusBadge, BudgetMeter, TrustChip } from "@/components/ai-team/agent-visuals";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { AGENT_MODELS } from "@/lib/agent-config";
 import type { AgentView } from "@/lib/agents";
+import { isPendingScan } from "@/lib/switch-trust-config";
 
 /** One agent on the AI Team page: identity, status, what it's set up with, budget use and its two actions. */
 export function AgentCard({
@@ -47,7 +49,14 @@ export function AgentCard({
             </span>
           </li>
           <li>
-            <TrustChip score={agent.trust?.score ?? null} />
+            {agent.scan && isPendingScan(agent.scan.status) ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-emphasis" role="status">
+                <Spinner className="size-3" />
+                Scanning…
+              </span>
+            ) : (
+              <TrustChip score={agent.trust?.score ?? null} />
+            )}
           </li>
           {agent.openTasks > 0 && (
             <li className="flex items-center gap-1.5" title="Assigned cards not done yet">

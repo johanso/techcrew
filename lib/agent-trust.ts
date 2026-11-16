@@ -13,7 +13,7 @@ export type TrustFinding = {
   severity: TrustSeverity;
   title: string;
   detail: string;
-  source: "rules" | "ai";
+  source: "rules" | "ai" | "switch";
 };
 
 export type TrustReport = {
@@ -22,10 +22,13 @@ export type TrustReport = {
   findings: TrustFinding[];
   checksPassed: number;
   checksTotal: number;
-  /** "ai" when OpenAI reviewed the configuration too. */
-  mode: "rules" | "ai";
+  /** "ai" when a model reviewed the configuration too; "switch" when Switch Trust evaluated the agent (lib/switch-trust.ts). */
+  mode: "rules" | "ai" | "switch";
   model: string | null;
   scannedAt: string;
+  /** Switch scans: the evaluation that ran and the share of OWASP risks it covered without failing (0–100). */
+  evaluation?: string | null;
+  coverage?: number | null;
 };
 
 export type TrustScanInput = {
