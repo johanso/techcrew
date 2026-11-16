@@ -37,8 +37,14 @@ sequenceDiagram
     I->>F: invoke agent-task-run
     loop each stage, one step per model turn
         F->>GH: Model turn + tool calls (GitHub API)
-        F->>DB: card column/assignee, run stage, spend
+        F->>DB: card column/assignee, run phase, spend
     end
+    par review phase
+        F->>GH: Reviewer turns (review-<round>-turn-n)
+    and
+        F->>GH: Security turns (security-<round>-turn-n)
+    end
+    F->>DB: Lead's decision + final risk, then testing, then merge or wait
     B->>A: polls every 10 s while a run is active
 ```
 
@@ -63,9 +69,11 @@ Queued by **Run** (`runCardAction`) and by auto pickup, always after the `agent_
 [`lib/agent-pipeline.ts`](../lib/agent-pipeline.ts); every step reloads what it needs from the database.
 
 ```
-analysis ──ready──▶ development ──▶ PR ──▶ review ──approve──▶ testing ──pass──▶ merge
-   │                    ▲                     │                    │
-   └─needs_info─▶ Todo  └──── request_changes / fail (≤ 2 rework rounds) ┘
+                                         ┌─ review (Reviewer) ──┐
+analysis ──ready──▶ development ──▶ PR ──┤                      ├──▶ approval (Lead) ──approve──▶ testing ──pass──▶ merge
+   │                    ▲                └─ security ───────────┘          │                         │        (or wait:
+   └─needs_info─▶ Todo  │                                                  │                         │      mode × risk)
+                        └──────────── request_changes / fail (≤ 2 rework rounds) ────────────────────┘
 ```
 
 - **Concurrency**: one run per card (`key: "event.data.taskId"`). Runs of different cards run in parallel.
@@ -73,9 +81,12 @@ analysis ──ready──▶ development ──▶ PR ──▶ review ──ap
 - **Cancel**: Stop sends `agent/task.cancel` (`cancelOn` matches `data.runId`); the run is already marked `cancelled`.
 - **onFailure**: marks the run `failed` with the error message (`stopRun`: also closes the stage in the agent log and
   notifies the owner).
-- **Stages** (`runStage` in `agent-run.ts`):
+- **Stages** (`runStage` in `agent-run.ts`): one per agent (`AGENT_STAGES`: analysis, development, review, security,
+  approval, testing). Review and security run in **parallel** (`Promise.all` of two `runStage` calls): Inngest runs
+  their steps side by side, each still one step per model turn, with ids prefixed by the stage so they never collide.
   1. `<stage>-<round>-start` → `beginStage`: agent enabled + under budget (`checkAgentCanRun`), required skills
-     present (Developer: `code.write`, `pr.open`), card moved to the stage's column and assigned, a `task_run`
+     present (Developer: `code.write`, `pr.open`), run marked running in the stage's phase only if it's still active
+     (`markStageRunning`), card moved to the phase's column and assigned (the phase's first agent only), a `task_run`
      activity row opened.
   2. `<stage>-<round>-turn-<n>` → `runStageTurn`: one model call (`lib/agent-loop.ts`) plus its tool calls
      (`lib/agent-tools.ts`). Re-checks pause/budget each turn; adds the turn's cost to the activity row and the run.
@@ -84,21 +95,24 @@ analysis ──ready──▶ development ──▶ PR ──▶ review ──ap
      `agent_run_messages` and steps only carry its length, so step output stays small. The last allowed turn (the
      agent's **max turns**) forces the finish tool (OpenAI) or adds a "finish now" system message (Claude 5.5 models
      reject forced tools), so a stage ends with a structured result or "ran out of turns". Each turn's tool calls go
-     to `agent_run_steps` (the card's agent log), and the stage's end too.
+     to `agent_run_steps` (the card's agent log), and the stage's end too. If the run stopped meanwhile (the parallel
+     stage failed), the turn stops too and only this stage's log is closed.
   3. **Out of credit** (OpenAI `insufficient_quota` / billing codes, Anthropic "credit balance too low"): with
      `workspaces.ai_auto_failover` on and a key for the other company, the turn switches the team
      (`switchAgentsToProvider`) and returns `restart`: the stage starts over on the new provider, **once per stage**.
      Otherwise the run stops with `failure: { kind: "out_of_credit", provider }`, which the board turns into a
      "switch and retry" notice.
 - **Between stages**: `branch-<round>` (creates `agent/<key>-<slug>` from the default branch, once per run),
-  `pull-request-<round>` (opens the PR, fails if nothing was committed), `record-review-<round>`, `record-test-<round>`
-  (deterministic pre-checks always fail the verdict when they fail), `ready-to-merge`, then `merge-<n>` attempts
-  30 s apart (auto-merge only; up to 10 minutes, then the run waits for a manual merge).
+  `pull-request-<round>` (opens the PR, fails if nothing was committed), `record-review-<round>` and
+  `record-security-<round>` (after both parallel stages), `record-approval-<round>` (the Lead's decision raised to the
+  risk floor; sets the PR's review status and risk), `record-test-<round>` (deterministic pre-checks always fail the
+  verdict when they fail), `ready-to-merge` (merge mode × final risk, `mergeDecision`), then `merge-<n>` attempts
+  30 s apart (automatic merges only; up to 10 minutes, then the run waits for a manual merge).
 - **Merge** ([`lib/pull-requests.ts`](../lib/pull-requests.ts)): merges (squash) only when GitHub reports the PR mergeable
   and every check run / commit status passed. A conflict or failing build makes the Tester file a follow-up card in Todo
   (and a GitHub issue with the **File issues** skill); the run ends `failed` with the reason.
 - **Notifications** (`notify`, lib/notifications.ts; never throws, so it can't fail a step): PR ready to merge
-  (manual merge, or auto merge timed out), merged (auto merge), merge blocked, analyst needs info, run stopped, out of
+  (manual merge, not low risk in "Automatic when low risk" — with the risk and its reasons — or auto merge timed out), merged (auto merge), merge blocked, analyst needs info, run stopped, out of
   credit, provider switched.
 
 ## agent-auto-pickup

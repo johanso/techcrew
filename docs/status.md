@@ -29,15 +29,15 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | Answer the analyst's question from the card, its menu or the agent log (answer kept for later runs) | ✅ Real, verified with OpenAI | `components/board/answer-dialog.tsx`, `answerCardAction`, `agent_runs.answer` |
 | Agent log per card (tool calls, files changed, how each stage ended, cost) | ✅ Real (from runs started after it shipped) | `components/board/run-log-sheet.tsx`, `agent_run_steps` |
 | Out of credit: board notice, switch company and retry, optional automatic switch | ✅ Real (automatic switch not run end to end) | `components/board/credit-notice.tsx`, `lib/agent-pipeline.ts` |
-| Agent pipeline: Run / Stop, Analyst → Developer → Reviewer → Tester → merge | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (verified live with OpenAI on 2026-11-05; the Claude path only against a local fake of the API). `AGENTS_SIMULATED=true` runs it with scripted agents | `lib/agent-pipeline.ts`, `lib/inngest/agent-run.ts` |
-| Auto pickup of Todo cards, auto or manual merge | ✅ Real | `lib/inngest/agent-pickup.ts`, `lib/pull-requests.ts` |
+| Agent pipeline: Run / Stop, Analyst → Developer → Reviewer + Security (parallel) → Lead (approval + risk) → Tester → merge | ✅ Real (the v0.2 Security/Lead stages verified in simulated mode only), needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (verified live with OpenAI on 2026-11-05; the Claude path only against a local fake of the API). `AGENTS_SIMULATED=true` runs it with scripted agents | `lib/agent-pipeline.ts`, `lib/inngest/agent-run.ts` |
+| Auto pickup of Todo cards; manual, automatic-when-low-risk or automatic merge | ✅ Real | `lib/inngest/agent-pickup.ts`, `lib/agent-run-config.ts` (`mergeDecision`), `lib/pull-requests.ts` |
 | Follow-up card from the Tester on merge conflict / failing build | ✅ Real | `lib/pull-requests.ts` |
 | Overview page (stats, upcoming tasks, recent activity) | ✅ Real, from the board and the activity feed | `lib/overview.ts`, `lib/activity.ts` |
-| AI Team: default agents, configure dialog, Skill Trust Score, spending, activity drawer | ✅ Real, persisted | `components/ai-team`, `lib/agents.ts` |
-| Live Agent Office (AI Team page): agents at desks, typing while working, status bubbles, hover cards, live polling | ✅ Real | `components/office`, `lib/office-scene.json` |
+| AI Team: six default agents with faces, configure dialog, Skill Trust Score, spending, activity drawer, live working state | ✅ Real, persisted | `components/ai-team`, `lib/agents.ts`, `public/agents` |
+| Live process (AI Team page): the six steps of each card in flight, live polling | ✅ Real | `components/ai-team/live-process.tsx`, `lib/live-process.ts` |
 | AI drafting of instructions + AI-assisted trust scans | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | `lib/agent-ai.ts` |
 | Switch Trust: connect a Switch account, SwitchAgent scans (register agents, one evaluation each, health score + OWASP coverage) in the background via Cloudhike jobs | ✅ Live scan verified with Switch (2026-11-16, through ngrok); weekly scans and cost caps verified against local fakes | `lib/switch-trust.ts`, `docs/switch-trust.md` |
-| Pull Requests page (agent PRs, verdicts, Merge) | ✅ Real | `components/pull-requests`, `lib/pull-requests.ts` |
+| Pull Requests page (agent PRs, approval and test verdicts, risk, Merge) | ✅ Real | `components/pull-requests`, `lib/pull-requests.ts` |
 | Activity page (workspace timeline, incl. people's card moves, edits and removals) | ✅ Real | `lib/activity.ts`, `components/activity` |
 | Notifications (header bell): PR ready, merged, merge blocked, needs info, run stopped, out of credit, provider switched | ✅ Real (polled every 30 s) | `lib/notifications.ts`, `components/dashboard/notifications-menu.tsx` |
 | Settings page | ✅ AI providers (encrypted keys, provider switch) and agent automation editable; account and workspace read-only | `app/dashboard/[workspaceId]/settings` |
@@ -84,16 +84,17 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 | Item | Notes |
 | --- | --- |
-| Unit tests only | 58 Vitest tests for pure logic (filters, model mapping, trust scan, costs, credit detection, log steps, office scene, Switch mapping, card-change descriptions), run by CI on every push. No integration tests for the database, the sync or the pipeline yet. |
+| Unit tests only | 81 Vitest tests for pure logic (filters, model mapping, roles, trust scan, costs, credit detection, tools per stage, log steps, phases and working agents, risk floor and merge decision, live process, Switch mapping, card-change descriptions), run by CI on every push. No integration tests for the database, the sync or the pipeline yet. |
 | Two `cn` helpers | shadcn components import `cn` from the `cn` npm package; app code uses `cn` from `@/lib/utils` (`clsx` + `tailwind-merge`). Pick one. |
 | `server-only` isn't installed as a package | Next.js handles it internally (optional per the Next docs), but scripts run outside Next (e.g. with `tsx`) can't import `server-only` modules without a shim. |
+| Deprecated `workspaces.agent_auto_merge` | Replaced by `agent_merge_mode` in v0.2 and no longer read; kept so v0.1 code still runs against a migrated database. Drop it in v0.3. |
 | Sequential updates in `reorderTasks` | One `UPDATE` per card in the moved columns. Fine at board sizes; batch it if columns grow large. |
 
 ## Suggested next steps
 
-The plan after v0.1.0 lives in [roadmap.md](roadmap.md): deploy and hardening (v0.2), smarter gates — risk-based
-human gate, parallel specialist reviewers, mixed model companies (v0.3), a sandbox to run code (v0.4), and a shared
-project memory (v0.5).
+The plan lives in [roadmap.md](roadmap.md): smarter gates and the live process are done (v0.2); next are deploy and
+hardening, including mixed model companies per agent (v0.3), a sandbox to run code (v0.4), and a shared project memory
+(v0.5).
 
 ## History
 
@@ -107,6 +108,7 @@ project memory (v0.5).
 | `463701d` | GitHub issue sync; demo data removed. |
 | `15e1257` | Card Run (Analyst + Inngest job) and Remove actions. |
 | `d6f030e` | AI Team page: configurable agents, Skill Trust Score, spending, activity. |
+| `feat/v0.2-agents-live-process` | **v0.2 (unreleased)**: Security and Lead agents, Reviewer and Security in parallel, Lead approval with a risk floor, risk-based merge mode (migration 0005), face avatars, live process instead of the Live Agent Office. |
 | `v0.1.0` | **First release (MVP)**, tagged on `main` after PR #1. Release notes in [CHANGELOG.md](../CHANGELOG.md); next steps in [roadmap.md](roadmap.md). |
 | `feat/ai-agents` (7) | First live Switch scan (4 agents scored 99, $2.09). Fixes: an early 404 on the pre-minted run id no longer fails a scan; tests answered outside a scan add up on one row per agent and day; run results read from every page; the evaluation picker counts turns of adversarial attacks (10 conversations beat 201 fixed prompts). |
 | `feat/ai-agents` (6) | Switch: verified end to end against local fakes, weekly scans (Inngest cron + toggle), monthly budgets as Switch cost caps. People's card moves, edits and removals on Activity (`task_events`). CI workflow; `npm run check` runs `next typegen` first so a fresh clone type-checks. |

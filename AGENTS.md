@@ -67,7 +67,6 @@ npm run db:studio    # inspect data
 npm run inngest:dev  # local Inngest Dev Server — required for the agent pipeline (Run, auto pickup, auto-merge)
 npx next typegen     # regenerate PageProps / RouteContext types after adding routes
 npx shadcn add <c>   # add a shadcn component into components/ui
-npm run office:assets # rebuild the live office sprite sheets + lib/office-scene.json from office/*.json
 ```
 
 ## 4. Folder structure
@@ -120,19 +119,19 @@ components/
                           merge), run-log-sheet (agent log panel), credit-notice (out of credit: switch and retry),
                           answer-dialog (answer the analyst's question).
   pull-requests/          pull-requests-view (PR list, verdict chips), merge-button.
-  office/                 Live Agent Office (AI Team page): agent-office (scene + Live chip), office-agent
-                          (sprite, status bubble, hover card), live-team (LiveTeamProvider + useLiveTeam: one poll of
-                          getTeamStatusAction; also keeps the Overview's AI team card live), office-scene (seats ↔ agents, %).
   activity/               activity-timeline (Activity page: events grouped by day, Show older).
   settings/               agent-automation-form (task pickup + merge mode), provider-switch-form, auto-failover-toggle,
                           provider-key-form
                           (masked key + show/hide), switch-connection-form (Switch Trust account), switch-weekly-toggle,
                           option-cards (radio
                           cards shared by the settings forms).
-  ai-team/                AI Team: ai-team-view (page markup), agent-roster (cards + open overlay state), agent-card,
-                          agent-config-dialog (form + SkillPicker + Draft with AI), trust-panel, spending-panel,
-                          agent-activity-sheet, agent-visuals (AgentPortrait, AgentStatusBadge, BudgetMeter, TrustRing),
-                          trust-scan-watcher (refreshes the page while a SwitchAgent scan is pending).
+  ai-team/                AI Team: ai-team-view (page markup), agent-roster (cards + open overlay state), agent-card
+                          (live working state), agent-config-dialog (form + SkillPicker + Draft with AI), trust-panel,
+                          spending-panel, agent-activity-sheet, agent-visuals (AgentPortrait, AgentStatusBadge, BudgetMeter,
+                          TrustRing), agent-face (the face image + initial fallback), live-process (the six steps of each
+                          card in flight), live-team (LiveTeamProvider + useLiveTeam: one poll of getTeamStatusAction; also
+                          keeps the Overview's AI team card live), trust-scan-watcher (refreshes the page while a
+                          SwitchAgent scan is pending).
   dashboard/              Overview sections: stat-tile, upcoming-tasks, team-status (AI team card, live), recent-activity,
                           agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS), activity-kind (ACTIVITY_KIND,
                           ActivityAvatar).
@@ -171,18 +170,23 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           scanAgentWithAI(), isConfigAIAvailable().
   openai.ts               OpenAI client (null without a key), responseCostMicros().
   anthropic.ts            Anthropic client (null without a key), messageCostMicros(), toClaudeSchema().
-  agents.ts               Agents persistence: ensureDefaultAgents(), getAgentTeam(), getTeamOverview() (read-only, Overview),
+  agents.ts               Agents persistence: ensureDefaultAgents(), getAgentTeam(), getTeamOverview() (read-only: members +
+                          runs in flight for the live process and the Overview),
                           updateAgentConfig(), saveTrustScan(),
                           checkAgentCanRun(), logAgentActivity(), stage activity rows, agentMaxTurns(); getAgent(),
                           RUN_AGENT_ID (the analyst), taskKeyPrefix().
-  agent-run-config.ts     Pipeline vocabulary shared by server + client: RUN_STAGES/STAGE_META (agent + column per stage),
-                          RUN_STATUSES, MAX_REWORK_ROUNDS, max-turn limits, ANSWER_MAX + parseAnswer, brief/review/test
-                          report types, BoardCardRun.
-  agent-runs.ts           agent_runs persistence: createRun, finishRun, getActiveRun, getLatestRuns, placeTask (moves +
+  agent-run-config.ts     Pipeline vocabulary shared by server + client: RUN_STAGES + PHASE_META (phases: agents + column),
+                          AGENT_STAGES + STAGE_META (one per agent), workingAgents, TOOL_LABEL, RUN_STATUSES,
+                          MAX_REWORK_ROUNDS, max-turn limits, ANSWER_MAX + parseAnswer, brief/review/security/Lead/test
+                          report types, riskFloor + applyRiskFloor, MERGE_MODES + mergeDecision, BoardCardRun.
+  live-process.ts         Pure, client-safe: LiveRun (a run in flight) → liveProcessSteps (six steps), agentDoingSentence.
+  agent-runs.ts           agent_runs persistence: createRun, markStageRunning, finishRun, getActiveRun, getLatestRuns,
+                          getEndedStages / getWorkingAgents (who works now, two in review), placeTask (moves +
                           assigns a card for the pipeline), releaseTask, replaceWaitingRuns (rerun), findAutoPickupCandidates;
                           agent log: saveRunSteps, saveStageEnd, getTaskRunLog.
   agent-pipeline.ts       Stage work: prompts, beginStage / runStageTurn (pause, budget, skills checked every turn),
-                          branch, PR, review/test recording (+ deterministic pre-checks), needs-info + answerAnalyst
+                          branch, PR, review/security/approval/test recording (+ deterministic pre-checks and risk
+                          floor), needs-info + answerAnalyst
                           (earlier questions and answers go into later runs' prompts), readyToMerge,
                           pipelineModelProblem (Run pre-check: every agent's model has a key), out-of-credit handling
                           (stop with `failure`, or auto failover + stage restart), stopRun (log + notify).
@@ -213,12 +217,8 @@ db/                       Drizzle client (index.ts) and schema (schema.ts).
 drizzle/                  Generated SQL migrations + snapshots. 0000_baseline = the whole schema as of 2026-11. Never hand-edit
                           a migration that has been applied anywhere; add a new one.
 test/                     server-only.ts (stand-in for unit tests). Tests live next to their module as *.test.ts.
-office/                   office_1_data.json: the office scene bundle (seats + embedded character frames, ≈10 MB), and
-                          characters/: frames of the editor's built-in characters the bundle only references.
-                          Source only — never imported; `npm run office:assets` turns it into public/office/*.webp
-                          sprite sheets and lib/office-scene.json.
-public/                   office-space.webp (the office picture), office/ (generated sprite sheets).
-scripts/                  build-office-assets.mjs (sharp), db-baseline.mjs (mark migrations applied on a pushed DB).
+public/                   agents/<key>.webp: one face per agent role (256×256, round with transparent corners).
+scripts/                  db-baseline.mjs (mark migrations applied on a pushed DB).
 proxy.ts                  Optimistic cookie guard for /dashboard and /workspaces.
 ```
 
@@ -393,8 +393,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   Every sidebar item needs a `tooltip` (icon-only mode).
 - **Overview layout** (`OverviewView`): welcome header → 3 `StatTile`s (Open tasks, In progress, PR ready) →
   `grid lg:grid-cols-5` with `UpcomingTasks` (`lg:col-span-3`) and `TeamStatus` (`lg:col-span-2`, agents from the
-  read-only `getTeamOverview`, live through a `LiveTeamProvider`) → `RecentActivity` list. The office is only on the
-  AI Team page. Status → icon + tone maps live next to each component (`TASK_STATUS`); activity kinds in `ACTIVITY_KIND`.
+  read-only `getTeamOverview`, live through a `LiveTeamProvider`) → `RecentActivity` list. The live process is only on
+  the AI Team page. Status → icon + tone maps live next to each component (`TASK_STATUS`); activity kinds in `ACTIVITY_KIND`.
 - **Board** (`/dashboard/[id]/board`): six columns — Todo, Analysis, In Development, In Review, Testing, Done —
   each with a light tint from `COLUMN_STYLE` (slate, brand, sky, amber, orange, green). Cards show type pill, key
   (`PREFIX-<number>`, always — GitHub cards add `#<issue>` in the footer), title, labels, priority, due date and the
@@ -460,10 +460,14 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
 - **Base UI Select:** pass `items` to `<Select>` so `<SelectValue />` shows labels, and size triggers with
   `data-[size=default]:h-10` (a plain `h-10` loses to the primitive's attribute selector).
 - **AI Team** (`/dashboard/[id]/ai-team`): header → 3 `StatTile`s (Active agents, Skill Trust Score, Monthly spending) →
-  4 `AgentCard`s (`sm:grid-cols-2 xl:grid-cols-4`) → `AgentOffice` ("Live Agent Office Workspace", in its own `LiveTeamProvider`).
-  Agents are rows in `agents`, one per role key, created on first use by `ensureDefaultAgents` (Run and the page both
-  call it). Identity (name, role, tone, icon) is fixed per key in `AGENT_ROLES`; users configure description,
+  6 `AgentCard`s (`sm:grid-cols-2 xl:grid-cols-3`) → `LiveProcess`; cards and live process share one `LiveTeamProvider`.
+  Agents are rows in `agents`, one per role key (analyst, developer, reviewer, security, lead, tester), created on first
+  use by `ensureDefaultAgents` (Run and the page both call it; it adds new roles to existing workspaces). Identity (name,
+  role, tone, face) is fixed per key in `AGENT_ROLES` and `public/agents/<key>.webp`; users configure description,
   instructions, model, skills, budget and active/paused. Rules:
+  - **Faces**: every agent shows through `AgentPortrait` (sizes xs–lg, status dot, `working` ring) or `AgentAvatar`
+    (small, labeled), both on `AgentFace`: a plain `<img>` with the tinted initial as fallback. `alt` is empty when the
+    name is shown next to it. A new role needs its `public/agents/<key>.webp` and a tone (tokens only: `AGENT_TONE_CLASS`).
   - **Spend** lives in `agent_activity.cost_micros` (micro-dollars). Monthly = calendar month in **UTC**; format
     reset dates in UTC. Every model call logs its real cost (`responseCostMicros` / `messageCostMicros`) even if the result isn't saved.
   - **Trust score** (`lib/agent-trust.ts`): inherent risk per skill + penalties for failed checks. Saving a change to
@@ -471,33 +475,38 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     **Scan again** scores the saved config (disabled while the dialog is dirty) and adds an AI review when a provider is configured.
   - **Run** refuses when the analyst is paused or over budget (`checkAgentCanRun`) and logs `task_assigned`.
   - **SwitchAgent scans** (`lib/switch-trust.ts`, [`docs/switch-trust.md`](docs/switch-trust.md)): with a Switch account
-    connected (Settings → `#switch`), the score comes from Switch. Connecting (and saving a provider key) scans all four
-    agents; **SwitchAgent Scan** in the dialog scans one, on demand. Always **one** evaluation per agent (the fastest
+    connected (Settings → `#switch`), the score comes from Switch. Connecting (and saving a provider key) scans every
+    agent; **SwitchAgent Scan** in the dialog scans one, on demand. Always **one** evaluation per agent (the fastest
     built-in, saved on the connection), never the catalog. Work runs on Cloudhike jobs, never in the user's request;
     the page polls with `TrustScanWatcher` while a scan is pending. Weekly re-scans (`switch-weekly-scans`, toggle in
     Settings) and the agent's budget as its Switch cost cap (set on register/scan and on budget change; best effort). Saving a config keeps a Switch report (flagged as
     older than the change) instead of overwriting it with the rule scan. Never copy test conversations: they're
     attacker-written.
   - **Max turns** (`agents.max_turns`, null = role default from `AGENT_ROLES`) caps model turns per pipeline stage.
-  - **Working** status = a `running` run is at that agent's stage (`STAGE_META`), not "has assigned cards".
+  - **Working** status = a `running` run is in that agent's phase and its stage hasn't ended this round
+    (`workingAgents`, `getWorkingAgents`), not "has assigned cards". Reviewer and Security can both be working.
   - Server actions call `revalidatePath` so cards, stats and open overlays show fresh data; dialog form state survives.
-- **Live Agent Office** (`components/office/`): the office picture keeps its aspect ratio (1264×843) and every agent,
-  bubble and hover anchor is placed in **percent of the picture** from `lib/office-scene.json` (top-left `x`/`y` and
-  `width` from the bundle; height from the character's aspect), so positions hold at any width. Rules:
-  - Never import `office/*.json` in app code (10 MB of data URIs). Change the bundle, then run `npm run office:assets`
-    and commit the new `public/office/*.webp` (file names carry a content hash) and `lib/office-scene.json`.
-  - Which agent sits where is `AGENT_SEAT` in `components/office/office-scene.ts`.
-  - Typing = CSS `office-typing` (steps through the sheet, `steps(N, jump-none)`, 8 fps), only while the agent is
-    `working`; reduced motion stops it. Paused / over budget agents are greyed out.
-  - The status bubble is decorative (`aria-hidden`); the agent's button carries the same text as its `aria-label`.
-    The hover card is a Base UI `Popover` with `openOnHover` (tap on touch screens).
-  - Live status: `LiveTeamProvider` polls `getTeamStatusAction` (`app/dashboard/[workspaceId]/actions.ts`) every 5 s
-    while someone works, 15 s otherwise, only while the tab is visible. It reads `getTeamOverview`, which never writes.
-  - Characters built into the editor are exported as paths, not images (Desk 3 / Reviewer:
-    `/characters/rightfacing/typing/frame_00N.png`). Their frames are downloaded from the editor
-    (https://agent-office-editor.vercel.app + the path) into `office/` at the same path; the script fails if one is missing.
+- **Live process** (`components/ai-team/live-process.tsx`): six steps, one per phase. Nothing in flight → "Inactive"
+  and every step idle with what it does; otherwise one block per queued/running run. Rules:
+  - Data comes only from the live poll: `LiveTeamProvider` polls `getTeamStatusAction`
+    (`app/dashboard/[workspaceId]/actions.ts`) every 5 s while someone works, 15 s otherwise, only while the tab is
+    visible. It reads `getTeamOverview`, which never writes; its `runs` are `LiveRun`s.
+  - The mapping is pure and tested (`liveProcessSteps` in `lib/live-process.ts`); the component only renders it.
+  - Actions show tool names and targets from `agent_run_steps` (labels from `TOOL_LABEL`, shared with the agent log),
+    never tool content. A two-agent step labels each action with its agent.
+  - Motion: the working marker spins and the face ring pulses only with `motion-safe:`; chips and markers carry text
+    (screen readers get the step state), never color alone.
 - **Agent pipeline** (`lib/inngest/agent-run.ts` + `lib/agent-pipeline.ts`): Analyst (Analysis) → Developer (In
-  Development, branch `agent/<key>-<slug>`, PR) → Reviewer (In Review) → Tester (Testing) → merge (Done). Rules:
+  Development, branch `agent/<key>-<slug>`, PR) → Reviewer and Security in parallel (In Review) → Lead (approval, still
+  In Review) → Tester (Testing) → merge (Done). Rules:
+  - **Phase vs stage**: a phase (`RUN_STAGES`, stored in `agent_runs.stage`, shown on the board and the live process)
+    can hold two agents; a stage (`AGENT_STAGES`) is one agent's tool loop. The agent log (`agent_run_steps.stage`), the
+    Claude conversation key (`<stage>:<round>`) and Inngest step ids use the stage, so parallel work never collides.
+    Only a phase's first agent moves and holds the card (`placeTask`).
+  - **Parallel review**: `Promise.all` of two `runStage` calls; each turn is still its own step. `beginStage` marks the
+    run running only while it's still active (`markStageRunning`), and `runStageTurn` stops when the run isn't
+    active any more, so a stop in one stage ends the other at its next turn. `stopRun` takes the stage that stopped;
+    a second stop only closes that stage's log and activity (one notification).
   - Each stage is a tool loop of at most the agent's max turns, **one Inngest step per turn**; the last turn forces the
     stage's finish tool (strict JSON schema). Step bodies reload state from the DB — never keep state in closures.
   - **Skills are enforced as tools** (`toolsFor` in `lib/agent-tools.ts`). Adding a capability = a tool gated by a
@@ -517,14 +526,23 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     is a mid-conversation system message instead. Opus/Sonnet 5.5 use refusal `fallbacks: "default"`.
   - Pause and budget are re-checked every turn; each turn adds its cost to the stage's `task_run` activity row and to
     `agent_runs.cost_micros`.
-  - Review `request_changes` or test `fail` → back to the Developer on the same branch/PR, at most `MAX_REWORK_ROUNDS`.
-  - Merge mode and pickup mode come from `workspaces.agent_auto_merge` / `agent_auto_pickup` (Settings → `#agents`).
-    `mergeAgentPullRequest` is the only merge path (auto and manual): mergeable + CI green, otherwise the Tester files
-    one follow-up card per PR (`createAgentTask`, plus a GitHub issue with `issues.create`).
+  - **The Lead decides**: its `request_changes` (or test `fail`) → back to the Developer on the same branch/PR, at most
+    `MAX_REWORK_ROUNDS`. The Reviewer's verdict and Security's report feed the Lead; neither sends work back on its own.
+    The Lead's decision sets `pull_requests.review_status` and `risk`.
+  - **Risk**: `recordApproval` raises the Lead's rating to `riskFloor` (Security's worst finding; dependency, schema,
+    auth or CI paths; more than 10 files or 400 lines, measured on GitHub). The Lead may rate higher, never lower.
+    New sensitive areas go in `SENSITIVE_PATHS` with a test.
+  - Merge mode and pickup mode come from `workspaces.agent_merge_mode` (`MERGE_MODES`: manual, auto_low_risk, auto)
+    / `agent_auto_pickup` (Settings → `#agents`); `mergeDecision(mode, risk)` decides. `agent_auto_merge` is
+    deprecated (not read; drop it in v0.3). `mergeAgentPullRequest` is the only merge path (auto and manual): mergeable
+    + CI green, otherwise the Tester files one follow-up card per PR (`createAgentTask`, plus a GitHub issue with
+    `issues.create`).
   - **Agent log**: every turn's tool calls go to `agent_run_steps` (`saveRunSteps`) and every stage's end too
     (`saveStageEnd`: result, or the stop reason via `stopRun`). Positions are fixed (stage, round, turn, seq), so retries
     rewrite instead of duplicating. Never log tool *content* (file reads, diffs): only targets and short confirmations
-    or errors (`toolStep`).
+    or errors (`toolStep`). The log sheet shows parallel stages as separate blocks, both live at once.
+  - **Simulated mode** (`AGENTS_SIMULATED=true`) scripts every stage, including Security (pass) and the Lead (approve,
+    low risk), so the whole flow runs without a model.
   - **Out of credit** (`isOpenAIOutOfCredit` / `isAnthropicOutOfCredit`) is not a generic failure: the run stops with
     `agent_runs.failure = { kind: "out_of_credit", provider }` and the board offers switch-and-retry
     (`switchProviderAndRetryAction`). With `workspaces.ai_auto_failover` and the other company's key, `runStageTurn`
@@ -534,7 +552,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   - The pipeline moves cards with `placeTask` (top of the column, bottom for Done). It owns column + assignee while a
     run is active; users can still drag, and the next stage moves the card again.
 - **Pull Requests** (`/dashboard/[id]/pull-requests`): the page calls `refreshOpenPullRequests` (picks up merges/closes
-  made on GitHub), then renders `PullRequestsView`. **Merge** only for PRs with review approved and tests passed.
+  made on GitHub), then renders `PullRequestsView`: approval (the Lead), tests and risk chips. **Merge** only for PRs
+  the Lead approved and tests passed.
 - **Activity feed** (`lib/activity.ts`): `agent_activity` rows, cards people created (`tasks.created_by_id`) and
   people's card moves, edits and removals (`task_events`, logged by the board actions after the change is saved),
   merged newest first. The Activity page shows every kind (`?show=` grows the list in steps of 50, up to 500); the

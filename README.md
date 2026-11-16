@@ -1,7 +1,7 @@
 # TechTeam
 
 A workspace for running a software team made of AI agents. Each **workspace** is linked to exactly one
-**GitHub repository**; its issues flow onto a **Kanban board**, and a team of AI agents (Analyst → Developer → Reviewer → Tester) takes
+**GitHub repository**; its issues flow onto a **Kanban board**, and a team of AI agents (Analyst → Developer → Reviewer + Security → Lead → Tester) takes
 cards from analysis to a merged pull request.
 
 > The product name lives in one constant, `APP_NAME` in [`components/brand.tsx`](components/brand.tsx).
@@ -20,11 +20,11 @@ cards from analysis to a merged pull request.
 | Kanban board | ✅ Real | Six columns (Todo, Analysis, In Development, In Review, Testing, Done), drag and drop (mouse, touch, keyboard), search, type filters, create/edit dialog. Persisted in Postgres. |
 | GitHub issue sync | ✅ Real | Open issues of the linked repo appear on the board automatically; Refresh button; closing an issue moves its card to Done. |
 | Card actions | ✅ Real | **Run** (starts the agent pipeline), **Stop agents**, **View agent log** (what each agent did, stage by stage), **Remove task** (soft delete). |
-| Agent pipeline | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (or `AGENTS_SIMULATED=true` to try it free) | Analyst plans → Developer commits on a branch and opens a PR → Reviewer → Tester → merge (manual or automatic). Rework loops, max turns per agent, skills enforced as tools, follow-up card on merge conflicts or failing builds. Auto pickup of Todo cards (optional). Out of credit: the board says so and switches company with one click (or automatically, opt-in). No code execution: verification is static plus CI. |
+| Agent pipeline | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (or `AGENTS_SIMULATED=true` to try it free) | Analyst plans → Developer commits on a branch and opens a PR → Reviewer and Security in parallel → Lead approves and rates the risk → Tester → merge (manual, automatic when low risk, or automatic). Rework loops, max turns per agent, skills enforced as tools, follow-up card on merge conflicts or failing builds. Auto pickup of Todo cards (optional). Out of credit: the board says so and switches company with one click (or automatically, opt-in). No code execution: verification is static plus CI. |
 | Overview page | ✅ Real | Stats, upcoming tasks and recent activity from the board and the activity feed; empty states when there is nothing yet. |
-| AI Team | ✅ Real | Four default agents (Analyst, Developer, Reviewer, Tester) per workspace: configure instructions, skills, model and budget; Skill Trust Score with **Scan again**; spending; activity drawer. Each agent runs on an OpenAI or Claude model. AI drafts instructions and reviews configs (optional). |
-| Switch Trust (SwitchAgent scans) | ✅ Real, verified live (needs a public URL) | Settings → Switch Trust connects a Switch account; the four agents are registered there and each runs **one** Switch evaluation (on connect, every week, and on demand with **SwitchAgent Scan**); budgets become Switch cost caps. Runs in the background on Cloudhike jobs; health score, tests held and OWASP coverage update on their own. Needs a public URL (`PUBLIC_APP_URL`). See [docs/switch-trust.md](docs/switch-trust.md). |
-| Live Agent Office | ✅ Real | AI Team page: the agents at their desks in an illustrated office, typing while they work, with live status bubbles and hover cards (`npm run office:assets` builds the sprites). |
+| AI Team | ✅ Real | Six default agents (Analyst, Developer, Reviewer, Security, Lead, Tester), each with a face, per workspace: configure instructions, skills, model and budget; Skill Trust Score with **Scan again**; spending; activity drawer. Each agent runs on an OpenAI or Claude model. AI drafts instructions and reviews configs (optional). |
+| Switch Trust (SwitchAgent scans) | ✅ Real, verified live (needs a public URL) | Settings → Switch Trust connects a Switch account; every agent is registered there and each runs **one** Switch evaluation (on connect, every week, and on demand with **SwitchAgent Scan**); budgets become Switch cost caps. Runs in the background on Cloudhike jobs; health score, tests held and OWASP coverage update on their own. Needs a public URL (`PUBLIC_APP_URL`). See [docs/switch-trust.md](docs/switch-trust.md). |
+| Live process | ✅ Real | AI Team page: each card in flight as six steps (who works, what they're doing, last actions, turns and cost so far, results of finished steps); "Inactive" when nothing runs. Agent cards show what a working agent is doing. |
 | Pull Requests page | ✅ Real | Agent PRs with review/test verdicts and **Merge**. |
 | Settings → Agent automation | ✅ Real | Task pickup and merge mode per workspace. |
 | Settings → AI providers | ✅ Real | Encrypted OpenAI / Anthropic keys per workspace, provider switch, optional automatic switch when out of credit. |
@@ -69,7 +69,6 @@ Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 | `npm run lint` | ESLint (flat config: Next.js core web vitals + TypeScript). |
 | `npm test` | Unit tests (Vitest). `npm run test:watch` while working. |
 | `npm run check` | Route types (`next typegen`) + type check + lint + tests: run before every commit. CI runs it plus `npm run build` on every push and PR. |
-| `npm run office:assets` | Rebuild the live office's sprite sheets from `office/` (see [docs/features.md](docs/features.md#live-agent-office)). |
 | `npx next typegen` | Regenerate `PageProps` / `RouteContext` types after adding routes. |
 
 ---
