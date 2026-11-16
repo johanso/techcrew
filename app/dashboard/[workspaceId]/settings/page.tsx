@@ -13,6 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { WorkspaceAvatar, workspaceLogoSrc } from "@/components/workspace/workspace-avatar";
 import { workspaceProvider } from "@/lib/agent-config";
+import { parseMergeMode } from "@/lib/agent-run-config";
 import { getProviderKeyViews } from "@/lib/ai-keys";
 import { getSwitchConnectionView } from "@/lib/switch-trust";
 import { initials } from "@/lib/utils";
@@ -150,7 +151,7 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
           description="How cards reach your AI team and what happens when their pull requests are ready."
           actions={<span className="eyebrow text-muted-foreground">Agents</span>}
         />
-        <AgentAutomationForm workspaceId={workspace.id} autoPickup={workspace.agentAutoPickup} autoMerge={workspace.agentAutoMerge} />
+        <AgentAutomationForm workspaceId={workspace.id} autoPickup={workspace.agentAutoPickup} mergeMode={parseMergeMode(workspace.agentMergeMode)} />
       </section>
     </>
   );

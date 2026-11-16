@@ -6,6 +6,7 @@ import { and, desc, eq } from "drizzle-orm";
 
 import { db, workspaces, type NewWorkspace } from "@/db";
 import type { AgentProvider } from "@/lib/agent-config";
+import type { MergeMode } from "@/lib/agent-run-config";
 import { requireUser } from "@/lib/current-user";
 
 export function listWorkspaces(ownerId: number) {
@@ -28,7 +29,7 @@ export async function getOwnedWorkspace(ownerId: number, id: number) {
 }
 
 /** Settings → Agents. The caller has already checked ownership. */
-export async function updateAgentAutomation(workspaceId: number, values: { agentAutoPickup: boolean; agentAutoMerge: boolean }) {
+export async function updateAgentAutomation(workspaceId: number, values: { agentAutoPickup: boolean; agentMergeMode: MergeMode }) {
   await db
     .update(workspaces)
     .set({ ...values, updatedAt: new Date() })

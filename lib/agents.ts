@@ -28,8 +28,8 @@ import {
   type AgentTone,
   type SkillId,
 } from "@/lib/agent-config";
-import { MAX_TURNS_MAX, MAX_TURNS_MIN, RUN_STAGES, STAGE_META, type RunStage } from "@/lib/agent-run-config";
-import { getWorkingStages } from "@/lib/agent-runs";
+import { AGENT_STAGE, MAX_TURNS_MAX, MAX_TURNS_MIN, STAGE_META, isRunStage, workingAgents } from "@/lib/agent-run-config";
+import { getEndedStages, getWorkingAgents } from "@/lib/agent-runs";
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
 import type { TrustScanView } from "@/lib/switch-trust-config";
 
@@ -265,7 +265,7 @@ export async function getAgentTeam(
   await ensureDefaultAgents(workspace.id);
   const { start, end } = monthWindow();
 
-  const [rows, spendRows, taskRows, activityRows, workingStages] = await Promise.all([
+  const [rows, spendRows, taskRows, activityRows, working] = await Promise.all([
     db.select().from(agents).where(eq(agents.workspaceId, workspace.id)),
     db
       .select({
@@ -289,9 +289,8 @@ export async function getAgentTeam(
       .where(eq(agentActivity.workspaceId, workspace.id))
       .orderBy(desc(agentActivity.createdAt), desc(agentActivity.id))
       .limit(ACTIVITY_PER_AGENT * AGENT_KEYS.length),
-    getWorkingStages(workspace.id),
+    getWorkingAgents(workspace.id),
   ]);
-  const working = new Set(workingStages.map((stage) => STAGE_META[stage].agent));
 
   const now = Date.now();
   const elapsedDays = Math.max(1, (now - start.getTime()) / 86_400_000);
@@ -366,7 +365,7 @@ export async function getAgentTeam(
 /** One agent as the Overview and the AI Team page show it live. */
 export type TeamMember = Agent & {
   status: AgentStatus;
-  /** What it is doing right now, e.g. "Reviewing ACM-142" (a running run at its stage). */
+  /** What it is doing right now, e.g. "Reviewing ACM-142" (a running run at its stage, until its stage ends). */
   currentTask: string | null;
   /** The card behind `currentTask`, with when its run started. */
   task: { key: string; title: string; startedAt: Date } | null;
@@ -402,7 +401,14 @@ export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" |
       .where(and(eq(agentActivity.workspaceId, workspace.id), inArray(agentActivity.kind, WORK_KINDS)))
       .orderBy(agentActivity.agentId, desc(agentActivity.createdAt), desc(agentActivity.id)),
     db
-      .select({ stage: agentRuns.stage, number: tasks.number, title: tasks.title, startedAt: agentRuns.startedAt })
+      .select({
+        id: agentRuns.id,
+        stage: agentRuns.stage,
+        reworkRounds: agentRuns.reworkRounds,
+        number: tasks.number,
+        title: tasks.title,
+        startedAt: agentRuns.startedAt,
+      })
       .from(agentRuns)
       .innerJoin(tasks, eq(tasks.id, agentRuns.taskId))
       .where(and(eq(agentRuns.workspaceId, workspace.id), eq(agentRuns.status, "running")))
@@ -420,13 +426,16 @@ export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" |
       ? provider
       : null;
 
+  const ended = await getEndedStages(runningRows);
   const current = new Map<AgentKey, { label: string; task: NonNullable<TeamMember["task"]> }>();
   for (const run of runningRows) {
-    if (!RUN_STAGES.includes(run.stage as RunStage)) continue;
-    const meta = STAGE_META[run.stage as RunStage];
-    if (!meta.agent || current.has(meta.agent)) continue;
+    if (!isRunStage(run.stage)) continue;
     const key = `${prefix}-${run.number}`;
-    current.set(meta.agent, { label: `${meta.verb} ${key}`, task: { key, title: run.title, startedAt: run.startedAt } });
+    for (const agent of workingAgents(run.stage, ended.get(run.id) ?? [])) {
+      if (current.has(agent)) continue;
+      const { verb } = STAGE_META[AGENT_STAGE[agent]];
+      current.set(agent, { label: `${verb} ${key}`, task: { key, title: run.title, startedAt: run.startedAt } });
+    }
   }
 
   let monthSpendMicros = 0;

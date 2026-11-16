@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { PullRequestsView } from "@/components/pull-requests/pull-requests-view";
+import { parseMergeMode } from "@/lib/agent-run-config";
 import { listPullRequests, refreshOpenPullRequests } from "@/lib/pull-requests";
 import { getDashboardContext } from "@/lib/workspaces";
 
@@ -14,7 +15,7 @@ export default async function PullRequestsPage({ params }: PageProps<"/dashboard
 
   return (
     <PullRequestsView
-      workspace={{ id: workspace.id, repoUrl: workspace.githubRepoUrl, autoMerge: workspace.agentAutoMerge }}
+      workspace={{ id: workspace.id, repoUrl: workspace.githubRepoUrl, mergeMode: parseMergeMode(workspace.agentMergeMode) }}
       pullRequests={pullRequests}
     />
   );

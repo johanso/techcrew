@@ -10,6 +10,9 @@ import {
   GitMergeIcon,
   GitPullRequestClosedIcon,
   GitPullRequestIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
+  ShieldIcon,
   type LucideIcon,
 } from "lucide-react";
 
@@ -17,6 +20,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { SectionEmpty } from "@/components/dashboard/section-empty";
 import { MergeButton } from "@/components/pull-requests/merge-button";
 import { buttonVariants } from "@/components/ui/button";
+import type { MergeMode, RiskLevel } from "@/lib/agent-run-config";
 import type { PullRequestView } from "@/lib/pull-requests";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +47,30 @@ function VerdictChip({ label, value, verdict }: { label: string; value: string; 
     </span>
   );
 }
+
+const RISK: Record<RiskLevel, { icon: LucideIcon; tone: string; label: string }> = {
+  low: { icon: ShieldCheckIcon, tone: "text-success", label: "Low" },
+  medium: { icon: ShieldIcon, tone: "text-warning", label: "Medium" },
+  high: { icon: ShieldAlertIcon, tone: "text-error", label: "High" },
+};
+
+/** The Lead's risk rating, same chip shape as the verdicts. */
+function RiskChip({ risk }: { risk: RiskLevel }) {
+  const meta = RISK[risk];
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs ring-1 ring-border/70">
+      <meta.icon aria-hidden className={cn("size-3.5", meta.tone)} />
+      <span className="text-muted-foreground">Risk:</span>
+      <span className="font-medium">{meta.label}</span>
+    </span>
+  );
+}
+
+const DESCRIPTION: Record<MergeMode, string> = {
+  manual: "Changes your agents propose. Merge them here once the Lead approves and tests pass.",
+  auto_low_risk: "Changes your agents propose. Low-risk ones merge automatically once tests and CI pass; the rest wait for you here.",
+  auto: "Changes your agents propose. They merge automatically once the Lead approves and tests and CI pass.",
+};
 
 function PullRequestRow({ pr, workspaceId }: { pr: PullRequestView; workspaceId: number }) {
   const state = STATE[pr.state];
@@ -78,7 +106,7 @@ function PullRequestRow({ pr, workspaceId }: { pr: PullRequestView; workspaceId:
         </p>
         <div className="flex flex-wrap gap-1.5">
           <VerdictChip
-            label="Review"
+            label="Approval"
             value={pr.reviewStatus === "approved" ? "Approved" : pr.reviewStatus === "changes_requested" ? "Changes requested" : "Pending"}
             verdict={pr.reviewStatus === "approved" ? "pass" : pr.reviewStatus === "changes_requested" ? "fail" : "pending"}
           />
@@ -87,6 +115,7 @@ function PullRequestRow({ pr, workspaceId }: { pr: PullRequestView; workspaceId:
             value={pr.testStatus === "passed" ? "Passed" : pr.testStatus === "failed" ? "Failed" : "Pending"}
             verdict={pr.testStatus === "passed" ? "pass" : pr.testStatus === "failed" ? "fail" : "pending"}
           />
+          {pr.risk && <RiskChip risk={pr.risk} />}
         </div>
         {pr.mergeError && pr.state === "open" && (
           <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
@@ -117,7 +146,7 @@ export function PullRequestsView({
   workspace,
   pullRequests,
 }: {
-  workspace: { id: number; repoUrl: string; autoMerge: boolean };
+  workspace: { id: number; repoUrl: string; mergeMode: MergeMode };
   pullRequests: PullRequestView[];
 }) {
   const githubLink = (
@@ -139,11 +168,7 @@ export function PullRequestsView({
       <PageHeader
         eyebrow="Review"
         title="Pull Requests"
-        description={
-          workspace.autoMerge
-            ? "Changes your agents propose. They merge automatically once review, tests and CI pass."
-            : "Changes your agents propose. Merge them here once review and tests pass."
-        }
+        description={DESCRIPTION[workspace.mergeMode]}
         actions={githubLink}
       />
 
@@ -151,7 +176,7 @@ export function PullRequestsView({
         <SectionEmpty
           icon={GitPullRequestIcon}
           title="No agent pull requests yet"
-          description="When the Developer finishes a card, its pull request appears here with the review and test results."
+          description="When the Developer finishes a card, its pull request appears here with the approval, test results and risk."
         />
       ) : (
         <section className="surface min-w-0" aria-labelledby="pr-list-title">

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { PROVIDERS, isAgentProvider } from "@/lib/agent-config";
+import { isMergeMode } from "@/lib/agent-run-config";
 import { getAIKeys, keyStatus, removeProviderKey, saveProviderKey, verifyProviderKey } from "@/lib/ai-keys";
 import { switchAgentsToProvider } from "@/lib/agents";
 import { requireUser } from "@/lib/current-user";
@@ -19,8 +20,8 @@ import { getOwnedWorkspace, updateAgentAutomation, updateAIProvider, updateAutoF
 
 export type AutomationFormState = { ok?: boolean; message?: string; savedAt?: number };
 
-const MODES = ["manual", "auto"] as const;
-const isMode = (value: FormDataEntryValue | null): value is (typeof MODES)[number] => MODES.includes(value as never);
+const PICKUP_MODES = ["manual", "auto"] as const;
+const isPickupMode = (value: FormDataEntryValue | null): value is (typeof PICKUP_MODES)[number] => PICKUP_MODES.includes(value as never);
 
 async function authorize(workspaceId: number) {
   const user = await requireUser(`/dashboard/${workspaceId}/settings`);
@@ -40,9 +41,9 @@ export async function saveAutomationAction(workspaceId: number, _prev: Automatio
 
   const pickup = formData.get("pickup");
   const merge = formData.get("merge");
-  if (!isMode(pickup) || !isMode(merge)) return { message: "Choose an option for task pickup and for merging." };
+  if (!isPickupMode(pickup) || !isMergeMode(merge)) return { message: "Choose an option for task pickup and for merging." };
 
-  await updateAgentAutomation(workspace.id, { agentAutoPickup: pickup === "auto", agentAutoMerge: merge === "auto" });
+  await updateAgentAutomation(workspace.id, { agentAutoPickup: pickup === "auto", agentMergeMode: merge });
   revalidatePath(`/dashboard/${workspaceId}/settings`);
   return { ok: true, savedAt: Date.now() };
 }

@@ -8,7 +8,8 @@ import { executeTool, toolStep, type ToolContext } from "@/lib/agent-tools";
 /**
  * Simulated agents (AGENTS_SIMULATED=true): a scripted stand-in for the model, for trying the pipeline locally
  * without an API key or spend. Each stage takes two turns: one real tool call (so GitHub reads, the developer's
- * commit, the diff and CI checks really happen), then the stage's finish tool with a fixed, passing result.
+ * commit, the diff and CI checks really happen), then the stage's finish tool with a fixed, passing result: the
+ * Reviewer and Security approve with no findings and the Lead approves at low risk (the risk floor still applies).
  */
 
 export function isSimulatedAgents() {
@@ -40,6 +41,8 @@ function firstTurnCall(finish: string, ctx: ToolContext, tools: FunctionTool[]):
           }
         : null;
     case "submit_review":
+    case "submit_security_review":
+    case "submit_approval":
       return has("get_diff") ? { name: "get_diff", args: {} } : null;
     case "submit_test_report":
       return has("get_checks") ? { name: "get_checks", args: {} } : has("get_diff") ? { name: "get_diff", args: {} } : null;
@@ -71,6 +74,16 @@ function finishResult(finish: string, ctx: ToolContext): unknown {
       };
     case "submit_review":
       return { verdict: "approve", summary: "Simulated review: approved without findings.", findings: [] };
+    case "submit_security_review":
+      return { verdict: "pass", summary: "Simulated security review: no secrets, injection or permission problems in the diff.", findings: [] };
+    case "submit_approval":
+      return {
+        decision: "approve",
+        risk: "low",
+        risk_reasons: ["Simulated run: one note file under agent-simulations/."],
+        summary: "Simulated approval: both reviews passed, so the change goes on to testing.",
+        required_changes: [],
+      };
     default:
       return {
         verdict: "pass",

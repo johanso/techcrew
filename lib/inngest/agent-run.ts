@@ -12,7 +12,9 @@ import {
   openPullRequest,
   prepareBranch,
   readyToMerge,
+  recordApproval,
   recordReview,
+  recordSecurity,
   recordTestReport,
   runStageTurn,
   saveBrief,
@@ -39,8 +41,9 @@ type Step = GetStepTools<typeof inngest>;
 const MERGE_ATTEMPTS = 20;
 
 /**
- * One stage: open it, then one durable step per model turn until the agent submits its result.
+ * One agent's stage: open it, then one durable step per model turn until the agent submits its result.
  * The last allowed turn forces the finish tool, so a stage always ends with a result or a stop reason.
+ * Step ids start with the stage, so two stages can run in parallel (Promise.all) without colliding.
  */
 async function runStage<S extends keyof StageResult>(
   step: Step,
@@ -64,13 +67,15 @@ async function runStage<S extends keyof StageResult>(
     )) as unknown as TurnStepResult<S>;
     if (out.kind === "done") return out.result;
     if (out.kind === "stopped") {
-      await step.run(`${id}-stopped`, () => stopRun(runId, out.reason, begun.activityId, "failed", out.failure ?? null));
+      await step.run(`${id}-stopped`, () => stopRun(runId, out.reason, begun.activityId, "failed", out.failure ?? null, stage));
       return null;
     }
     if (out.kind === "restart") {
       // Once per stage: a second provider change in the same stage means neither can work right now.
       if (restarted) {
-        await step.run(`${id}-stopped`, () => stopRun(runId, `${out.reason} The other provider failed too.`, begun.activityId));
+        await step.run(`${id}-stopped`, () =>
+          stopRun(runId, `${out.reason} The other provider failed too.`, begun.activityId, "failed", null, stage)
+        );
         return null;
       }
       restarted = true;
@@ -79,13 +84,15 @@ async function runStage<S extends keyof StageResult>(
     }
     state = out.state;
   }
-  await step.run(`${id}-out-of-turns`, () => stopRun(runId, `Ran out of turns (${begun.maxTurns}) without a result.`, begun.activityId));
+  await step.run(`${id}-out-of-turns`, () =>
+    stopRun(runId, `Ran out of turns (${begun.maxTurns}) without a result.`, begun.activityId, "failed", null, stage)
+  );
   return null;
 }
 
 /**
- * The agent pipeline for one board card: Analyst → Developer → Reviewer → Tester → merge.
- * Review or tests can send the work back to the Developer up to MAX_REWORK_ROUNDS times.
+ * The agent pipeline for one board card: Analyst → Developer → Reviewer and Security (in parallel) → Lead → Tester →
+ * merge. The Lead or the tests can send the work back to the Developer up to MAX_REWORK_ROUNDS times.
  */
 export const agentTaskRun = inngest.createFunction(
   {
@@ -126,17 +133,26 @@ export const agentTaskRun = inngest.createFunction(
         return { stopped: "pull-request" };
       }
 
-      const review = await runStage(step, runId, "review", round, work);
-      if (!review) return { stopped: "review" };
+      // Code review and security review read the same pull request at the same time; each turn is still its own step.
+      const [review, security] = await Promise.all([
+        runStage(step, runId, "review", round, work),
+        runStage(step, runId, "security", round, work),
+      ]);
+      if (!review || !security) return { stopped: "review" };
       await step.run(`record-review-${round}`, () => recordReview(runId, review));
-      if (review.verdict === "request_changes") {
+      await step.run(`record-security-${round}`, () => recordSecurity(runId, security));
+
+      const lead = await runStage(step, runId, "approval", round, work);
+      if (!lead) return { stopped: "approval" };
+      const approval = await step.run(`record-approval-${round}`, () => recordApproval(runId, lead));
+      if (approval.decision === "request_changes") {
         if (round >= MAX_REWORK_ROUNDS) {
-          await step.run("review-exhausted", () =>
-            stopRun(runId, `The reviewer still requests changes after ${MAX_REWORK_ROUNDS} rework rounds. See PR #${pr.number}.`, null)
+          await step.run("approval-exhausted", () =>
+            stopRun(runId, `The Lead still requests changes after ${MAX_REWORK_ROUNDS} rework rounds. See PR #${pr.number}.`, null)
           );
-          return { stopped: "review" };
+          return { stopped: "approval" };
         }
-        await step.run(`rework-after-review-${round}`, () => startRework(runId));
+        await step.run(`rework-after-approval-${round}`, () => startRework(runId));
         continue;
       }
 
@@ -156,7 +172,8 @@ export const agentTaskRun = inngest.createFunction(
       break;
     }
 
-    // Merge: auto (Settings → Agents) waits for GitHub and CI; manual leaves it on the Pull Requests page.
+    // Merge: automatic (Settings → Agents: always, or when the Lead rated it low risk) waits for GitHub and CI;
+    // otherwise it waits for the owner on the Pull Requests page.
     const { autoMerge } = await step.run("ready-to-merge", () => readyToMerge(runId));
     if (!autoMerge) return { awaitingMerge: true };
     for (let attempt = 1; attempt <= MERGE_ATTEMPTS; attempt++) {
