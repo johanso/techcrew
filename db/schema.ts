@@ -69,9 +69,6 @@ export const workspaces = pgTable(
     // agent pull requests merge on their own (always, or only when the Lead rated them low risk).
     agentAutoPickup: boolean("agent_auto_pickup").default(false).notNull(),
     agentMergeMode: text("agent_merge_mode").default("manual").notNull(),
-    // Deprecated (v0.1 merge switch): agent_merge_mode replaced it and was backfilled from it. Not read or written;
-    // kept one release so v0.1 code still runs against a migrated database. Drop in v0.3.
-    agentAutoMerge: boolean("agent_auto_merge").default(false).notNull(),
     // Settings → AI providers: the provider the team works on ("openai" | "anthropic"). Also used by AI drafting/scans.
     aiProvider: text("ai_provider").default("openai").notNull(),
     // When the provider runs out of credit mid-run and the other one has a key, switch the team to it and restart

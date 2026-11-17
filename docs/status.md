@@ -87,10 +87,9 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 | Item | Notes |
 | --- | --- |
-| Unit tests only | 121 Vitest tests for pure logic (filters, model mapping, roles, trust scan, costs, credit detection, tools per stage, log steps, phases and working agents, risk floor and merge decision, live process, Switch mapping, card-change descriptions, skill frontmatter/zip/scan/search/prompt), run by CI on every push. No integration tests for the database, the sync or the pipeline yet. |
+| Unit tests only | 129 Vitest tests for pure logic (filters, model mapping, roles, trust scan, costs, credit detection, tools per stage, log steps, phases and working agents, risk floor and merge decision, live process, Switch mapping, card-change descriptions, skill frontmatter/zip/scan/search/prompt), run by CI on every push. No integration tests for the database, the sync or the pipeline yet. |
 | Two `cn` helpers | shadcn components import `cn` from the `cn` npm package; app code uses `cn` from `@/lib/utils` (`clsx` + `tailwind-merge`). Pick one. |
 | `server-only` isn't installed as a package | Next.js handles it internally (optional per the Next docs), but scripts run outside Next (e.g. with `tsx`) can't import `server-only` modules without a shim. |
-| Deprecated `workspaces.agent_auto_merge` | Replaced by `agent_merge_mode` in v0.2 and no longer read; kept so v0.1 code still runs against a migrated database. Drop it in v0.4. |
 | Sequential updates in `reorderTasks` | One `UPDATE` per card in the moved columns. Fine at board sizes; batch it if columns grow large. |
 
 ## Suggested next steps

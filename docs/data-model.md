@@ -77,7 +77,6 @@ erDiagram
         timestamp github_issues_synced_at
         boolean agent_auto_pickup
         text agent_merge_mode "manual | auto_low_risk | auto"
-        boolean agent_auto_merge "deprecated"
         text ai_provider
         boolean ai_auto_failover
     }
@@ -203,8 +202,7 @@ A workspace is bound to **exactly one** GitHub repository, chosen at creation. O
 | `github_repo_private` | boolean | no | Snapshot at link time. |
 | `github_issues_synced_at` | timestamp | yes | Last successful issue sync, **minus 60 s** of overlap; passed to GitHub as `since`. `null` = never synced (the next sync imports all open issues). |
 | `agent_auto_pickup` | boolean | no | Default `false`. Settings → Agents: the analyst takes never-run Todo cards on its own. |
-| `agent_merge_mode` | text | no | Default `manual`. Settings → Agents → Merging (`MERGE_MODES`): `manual`, `auto_low_risk` (merge on their own only when the Lead's final risk is low) or `auto` (merge once approval, tests and CI pass). Backfilled from `agent_auto_merge` (true → `auto`) by migration 0005. Unknown values read as `manual`. |
-| `agent_auto_merge` | boolean | no | **Deprecated** (v0.1's merge switch). Not read or written since v0.2; kept so v0.1 code still runs against a migrated database (the dev database is shared across branches). Drop in v0.4. |
+| `agent_merge_mode` | text | no | Default `manual`. Settings → Agents → Merging (`MERGE_MODES`): `manual`, `auto_low_risk` (merge on their own only when the Lead's final risk is low) or `auto` (merge once approval, tests and CI pass). Backfilled from v0.1's `agent_auto_merge` (true → `auto`) by migration 0005; that column was dropped in 0007. Unknown values read as `manual`. |
 | `ai_provider` | text | no | Default `openai`. Settings → AI providers: `openai` or `anthropic`; drives AI drafting/trust reviews and the last provider switch. |
 | `ai_auto_failover` | boolean | no | Default `false`. Settings → AI providers: when the provider runs out of credit mid-run and the other has a key, switch the team and restart the stage. |
 | `created_at`, `updated_at` | timestamp | no | |

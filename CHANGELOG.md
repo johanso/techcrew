@@ -8,6 +8,17 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+### Changed
+- The Lead's default model is GPT-6.1 Sol / Claude Sonnet 5.5 instead of GPT-6 Astra / Claude Opus 5.5. In the first
+  real run with skills the Lead on Astra was 38 % of the cost while it only decides on the two reviews. Existing
+  workspaces keep their choice.
+
+### Removed
+- The deprecated `workspaces.agent_auto_merge` column (replaced by the merge mode in 0.2.0).
+
+### Database
+- Migration `0007_drop_agent_auto_merge`: drops `workspaces.agent_auto_merge`.
+
 ## [0.3.0] — 2026-11-17
 
 Agent skills: knowledge your agents search and read while they work.

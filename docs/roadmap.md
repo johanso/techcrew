@@ -81,8 +81,9 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
 - Weekly Switch scans in production, without a tunnel.
 - The post-MVP rows of the [test plan](testing.md#test-plan-and-status): Anthropic live, blocked merge, auto pickup
   and auto merge, pause or budget mid-run, Draft with AI, automatic provider switch.
-- Drop the deprecated `workspaces.agent_auto_merge` column (replaced by `agent_merge_mode` in v0.2, kept so v0.1 code
-  still runs against a migrated database).
+- Skill uploads under Vercel's 4.5 MB request limit: move the upload out of a Server Action (a route handler or a
+  direct upload to S3) so `serverActions.bodySizeLimit` goes back to the 1 MB default for every other action. Next.js
+  only sets that limit globally.
 - **Project skills**: read skills from the linked repository (e.g. `.agents/skills/`, `.claude/skills/`) as a third
   source (`agent_skills.source = 'project'` is reserved), scanned like uploads.
 - **Mixed companies per agent**: an agent may use OpenAI or Anthropic when both keys exist, so reviewers don't share
