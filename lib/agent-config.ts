@@ -290,7 +290,7 @@ Boundaries:
     tone: "neutral",
     defaults: {
       description: "Combines the code and security reviews, decides on rework and rates the change's risk before merge.",
-      models: { openai: "gpt-6-astra", anthropic: "claude-opus-5-5" },
+      models: { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5" },
       permissions: ["repo.read", "issues.read", "pr.review", "ci.read"],
       monthlyBudgetUsd: 40,
       maxTurns: 8,

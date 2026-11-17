@@ -550,7 +550,7 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     `agents.model` is the active model; `agents.provider_models` remembers the agent's model on each provider, so
     `switchAgentsToProvider` restores earlier choices (first time: `EQUIVALENT_MODEL`, via `agentModelFor`). Read the
     active model with `activeAgentModel(row, provider)`. Role defaults are per provider (`defaults.models`: Sol/Sonnet,
-    Tester Luna/Haiku). Config AI (drafting, trust reviews) uses the workspace provider, or the other one if only it has
+    the Lead included; Tester Luna/Haiku). Config AI (drafting, trust reviews) uses the workspace provider, or the other one if only it has
     a key (`configAI`). Run refuses up front when any agent's model has no key (`pipelineModelProblem`).
   - **Models and providers**: `AGENT_MODELS` (`lib/agent-config.ts`) lists OpenAI and Claude models with their `provider`
     and prices. The model is pinned per stage in `LoopState` (a change on the AI Team page applies from the next stage).
@@ -566,8 +566,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     auth or CI paths; more than 10 files or 400 lines, measured on GitHub). The Lead may rate higher, never lower.
     New sensitive areas go in `SENSITIVE_PATHS` with a test.
   - Merge mode and pickup mode come from `workspaces.agent_merge_mode` (`MERGE_MODES`: manual, auto_low_risk, auto)
-    / `agent_auto_pickup` (Settings → `#agents`); `mergeDecision(mode, risk)` decides. `agent_auto_merge` is
-    deprecated (not read; drop it in v0.3). `mergeAgentPullRequest` is the only merge path (auto and manual): mergeable
+    / `agent_auto_pickup` (Settings → `#agents`); `mergeDecision(mode, risk)` decides (the old
+    `agent_auto_merge` column was dropped in migration 0007). `mergeAgentPullRequest` is the only merge path (auto and manual): mergeable
     + CI green, otherwise the Tester files one follow-up card per PR (`createAgentTask`, plus a GitHub issue with
     `issues.create`).
   - **Agent log**: every turn's tool calls go to `agent_run_steps` (`saveRunSteps`) and every stage's end too
