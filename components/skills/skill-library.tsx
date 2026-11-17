@@ -1,12 +1,20 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { ExternalLinkIcon, Trash2Icon, UploadIcon, UsersIcon } from "lucide-react";
+import { ExternalLinkIcon, SearchIcon, Trash2Icon, UploadIcon, UsersIcon, XIcon } from "lucide-react";
 
 import { deleteSkillAction, saveSkillAssignmentsAction } from "@/app/dashboard/[workspaceId]/settings/actions";
 import { FormMessage } from "@/components/auth/form-parts";
 import { AgentCheckboxes } from "@/components/skills/agent-checkboxes";
 import { SkillAgents, SkillBadges, SkillScanChip } from "@/components/skills/skill-badges";
+import {
+  filterSkills,
+  isFilteringSkills,
+  isSkillAgentFilter,
+  NO_SKILL_FILTERS,
+  type SkillAgentFilter,
+  type SkillFilters,
+} from "@/components/skills/skill-filters";
 import { SkillFindings } from "@/components/skills/skill-findings";
 import { SkillUpload } from "@/components/skills/skill-upload";
 import {
@@ -21,27 +29,87 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import type { AgentKey } from "@/lib/agent-config";
+import { AGENT_KEYS, AGENT_ROLES, type AgentKey } from "@/lib/agent-config";
 import { formatBytes, type SkillView } from "@/lib/agent-skills-config";
 
+const AGENT_FILTER_ITEMS: { value: SkillAgentFilter; label: string }[] = [
+  { value: "all", label: "All agents" },
+  ...AGENT_KEYS.map((key) => ({ value: key, label: `On for the ${AGENT_ROLES[key].name}` })),
+  { value: "none", label: "Not used by any agent" },
+];
+
 /**
- * Settings → Agent skills: upload, then the library (built-ins first). Each skill shows what it is, where it came
- * from, its scan and who has it on; actions change assignments, upload a new version or delete (uploaded only).
+ * Settings → Agent skills: the library (built-ins first) with search and an agent filter. Each skill shows what it
+ * is, where it came from, its scan and who has it on; actions change assignments, upload a new version or delete
+ * (uploaded only).
  */
 export function SkillLibrary({ workspaceId, skills }: { workspaceId: number; skills: SkillView[] }) {
+  const [filters, setFilters] = useState<SkillFilters>(NO_SKILL_FILTERS);
   const [assigning, setAssigning] = useState<SkillView | null>(null);
   const [versioning, setVersioning] = useState<SkillView | null>(null);
   const [deleting, setDeleting] = useState<SkillView | null>(null);
+  const visible = filterSkills(skills, filters);
+  const filtering = isFilteringSkills(filters);
 
   return (
     <div className="flex flex-col">
-      <div className="border-b border-border/70 p-6">
-        <SkillUpload workspaceId={workspaceId} />
+      <div className="flex flex-col gap-3 border-b border-border/70 p-4 sm:flex-row sm:items-center sm:px-6">
+        <InputGroup className="h-10 bg-card sm:w-72">
+          <InputGroupAddon>
+            <SearchIcon />
+          </InputGroupAddon>
+          <InputGroupInput
+            type="search"
+            value={filters.query}
+            onChange={(event) => setFilters({ ...filters, query: event.target.value })}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && filters.query) {
+                event.preventDefault();
+                setFilters({ ...filters, query: "" });
+              }
+            }}
+            placeholder="Search skills"
+            aria-label="Search skills by name, description or origin"
+            className="[&::-webkit-search-cancel-button]:hidden"
+          />
+          {filters.query && (
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton size="icon-xs" aria-label="Clear search" onClick={() => setFilters({ ...filters, query: "" })}>
+                <XIcon />
+              </InputGroupButton>
+            </InputGroupAddon>
+          )}
+        </InputGroup>
+        <Select items={AGENT_FILTER_ITEMS} value={filters.agent} onValueChange={(value) => isSkillAgentFilter(value) && setFilters({ ...filters, agent: value })}>
+          <SelectTrigger aria-label="Filter by agent" className="w-full data-[size=default]:h-10 sm:w-60">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {AGENT_FILTER_ITEMS.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-sm text-muted-foreground sm:ml-auto" role="status">
+          {filtering ? (
+            <>
+              <span className="font-semibold text-foreground tabular-nums">{visible.length}</span> of <span className="tabular-nums">{skills.length}</span> skills
+            </>
+          ) : (
+            <>
+              <span className="tabular-nums">{skills.length}</span> skill{skills.length === 1 ? "" : "s"}
+            </>
+          )}
+        </p>
       </div>
-      {skills.length ? (
+      {visible.length ? (
         <ul className="flex flex-col divide-y divide-border/70" aria-label="Skill library">
-          {skills.map((skill) => (
+          {visible.map((skill) => (
             <SkillRow
               key={skill.id}
               skill={skill}
@@ -51,8 +119,15 @@ export function SkillLibrary({ workspaceId, skills }: { workspaceId: number; ski
             />
           ))}
         </ul>
+      ) : skills.length ? (
+        <div className="flex flex-col items-start gap-3 p-6">
+          <p className="text-sm text-muted-foreground">No skills match these filters.</p>
+          <Button type="button" variant="outline" className="h-9" onClick={() => setFilters(NO_SKILL_FILTERS)}>
+            Clear filters
+          </Button>
+        </div>
       ) : (
-        <p className="p-6 text-sm text-muted-foreground">No skills yet. Upload one above.</p>
+        <p className="p-6 text-sm text-muted-foreground">No skills yet. Upload one to get started.</p>
       )}
 
       {assigning && <AssignDialog key={assigning.id} workspaceId={workspaceId} skill={assigning} onClose={() => setAssigning(null)} />}
@@ -68,7 +143,7 @@ export function SkillLibrary({ workspaceId, skills }: { workspaceId: number; ski
               workspaceId={workspaceId}
               replace={{ id: versioning.id, name: versioning.name }}
               currentRoles={versioning.enabledFor}
-              onDone={() => setVersioning(null)}
+              onClose={() => setVersioning(null)}
             />
           )}
         </DialogContent>

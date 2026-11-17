@@ -178,5 +178,6 @@ export async function setAgentSkillAction(workspaceId: number, key: string, skil
   }
   refresh(workspaceId);
   revalidatePath(`/dashboard/${workspaceId}/settings`);
+  revalidatePath(`/dashboard/${workspaceId}/settings/skills`);
   return { ok: true };
 }

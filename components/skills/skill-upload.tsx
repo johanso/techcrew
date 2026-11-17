@@ -10,7 +10,7 @@ import { AgentCheckboxes } from "@/components/skills/agent-checkboxes";
 import { SkillFindings } from "@/components/skills/skill-findings";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import type { AgentKey } from "@/lib/agent-config";
+import { AGENT_ROLES, type AgentKey } from "@/lib/agent-config";
 import {
   ALWAYS_BODY_MAX_BYTES,
   UPLOAD_FILES_MAX,
@@ -38,24 +38,26 @@ type Stage =
   | { kind: "idle" }
   | { kind: "blocked"; error: string; findings: SkillScanFinding[] }
   | { kind: "confirm"; preview: UploadPreview }
-  | { kind: "done"; name: string };
+  | { kind: "done"; name: string; roles: AgentKey[] };
 
 /**
- * Upload a skill (Settings → Agent skills): choose a SKILL.md or .zip → it's validated and scanned (nothing is
- * installed yet) → confirm type, load and the agents to assign → installed. `replace` uploads a new version of an
- * uploaded skill instead.
+ * Upload a skill (Settings → Agent skills, inside a dialog): choose a SKILL.md or .zip → it's validated and scanned
+ * (nothing is installed yet) → confirm type, load and the agents to assign → installed. The result stays on screen
+ * with a Done button where Install was, so a second click never lands on the page behind. `replace` uploads a new
+ * version of an uploaded skill instead.
  */
 export function SkillUpload({
   workspaceId,
   replace,
   currentRoles,
-  onDone,
+  onClose,
 }: {
   workspaceId: number;
   replace?: { id: number; name: string };
   /** For a new version: the agents that have the skill on now (pre-checked instead of the suggestion). */
   currentRoles?: AgentKey[];
-  onDone?: (name: string) => void;
+  /** Closes the dialog (Done after installing). */
+  onClose: () => void;
 }) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -115,12 +117,41 @@ export function SkillUpload({
       for (const role of roles) data.append("roles", role);
       const result = await installSkillAction(workspaceId, data);
       if (!result.ok) return setError(result.error);
-      setStage({ kind: "done", name: result.name });
+      setStage({ kind: "done", name: result.name, roles });
       if (inputRef.current) inputRef.current.value = "";
       setFile(null);
-      onDone?.(result.name);
     });
   };
+
+  if (stage.kind === "done") {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex items-start gap-3 rounded-lg bg-success/8 p-4 ring-1 ring-success/25" role="status">
+          <CircleCheckIcon aria-hidden className="mt-0.5 size-5 shrink-0 text-success" />
+          <div className="flex min-w-0 flex-col gap-1">
+            <p className="text-sm font-semibold break-words">
+              {replace ? `New version of ${stage.name} installed` : `${stage.name} installed`}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {stage.roles.length
+                ? `Switched on for ${stage.roles.map((key) => AGENT_ROLES[key].name).join(", ")}, from their next turn.`
+                : "Not switched on for any agent yet. Use Assign in the library when you need it."}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          {!replace && (
+            <Button type="button" variant="outline" className="h-10" onClick={reset}>
+              Upload another
+            </Button>
+          )}
+          <Button type="button" className="h-10" onClick={onClose}>
+            Done
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if (stage.kind === "confirm") {
     const { preview } = stage;
@@ -247,12 +278,6 @@ export function SkillUpload({
             Choose another file
           </Button>
         </div>
-      )}
-      {stage.kind === "done" && (
-        <p className="flex items-center gap-2 text-sm" role="status">
-          <CircleCheckIcon aria-hidden className="size-4 text-success" />
-          Installed {stage.name}.
-        </p>
       )}
       <FormMessage message={error ?? undefined} />
     </div>

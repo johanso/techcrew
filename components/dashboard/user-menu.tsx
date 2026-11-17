@@ -89,7 +89,7 @@ function UserMenuItems({ user, workspaceId }: { user: MenuUser; workspaceId: num
           <KeyRoundIcon />
           AI providers
         </DropdownMenuItem>
-        <DropdownMenuItem render={<Link href={`${settings}#skills`} />}>
+        <DropdownMenuItem render={<Link href={`${settings}/skills`} />}>
           <LibraryBigIcon />
           Agent skills
         </DropdownMenuItem>

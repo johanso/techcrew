@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { format } from "date-fns";
-import { BadgeCheckIcon, BotIcon, ExternalLinkIcon, KeyRoundIcon, LibraryBigIcon, ShieldCheckIcon } from "lucide-react";
+import { ArrowRightIcon, BadgeCheckIcon, BotIcon, ExternalLinkIcon, KeyRoundIcon, LibraryBigIcon, ShieldCheckIcon } from "lucide-react";
 
+import { dashboardHref } from "@/components/dashboard/nav";
 import { DetailGrid, PageHeader, SurfaceHeader } from "@/components/dashboard/page-header";
 import { AgentAutomationForm } from "@/components/settings/agent-automation-form";
 import { AutoFailoverToggle } from "@/components/settings/auto-failover-toggle";
@@ -9,7 +11,6 @@ import { ProviderKeyForm } from "@/components/settings/provider-key-form";
 import { ProviderSwitchForm } from "@/components/settings/provider-switch-form";
 import { SwitchConnectionForm } from "@/components/settings/switch-connection-form";
 import { SwitchWeeklyToggle } from "@/components/settings/switch-weekly-toggle";
-import { SkillLibrary } from "@/components/skills/skill-library";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { WorkspaceAvatar, workspaceLogoSrc } from "@/components/workspace/workspace-avatar";
@@ -163,6 +164,7 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
         <AgentAutomationForm workspaceId={workspace.id} autoPickup={workspace.agentAutoPickup} mergeMode={parseMergeMode(workspace.agentMergeMode)} />
       </section>
 
+      {/* The library has its own page (it can grow to many skills); #skills stays as an anchor for old links. */}
       <section id="skills" className="surface scroll-mt-24">
         <SurfaceHeader
           icon={
@@ -171,10 +173,14 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
             </span>
           }
           title="Agent skills"
-          description="Knowledge your agents search and read while they work. Skills are never run; switch them on per agent here or in AI Team."
-          actions={<span className="eyebrow text-muted-foreground">Skills</span>}
+          description={`Knowledge your agents search and read while they work. ${skills.length} installed, ${skills.filter((s) => s.source === "uploaded").length} uploaded.`}
+          actions={
+            <Link href={dashboardHref(workspace.id, "settings/skills")} className={buttonVariants({ variant: "outline", className: "h-9" })}>
+              Manage skills
+              <ArrowRightIcon data-icon="inline-end" />
+            </Link>
+          }
         />
-        <SkillLibrary workspaceId={workspace.id} skills={skills} />
       </section>
     </>
   );

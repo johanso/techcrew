@@ -316,9 +316,10 @@ card runs. Security and Lead are read-only by default (read the repository, issu
   shows when that company has no key) and monthly budget (presets $25/$50/$100/$250). The side panel shows the **Trust Score** (ring,
   grade — Trusted ≥ 85, Needs review ≥ 70, At risk — summary, checks passed, findings, **Scan again**) and
   **Spending** for the month (spent, budget bar, remaining, projection, reset date, breakdown: task runs, AI drafting,
-  trust scans) and **Skills** (the workspace's skills, *Recommended for the <role>* first, then *Other skills* with
-  the roles they fit; type, load and source badges; a switch per skill that saves at once; a warning when a skill
-  assumes a permission the agent lacks; **Manage skills** → Settings). Saving logs exactly what changed and re-scores the agent. With **Switch Trust** connected the panel
+  trust scans) and **Skills** (only the skills this agent has on, with type, load and source badges and a switch
+  that saves at once; one switched off stays listed until the dialog closes, so it can be switched back; **Add a
+  skill** opens a search over the rest of the library, *Recommended* ones for the role first, up to 8 results; a
+  warning when a skill assumes a permission the agent lacks; **Manage skills** → Settings → Agent skills). Saving logs exactly what changed and re-scores the agent. With **Switch Trust** connected the panel
   becomes the **Switch Trust Score**: **SwitchAgent Scan** queues one Switch evaluation of the agent in the background
   (the card and panel say "Scanning…" and the page refreshes itself until the score lands), shows tests held, OWASP
   coverage, findings, a failed scan's reason, and a note when the configuration changed after the scan. See
@@ -366,11 +367,14 @@ never executed. Not to be confused with **permissions**, which decide what an ag
   returns up to 30 KB per call. Only the agent's enabled skills are reachable. The agent log and the live process
   show these calls ("Searched skill modern-web-guidance: light dismiss dialog"), never their content. Switching a
   skill on or off applies from the agent's next turn.
-- **Settings → Agent skills** (`#skills`, also in the account menu): **Upload a skill** (a `SKILL.md`, or a `.zip`
-  with SKILL.md at its root or in one folder). It's read and scanned before anything is installed: a critical finding
-  blocks it with the reasons; otherwise a confirm step shows the findings, files left out, **Type**, **Loading** and
-  **Assign to** (the six agents, pre-checked with the suggestion), then **Install skill**. The library lists built-ins
-  first: badges, origin (built-ins link to the pinned upstream folder) and license, files and size, scan status
+- **Settings → Agent skills** (`/dashboard/[workspaceId]/settings/skills`, its own page; also in the account menu,
+  and a summary card in Settings `#skills` links to it): **Upload skill** opens a dialog for a `SKILL.md`, or a
+  `.zip` with SKILL.md at its root or in one folder. It's read and scanned before anything is installed: a critical
+  finding blocks it with the reasons; otherwise a confirm step shows the findings, files left out, **Type**,
+  **Loading** and **Assign to** (the six agents, pre-checked with the suggestion), then **Install skill**. The result
+  stays in the dialog (who it's switched on for) with **Done** where Install was, and **Upload another**. The library
+  has a search (name, description, origin; accents and hyphens ignored; Escape clears) and an agent filter (all, on
+  for one agent, not used by any), with a count while filtering. It lists built-ins first: badges, origin (built-ins link to the pinned upstream folder) and license, files and size, scan status
   (*Reviewed*, *Scan passed*, or *N scan findings* with details), and the agents that have it on. **Assign** changes
   who uses it; uploaded skills also get **New version** (same name; scanned again; agents using it are rescanned) and
   **Delete** (confirmation). Built-ins can't be deleted, only switched off.
@@ -432,7 +436,7 @@ Security), Approval (Lead), Testing, Merge (automatic, no agent).
 
 ## Settings
 
-`/dashboard/[workspaceId]/settings` (also reachable from the user menu, which jumps to `#account`, `#workspace`, `#ai` or `#skills`):
+`/dashboard/[workspaceId]/settings` (also reachable from the user menu, which jumps to `#account`, `#workspace` or `#ai`; its Agent skills item opens `/settings/skills`):
 - **Account** — avatar, name, verified-email badge, email, member since, last sign-in, account id.
 - **Workspace** — avatar, name, repository, default branch, visibility, creation date, **Open repository**.
 - **AI providers** (`#ai`) — **Agents work on** OpenAI or Anthropic: each agent then picks its model from that company on
@@ -454,7 +458,7 @@ Security), Approval (Lead), Testing, Merge (automatic, no agent).
   low risk: once tests and CI pass, if the Lead rated it low risk / Automatic: once approval, tests and CI pass). Both
   default to Manual; workspaces that merged automatically before v0.2 keep Automatic. A note explains that a blocked merge makes the Tester file a
   follow-up card.
-- **Agent skills** (`#skills`) — upload skills and manage the library; see [Agent skills](#agent-skills).
+- **Agent skills** (`#skills`) — a summary card (installed and uploaded counts) with **Manage skills**, which opens the library page; see [Agent skills](#agent-skills).
 
 Account and workspace details are read-only.
 
