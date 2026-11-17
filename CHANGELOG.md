@@ -8,7 +8,9 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
-Agent skills — planned as **0.3.0**.
+## [0.3.0] — 2026-11-17
+
+Agent skills: knowledge your agents search and read while they work.
 
 ### Added
 - **Agent skills**: knowledge packs in the Agent Skills format (a folder with SKILL.md plus reference files) that
@@ -142,6 +144,7 @@ takes a card from analysis to a merged pull request, with cost, trust and human 
   budget mid-run, Draft with AI with a real key, automatic provider switch.
 - Switch shows caps but not spend until usage is reported through the Switch SDK.
 
-[Unreleased]: https://github.com/jricardomillion/techcrew/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/jricardomillion/techcrew/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.3.0
 [0.2.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.2.0
 [0.1.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.1.0

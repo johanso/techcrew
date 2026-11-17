@@ -1,6 +1,6 @@
 # Roadmap
 
-Where TechTeam goes next (latest release: [v0.2.0](../CHANGELOG.md#020--2026-11-16)), and how a version is released.
+Where TechTeam goes next (latest release: [v0.3.0](../CHANGELOG.md#030--2026-11-17)), and how a version is released.
 For what works today see [status.md](status.md); for what's verified see [testing.md](testing.md).
 
 - [Direction: an AI software factory](#direction-an-ai-software-factory)
@@ -73,7 +73,7 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
 - **Uploads** in Settings → Agent skills: validation, deterministic security scan, AI review and classification,
   confirm with *Assign to*; per-agent switches in AI Team → Configure; findings count in the trust score.
 - Agents use them in every stage through two read-only tools (`search_skill`, `read_skill`) on both providers.
-- To be released as **v0.3.0**.
+- Released as **v0.3.0** (2026-11-17); see [CHANGELOG.md](../CHANGELOG.md#030--2026-11-17).
 
 ### v0.4 — Deploy and hardening
 - Deploy (Vercel works: 300 s functions vs our 120 s routes; Postgres is already hosted). Hobby is non-commercial only.
