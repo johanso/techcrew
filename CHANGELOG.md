@@ -17,11 +17,13 @@ Agent skills — planned as **0.3.0**.
 - **Built-in skills**, vendored at a pinned commit with their license and a `SOURCE.md`: `modern-web-guidance`
   (Google Chrome, Apache-2.0; on for the Developer, Reviewer and Security) and `chrome-extensions` (off by default).
   `npm run skills:sync` updates them from GitHub as a reviewable diff.
-- **Settings → Agent skills** (also in the account menu): upload a SKILL.md or a .zip, see the security scan and the
-  suggested type, load and roles, confirm who uses it; the library shows each skill's origin, license, scan and
-  agents, with Assign, New version and Delete.
-- **Skills panel** in AI Team → Configure: switch each skill on or off for the agent (saves at once), recommended
-  skills for the role first, a warning when a skill assumes a permission the agent lacks.
+- **Settings → Agent skills**, its own page (also in the account menu; Settings shows a summary card): **Upload
+  skill** opens a dialog to upload a SKILL.md or a .zip, see the security scan and the suggested type, load and
+  roles, and confirm who uses it. The library has a search and an agent filter, and shows each skill's origin,
+  license, scan and agents, with Assign, New version and Delete.
+- **Skills panel** in AI Team → Configure: lists only the skills the agent has on, each with a switch (saves at
+  once), and **Add a skill** searches the rest of the library, recommended ones for the role first; a warning shows
+  when a skill assumes a permission the agent lacks.
 - Two agent tools in every stage, `search_skill` and `read_skill`, on OpenAI and Anthropic; shown in the agent log
   and the live process. Simulated agents use them too.
 - Security scan for uploads (prompt injection, credentials, secret exfiltration, pushing to the default branch,
@@ -32,6 +34,7 @@ Agent skills — planned as **0.3.0**.
 - What the app called **skills** (Read repository, Write code, Merge pull requests …) are now **permissions** in the
   UI and the code. The database column `agents.skills` keeps its name.
 - *Skill Trust Score* is now **Trust Score**. Agent cards show *Permissions · N* and *Skills · N*.
+- Agent cards on AI Team put the agent's name and specialty beside its face, one row shorter.
 - Switch Trust evaluations include the agent's always-loaded skills in its prompt.
 - Server Action body limit raised to 6 MB for skill uploads.
 

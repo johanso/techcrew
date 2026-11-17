@@ -34,6 +34,7 @@ async function authorize(workspaceId: number) {
 // Provider changes show on the AI Team page too (model picker, "not connected" labels, agent models).
 function refresh(workspaceId: number) {
   revalidatePath(`/dashboard/${workspaceId}/settings`);
+  revalidatePath(`/dashboard/${workspaceId}/settings/skills`);
   revalidatePath(`/dashboard/${workspaceId}/ai-team`);
 }
 

@@ -44,17 +44,17 @@ export function AgentCard({
       aria-labelledby={`agent-${agent.id}-name`}
     >
       <div className="flex flex-1 flex-col gap-5 p-5">
-        <div className="flex items-start justify-between gap-3">
-          <AgentPortrait agent={agent} status={status} working={working} size="lg" />
-          <AgentStatusBadge status={status} />
-        </div>
-
-        <div className="flex min-w-0 flex-col gap-1.5">
-          <div className="flex min-w-0 flex-col">
-            <h3 id={`agent-${agent.id}-name`} className="truncate text-base font-bold">
-              {agent.name}
-            </h3>
-            <p className="truncate text-xs font-medium text-muted-foreground">{agent.role}</p>
+        {/* Name and specialty sit beside the face to save a row; the specialty may wrap to two lines on narrow cards. */}
+        <div className="flex min-w-0 flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <AgentPortrait agent={agent} status={status} working={working} size="lg" />
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <h3 id={`agent-${agent.id}-name`} className="truncate text-base font-bold">
+                {agent.name}
+              </h3>
+              <p className="line-clamp-2 text-xs font-medium text-muted-foreground">{agent.role}</p>
+            </div>
+            <AgentStatusBadge status={status} className="self-start" />
           </div>
           <p className="line-clamp-2 min-h-10 text-sm text-muted-foreground">{agent.description}</p>
         </div>

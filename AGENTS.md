@@ -103,7 +103,8 @@ app/
                           (agent log), syncIssuesAction (also refreshes agent PRs) (auth + validation).
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
       settings/           Account (#account), workspace (#workspace), AI providers (#ai: keys + provider switch), Switch
-                          Trust (#switch), agent automation (#agents) and agent skills (#skills). actions.ts: automation,
+                          Trust (#switch), agent automation (#agents) and an Agent skills card (#skills) linking to skills/page.tsx (the
+                          library on its own page). actions.ts: automation,
                           provider switch, auto failover toggle, save/remove provider key, connect/disconnect Switch,
                           inspectSkillAction / installSkillAction (upload, two steps), saveSkillAssignmentsAction,
                           deleteSkillAction.
@@ -130,13 +131,15 @@ components/
                           cards shared by the settings forms).
   ai-team/                AI Team: ai-team-view (page markup), agent-roster (cards + open overlay state), agent-card
                           (live working state), agent-config-dialog (form + PermissionPicker + Draft with AI), trust-panel,
-                          spending-panel, skills-panel (per-agent skill switches, setAgentSkillAction), agent-activity-sheet, agent-visuals (AgentPortrait, AgentStatusBadge, BudgetMeter,
+                          spending-panel, skills-panel (only the agent's skills with switches + "Add a skill" search, setAgentSkillAction), agent-activity-sheet, agent-visuals (AgentPortrait, AgentStatusBadge, BudgetMeter,
                           TrustRing), agent-face (the face image + initial fallback), live-process (the six steps of each
                           card in flight), live-team (LiveTeamProvider + useLiveTeam: one poll of getTeamStatusAction; also
                           keeps the Overview's AI team card live), trust-scan-watcher (refreshes the page while a
                           SwitchAgent scan is pending).
-  skills/                 Agent skills UI: skill-library (Settings #skills: list, Assign, New version, Delete),
-                          skill-upload (choose → inspect → confirm → install), skill-badges (SkillBadges, SkillScanChip,
+  skills/                 Agent skills UI: skill-library (Settings → Agent skills page: search + agent filter, list,
+                          Assign, New version, Delete), skill-filters (pure
+                          search/filter, tested), skill-upload-button (the dialog), skill-upload (choose → inspect → confirm → install → Done, in a
+                          dialog), skill-badges (SkillBadges, SkillScanChip,
                           SkillAgents, agentOf), skill-findings, agent-checkboxes ("Assign to" the six agents).
   dashboard/              Overview sections: stat-tile, upcoming-tasks, team-status (AI team card, live), recent-activity,
                           agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS), activity-kind (ACTIVITY_KIND,
@@ -581,7 +584,7 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     failed, out of credit, provider switched). A new failure path goes through `stopRun` so it gets logged and notified.
   - The pipeline moves cards with `placeTask` (top of the column, bottom for Done). It owns column + assignee while a
     run is active; users can still drag, and the next stage moves the card again.
-- **Agent skills** (Settings `#skills`, AI Team → Configure → Skills): knowledge packs in the Agent Skills format
+- **Agent skills** (`/dashboard/[id]/settings/skills`, AI Team → Configure → Skills): knowledge packs in the Agent Skills format
   (SKILL.md frontmatter `name` + `description`, markdown body, optional reference `.md`). Not permissions. Rules:
   - **Never executed.** Agents only search and read them (`search_skill`, `read_skill`, read-only, any stage, only the
     agent's enabled skills, validated paths). A skill can never add a tool or a permission. Only `.md`/`.txt` are kept.
