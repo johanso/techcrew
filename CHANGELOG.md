@@ -8,6 +8,10 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-18
+
+CI in the loop and a Metrics page.
+
 ### Added
 - **CI in the loop**: after each push the pipeline waits for the pull request's checks (up to 15 minutes) before
   review. A check the change broke goes back to the Developer with its annotations and the end of its job log, as a
@@ -175,7 +179,8 @@ takes a card from analysis to a merged pull request, with cost, trust and human 
   budget mid-run, Draft with AI with a real key, automatic provider switch.
 - Switch shows caps but not spend until usage is reported through the Switch SDK.
 
-[Unreleased]: https://github.com/jricardomillion/techcrew/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/jricardomillion/techcrew/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.4.0
 [0.3.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.3.0
 [0.2.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.2.0
 [0.1.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.1.0
