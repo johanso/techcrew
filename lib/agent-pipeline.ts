@@ -657,6 +657,8 @@ export async function runStageTurn<S extends AgentStage>(input: {
   state: LoopState | null;
   forceFinish: boolean;
   work: WorkResult | null;
+  /** The stage already restarted on the other provider after running out of credit. */
+  failedOver?: boolean;
 }): Promise<TurnStepResult<S>> {
   const ctx = await requireContext(input.runId);
   if (ctx.run.status === "cancelled") return { kind: "stopped", reason: "Stopped by the user." };
@@ -712,7 +714,7 @@ export async function runStageTurn<S extends AgentStage>(input: {
     });
   } catch (error) {
     const broke = isOpenAIOutOfCredit(error) ? "openai" : isAnthropicOutOfCredit(error) ? "anthropic" : null;
-    if (broke) return outOfCredit(ctx, broke, keyStatus(keys)[otherProvider(broke)]);
+    if (broke) return outOfCredit(ctx, broke, keyStatus(keys)[otherProvider(broke)], input.failedOver ?? false);
     rethrowGithub(error);
   }
 
@@ -739,12 +741,25 @@ async function activityCost(activityId: number) {
 /**
  * The stage's provider refused for lack of credit. With auto failover on (Settings → AI providers) and a key for the
  * other company, the team switches to it and the stage starts over there; otherwise the run stops with a failure the
- * board can act on (switch and retry). If the team already moved to another provider, the stage just restarts.
+ * board can act on (switch and retry). If the team already moved to another provider, the stage just restarts. After a
+ * failover the stage never switches back: the first provider just ran dry, so both are out and the run stops.
  */
-async function outOfCredit(ctx: RunContext, broke: AgentProvider, otherHasKey: boolean): Promise<{ kind: "restart" | "stopped"; reason: string; failure?: RunFailure }> {
+async function outOfCredit(
+  ctx: RunContext,
+  broke: AgentProvider,
+  otherHasKey: boolean,
+  failedOver: boolean
+): Promise<{ kind: "restart" | "stopped"; reason: string; failure?: RunFailure }> {
   const other = otherProvider(broke);
   const reason = `${PROVIDERS[broke].label} is out of credit.`;
   if (workspaceProvider(ctx.workspace) !== broke) return { kind: "restart", reason };
+  if (failedOver) {
+    return {
+      kind: "stopped",
+      reason: `${PROVIDERS[broke].label} is out of credit too, right after the switch from ${PROVIDERS[other].label}. Add credit to either one and run the card again.`,
+      failure: { kind: "out_of_credit", provider: broke },
+    };
+  }
   if (ctx.workspace.aiAutoFailover && otherHasKey) {
     await updateAIProvider(ctx.workspace.id, other);
     await switchAgentsToProvider(ctx.workspace.id, other);

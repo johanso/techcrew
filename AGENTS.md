@@ -599,7 +599,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   - **Out of credit** (`isOpenAIOutOfCredit` / `isAnthropicOutOfCredit`) is not a generic failure: the run stops with
     `agent_runs.failure = { kind: "out_of_credit", provider }` and the board offers switch-and-retry
     (`switchProviderAndRetryAction`). With `workspaces.ai_auto_failover` and the other company's key, `runStageTurn`
-    switches the team and returns `restart` instead: the stage starts over, at most once per stage.
+    switches the team and returns `restart` instead: the stage starts over, at most once per stage. After a failover it
+    never switches back (`failedOver`): the second company running dry stops the run with `out_of_credit`.
   - **Notifications**: `notify()` at the moments that need the owner (PR ready, merged, merge blocked, needs info, run
     failed, out of credit, provider switched). A new failure path goes through `stopRun` so it gets logged and notified.
   - The pipeline moves cards with `placeTask` (top of the column, bottom for Done). It owns column + assignee while a

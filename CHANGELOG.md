@@ -18,6 +18,12 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   (failed runs included), outcomes, why work went back (CI, Lead, tests), spend by agent and recent runs, over 7, 30 or
   90 days.
 
+### Fixed
+- Automatic provider switch: when the second company is out of credit too, the run stops with "out of credit" instead
+  of switching the team back to the first one (which had just run dry) and announcing that the card carried on.
+- Auto pickup now logs "Picked up AJU-n" in the activity feed, like Run does.
+- Draft with AI no longer promises that an agent runs tests or code: agents work through the GitHub API only.
+
 ### Changed
 - Board columns scroll on their own: the board fits the screen and a long column scrolls under its title and count
   instead of stretching the page. Each column shows its first 5 cards with **Show N more** (and **Show less**); a

@@ -66,7 +66,7 @@ async function runStage<S extends keyof StageResult>(
     const current: LoopState | null = state;
     // Step output is JSON; every field of these results is plain JSON, so the round trip keeps the type.
     const out = (await step.run(`${id}-turn-${turn}`, () =>
-      runStageTurn({ runId, stage, activityId: begun.activityId, state: current, forceFinish, work })
+      runStageTurn({ runId, stage, activityId: begun.activityId, state: current, forceFinish, work, failedOver: restarted })
     )) as unknown as TurnStepResult<S>;
     if (out.kind === "done") return out.result;
     if (out.kind === "stopped") {
