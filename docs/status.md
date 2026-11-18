@@ -1,7 +1,7 @@
 # Project status
 
 Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-17**
-(release **v0.3.0**, on `main`). For what has been tested and how to test the agents, see [testing.md](testing.md).
+(release **v0.4.0**, on `main`). For what has been tested and how to test the agents, see [testing.md](testing.md).
 
 - [Feature status](#feature-status)
 - [Dummy data and placeholders](#dummy-data-and-placeholders)
@@ -95,9 +95,9 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 ## Suggested next steps
 
-The plan lives in [roadmap.md](roadmap.md): smarter gates and the live process are done (v0.2), and so are agent skills (v0.3);
-next are deploy and hardening, including mixed model companies per agent (v0.4), a sandbox to run code (v0.5), and a
-shared project memory (v0.6).
+The plan lives in [roadmap.md](roadmap.md): smarter gates and the live process are done (v0.2), agent skills (v0.3), and
+CI in the loop with a Metrics page (v0.4); next are deploy and hardening, including mixed model companies per agent
+(v0.5), a sandbox to run code (v0.6), and a shared project memory (v0.7).
 
 ## History
 
@@ -111,6 +111,8 @@ shared project memory (v0.6).
 | `463701d` | GitHub issue sync; demo data removed. |
 | `15e1257` | Card Run (Analyst + Inngest job) and Remove actions. |
 | `d6f030e` | AI Team page: configurable agents, Skill Trust Score, spending, activity. |
+| `v0.4.0` | **Fourth release**, tagged on `main` after PR #10 (CI in the loop, Metrics, board columns, failover and pickup fixes). |
+| `feat/pipeline-ci-metrics` | v0.4 work: CI gate before review (migration 0008), Metrics page, board columns that scroll with Show more, the remaining test-plan checks before release. |
 | `v0.3.0` | **Third release**, tagged on `main` after PRs #6 and #7 (agent skills). |
 | `feat/agent-skills` | v0.3 work: skills renamed to permissions; agent skills (Agent Skills format, always or on demand, `search_skill` / `read_skill`), built-ins vendored by `skills:sync`, uploads with a security scan and AI review, Settings → Agent skills page, per-agent switches (migration 0006). |
 | `v0.2.0` | **Second release**, tagged on `main` after PRs #3 (v0.2 work) and #4 (Next.js 16.4.6 security upgrade). |

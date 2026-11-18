@@ -1,6 +1,6 @@
 # Roadmap
 
-Where TechTeam goes next (latest release: [v0.3.0](../CHANGELOG.md#030--2026-11-17)), and how a version is released.
+Where TechTeam goes next (latest release: [v0.4.0](../CHANGELOG.md#040--2026-11-18)), and how a version is released.
 For what works today see [status.md](status.md); for what's verified see [testing.md](testing.md).
 
 - [Direction: an AI software factory](#direction-an-ai-software-factory)
@@ -39,13 +39,13 @@ flowchart LR
     BRAIN -.-> APP
 ```
 
-| Target piece | Today (v0.2) |
+| Target piece | Today (v0.4) |
 | --- | --- |
 | Input | GitHub issues and board cards |
 | Spec writer | Analyst (brief, questions to the owner) |
-| Builder | Developer (branch + PR) |
+| Builder | Developer (branch + PR); CI on the PR checked before review, failures go back to it |
 | Specialist reviewers in parallel, mixed model companies | Reviewer and Security in parallel, then the Tester; one company per workspace |
-| Approver with a loop back | Lead: combines the reviews, sends work back (max 2 rounds with the tests) |
+| Approver with a loop back | Lead: combines the reviews, sends work back (max 2 rework rounds, shared with the tests and CI) |
 | Risk-based human gate | Lead's risk rating with a deterministic floor; "Automatic when low risk" merge mode |
 | Production | No deploy step |
 | Brain | Only a card's earlier questions and answers; agent skills (v0.3) bring curated technical and practice knowledge |
@@ -75,7 +75,15 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
 - Agents use them in every stage through two read-only tools (`search_skill`, `read_skill`) on both providers.
 - Released as **v0.3.0** (2026-11-17); see [CHANGELOG.md](../CHANGELOG.md#030--2026-11-17).
 
-### v0.4 — Deploy and hardening
+### v0.4 — CI in the loop and metrics
+- **CI gate**: after each push the pipeline waits for the pull request's checks; a check the change broke goes back to
+  the Developer with its output before review. Checks already red on the default branch don't block.
+- **Metrics page**: delivered, success and first-pass rates, CI pass rate, cost per delivered card, outcomes, rework
+  causes, spend by agent.
+- Board columns that scroll inside with **Show N more**; fixes to the automatic provider switch and auto pickup.
+- Released as **v0.4.0** (2026-11-18); see [CHANGELOG.md](../CHANGELOG.md#040--2026-11-18).
+
+### v0.5 — Deploy and hardening
 - Deploy (Vercel works: 300 s functions vs our 120 s routes; Postgres is already hosted). Hobby is non-commercial only.
   Needs Inngest Cloud, a production GitHub OAuth App and `PUBLIC_APP_URL` set to the production domain.
 - Weekly Switch scans in production, without a tunnel.
@@ -89,24 +97,18 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
 - **Mixed companies per agent**: an agent may use OpenAI or Anthropic when both keys exist, so reviewers don't share
   one model's blind spots.
 
-### v0.5 — Sandbox
+### v0.6 — Sandbox
 - Run code in an isolated container: install, build and test before the PR; the Developer fixes what fails.
 - Then **UI / UX reviewers** that look at the running app (screenshots in a headless browser). Without the sandbox they
   could only read code.
 
-### v0.6 — Brain
+### v0.7 — Brain
 - A project memory every agent reads before working: repository conventions, decisions, what earlier cards learned.
   Kept per workspace, editable by the owner.
 
 ### Later
 - **Production** step after merge (deploy, check, roll back).
 - Throughput: several cards at once per workspace.
-
-### In progress (Unreleased)
-- **CI in the loop**: the pipeline waits for the PR's checks after each push; a failure the change caused goes back
-  to the Developer with the output before review.
-- **Metrics page**: delivered, first pass, CI pass rate, cost per delivered card, outcomes, rework causes, spend by
-  agent.
 
 ## Backlog
 

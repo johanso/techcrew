@@ -6,7 +6,7 @@ cards from analysis to a merged pull request.
 
 > The product name lives in one constant, `APP_NAME` in [`components/brand.tsx`](components/brand.tsx).
 >
-> **Current version: v0.3.0** (agent skills: built-in and uploaded knowledge packs, per-agent switches). What's in it: [CHANGELOG.md](CHANGELOG.md). What comes next: [docs/roadmap.md](docs/roadmap.md).
+> **Current version: v0.4.0** (CI in the loop, Metrics page, a board that fits the screen). What's in it: [CHANGELOG.md](CHANGELOG.md). What comes next: [docs/roadmap.md](docs/roadmap.md).
 
 ---
 
