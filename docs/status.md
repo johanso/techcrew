@@ -62,7 +62,8 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 - **Cards created in the app are not created on GitHub.**
 - **No undo** for Remove task (the row is kept, but there's no UI to restore it).
 - **Agents can't run code.** The Developer edits files through the GitHub API and the Tester verifies statically
-  (diff, pre-checks, CI results). Builds and tests only run if the repository has CI on pull requests.
+  (diff, pre-checks). Builds and tests only run if the repository has CI on pull requests; the pipeline then waits
+  for it after each push and sends failures back to the Developer.
 - **One commit per file edit** on agent branches (contents API); merges are squashed, so `main` gets one commit.
 - **Reviews are posted as comments**, not approvals: GitHub doesn't let the token's own account approve its own PR.
 - **Auto pickup only takes never-run cards**, one at a time per workspace, every 2 minutes.
@@ -87,7 +88,7 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 | Item | Notes |
 | --- | --- |
-| Unit tests only | 129 Vitest tests for pure logic (filters, model mapping, roles, trust scan, costs, credit detection, tools per stage, log steps, phases and working agents, risk floor and merge decision, live process, Switch mapping, card-change descriptions, skill frontmatter/zip/scan/search/prompt), run by CI on every push. No integration tests for the database, the sync or the pipeline yet. |
+| Unit tests only | 147 Vitest tests for pure logic (filters, model mapping, roles, trust scan, costs, credit detection, tools per stage, log steps, phases and working agents, risk floor and merge decision, CI gate, run metrics, live process, Switch mapping, card-change descriptions, skill frontmatter/zip/scan/search/prompt), run by CI on every push. No integration tests for the database, the sync or the pipeline yet. |
 | Two `cn` helpers | shadcn components import `cn` from the `cn` npm package; app code uses `cn` from `@/lib/utils` (`clsx` + `tailwind-merge`). Pick one. |
 | `server-only` isn't installed as a package | Next.js handles it internally (optional per the Next docs), but scripts run outside Next (e.g. with `tsx`) can't import `server-only` modules without a shim. |
 | Sequential updates in `reorderTasks` | One `UPDATE` per card in the moved columns. Fine at board sizes; batch it if columns grow large. |

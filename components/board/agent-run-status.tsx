@@ -20,6 +20,9 @@ export function runStatusMeta(run: BoardCardRun): { label: string; icon: LucideI
     case "queued":
       return { label: "Queued for the agents", icon: LoaderCircleIcon, tone: "text-muted-foreground", spin: true };
     case "running":
+      if (run.ci === "waiting" && run.stage === "development") {
+        return { label: pr ? `Waiting for CI on ${pr}…` : "Waiting for CI…", icon: LoaderCircleIcon, tone: "text-action", spin: true };
+      }
       return { label: `${run.stage ? PHASE_META[run.stage].verb : "Working"}…`, icon: LoaderCircleIcon, tone: "text-action", spin: true };
     case "awaiting_merge":
       return { label: pr ? `${pr} ready to merge` : "Ready to merge", icon: GitPullRequestIcon, tone: "text-success" };

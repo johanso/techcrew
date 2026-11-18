@@ -444,30 +444,87 @@ export async function createIssue(token: string, fullName: string, input: { titl
 export type CheckSummary = {
   /** "success" when every check passed (or there are none), "pending" while any runs, "failure" otherwise. */
   state: "success" | "pending" | "failure";
-  checks: { name: string; status: string; conclusion: string | null; url: string | null }[];
+  checks: {
+    name: string;
+    status: string;
+    conclusion: string | null;
+    url: string | null;
+    /** Check run id (null for a commit status); a GitHub Actions check run's id is also its job id. */
+    id: number | null;
+    actions: boolean;
+  }[];
 };
 
 /** CI state of a commit: GitHub Actions/App check runs plus legacy commit statuses (e.g. deploy previews). */
 export async function getCommitChecks(token: string, fullName: string, sha: string): Promise<CheckSummary> {
   const [runs, combined] = await Promise.all([
-    githubRequest<{ check_runs: { name: string; status: string; conclusion: string | null; html_url: string | null }[] }>(
-      token,
-      `/repos/${fullName}/commits/${sha}/check-runs?per_page=100`
-    ),
+    githubRequest<{
+      check_runs: { id: number; name: string; status: string; conclusion: string | null; html_url: string | null; app: { slug: string } | null }[];
+    }>(token, `/repos/${fullName}/commits/${sha}/check-runs?per_page=100`),
     githubRequest<{ statuses: { context: string; state: string; target_url: string | null }[] }>(token, `/repos/${fullName}/commits/${sha}/status`),
   ]);
   const checks = [
-    ...runs.check_runs.map((run) => ({ name: run.name, status: run.status, conclusion: run.conclusion, url: run.html_url })),
+    ...runs.check_runs.map((run) => ({
+      name: run.name,
+      status: run.status,
+      conclusion: run.conclusion,
+      url: run.html_url,
+      id: run.id,
+      actions: run.app?.slug === "github-actions",
+    })),
     ...combined.statuses.map((status) => ({
       name: status.context,
       status: status.state === "pending" ? "in_progress" : "completed",
       conclusion: status.state === "pending" ? null : status.state,
       url: status.target_url,
+      id: null,
+      actions: false,
     })),
   ];
   const failed = checks.some((c) => c.status === "completed" && ["failure", "error", "timed_out", "cancelled", "action_required"].includes(c.conclusion ?? ""));
   const pending = checks.some((c) => c.status !== "completed");
   return { state: failed ? "failure" : pending ? "pending" : "success", checks };
+}
+
+/**
+ * Whether the repository has its own GitHub Actions workflows (files in .github/workflows; GitHub's dynamic ones, such
+ * as Pages deployments, don't run on pull requests). Null when GitHub won't say (e.g. Actions disabled).
+ */
+export async function hasActionsWorkflows(token: string, fullName: string): Promise<boolean | null> {
+  try {
+    const data = await githubRequest<{ workflows: { path: string; state: string }[] }>(token, `/repos/${fullName}/actions/workflows?per_page=100`);
+    return data.workflows.some((w) => w.path.startsWith(".github/workflows/") && w.state === "active");
+  } catch {
+    return null;
+  }
+}
+
+export type CheckAnnotation = { path: string; line: number | null; level: string; message: string };
+
+/** What a check run flagged in the code (compiler, linter and test reporters write these). */
+export async function getCheckAnnotations(token: string, fullName: string, checkRunId: number): Promise<CheckAnnotation[]> {
+  const rows = await githubRequest<{ path: string; start_line: number | null; annotation_level: string; message: string }[]>(
+    token,
+    `/repos/${fullName}/check-runs/${checkRunId}/annotations?per_page=50`
+  );
+  return rows.map((row) => ({ path: row.path, line: row.start_line, level: row.annotation_level, message: row.message }));
+}
+
+/**
+ * A GitHub Actions job's plain-text log, or null when it's gone. GitHub answers with a redirect to a short-lived signed
+ * URL on its storage, which is followed by hand so the token never goes there.
+ */
+export async function getJobLog(token: string, fullName: string, jobId: number): Promise<string | null> {
+  const res = await fetch(`${API}/repos/${fullName}/actions/jobs/${jobId}/logs`, {
+    headers: { authorization: `Bearer ${token}`, "x-github-api-version": "2022-11-28" },
+    redirect: "manual",
+    cache: "no-store",
+  });
+  if (res.status === 401) throw new GithubError("GitHub rejected the token.", 401);
+  const location = res.headers.get("location");
+  if (res.status < 300 || res.status >= 400 || !location) return null;
+  const log = await fetch(location, { cache: "no-store" });
+  return log.ok ? log.text() : null;
 }
 
 // ── Persistence ────────────────────────────────────────────────────────────────

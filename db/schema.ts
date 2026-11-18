@@ -5,6 +5,7 @@ import type { AgentModelId, AgentProvider } from "@/lib/agent-config";
 import type { AnalystBrief, LeadDecision, ReviewReport, RunFailure, SecurityReport, TestReport } from "@/lib/agent-run-config";
 import type { SkillScan } from "@/lib/agent-skills-config";
 import type { TrustReport } from "@/lib/agent-trust";
+import type { CiResult } from "@/lib/ci-gate";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -431,6 +432,8 @@ export const agentRuns = pgTable(
     // The Lead's decision after both reviews, with the final risk (raised to the deterministic floor).
     approval: jsonb("approval").$type<LeadDecision>(),
     testReport: jsonb("test_report").$type<TestReport>(),
+    // CI on the pull request after each development round (the CI gate before review), oldest first.
+    ci: jsonb("ci").$type<CiResult[]>(),
     // Development rounds after the first one (the Lead or the tests sent the work back).
     reworkRounds: integer("rework_rounds").notNull().default(0),
     // Why the run stopped (failed / needs info / merge blocked), in words for the user.

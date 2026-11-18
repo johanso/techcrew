@@ -101,6 +101,7 @@ erDiagram
         jsonb security_report
         jsonb approval "Lead + final risk"
         jsonb test_report
+        jsonb ci
         int rework_rounds
     }
     agent_run_steps {
@@ -405,6 +406,7 @@ shows each card's latest run.
 | `security_report` | jsonb | yes | | `SecurityReport` (Security, same round as `review`): verdict `pass`/`issues`, summary, findings with severity (critical…low), category (secrets, injection, permissions, dependencies, other), path, detail. |
 | `approval` | jsonb | yes | | `LeadDecision`: decision (`approve` / `request_changes`), final risk (`low`/`medium`/`high`, already raised to `riskFloor`), risk reasons, summary, required changes (source, path, detail). |
 | `test_report` | jsonb | yes | | `TestReport`: verdict, summary, checks (failed pre-checks included). Cleared when the Lead requests changes (that round's tests never ran). |
+| `ci` | jsonb | yes | | `CiResult[]`, one per development round: state (waiting, passed, failed, none, timed_out), commit, number of checks, failing checks (name, conclusion, link) and those failing on the default branch too. Never logs. |
 | `rework_rounds` | integer | no | `0` | Development rounds after the first (max `MAX_REWORK_ROUNDS` = 2). |
 | `error` | text | yes | | Why it stopped, or the analyst's question (`needs_info`). Shown on the card. |
 | `answer` | text | yes | | The owner's answer to the analyst's question (`needs_info` runs, `answerCardAction`). Later runs of the card read it into their prompts. |

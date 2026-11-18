@@ -1,5 +1,6 @@
 import type { AgentKey, AgentProvider } from "@/lib/agent-config";
 import type { BoardColumnId } from "@/lib/board-config";
+import type { CiState } from "@/lib/ci-gate";
 
 /**
  * Agent pipeline vocabulary shared by the server (runtime, persistence) and the client (board, PR page, live process).
@@ -84,6 +85,10 @@ export const RUN_STATUSES = [
   "cancelled",
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
+
+export function isRunStatus(value: unknown): value is RunStatus {
+  return typeof value === "string" && (RUN_STATUSES as readonly string[]).includes(value);
+}
 
 /** Runs still moving on their own. A card with one of these can't be run again. */
 export const ACTIVE_RUN_STATUSES: readonly RunStatus[] = ["queued", "running"];
@@ -177,6 +182,8 @@ export type BoardCardRun = {
   error: string | null;
   failure: RunFailure | null;
   pullRequest: { number: number; url: string } | null;
+  /** CI on the current round's push ("waiting" while the gate holds the card in development); null before the PR. */
+  ci: CiState | null;
 };
 
 // ── Risk and merging ───────────────────────────────────────────────────────────

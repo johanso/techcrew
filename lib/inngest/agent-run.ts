@@ -10,6 +10,7 @@ import {
   mergeTimedOut,
   notifyMerged,
   openPullRequest,
+  pollCi,
   prepareBranch,
   readyToMerge,
   recordApproval,
@@ -18,12 +19,14 @@ import {
   recordTestReport,
   runStageTurn,
   saveBrief,
+  startCiWait,
   startRework,
   stopRun,
   type StageResult,
   type TurnStepResult,
   type WorkResult,
 } from "@/lib/agent-pipeline";
+import { CI_MAX_POLLS, CI_POLL_SECONDS, type CiResult } from "@/lib/ci-gate";
 import { getRunPullRequest, mergeAgentPullRequest } from "@/lib/pull-requests";
 import { inngest } from "@/lib/inngest/client";
 import type { LoopState } from "@/lib/agent-loop";
@@ -91,8 +94,24 @@ async function runStage<S extends keyof StageResult>(
 }
 
 /**
- * The agent pipeline for one board card: Analyst → Developer → Reviewer and Security (in parallel) → Lead → Tester →
- * merge. The Lead or the tests can send the work back to the Developer up to MAX_REWORK_ROUNDS times.
+ * The CI gate after a push: one durable step per poll, sleeping in between (free while it waits). Null when there is
+ * no branch to check. The first poll comes sooner: a repository without CI shouldn't hold the card long.
+ */
+async function waitForCi(step: Step, runId: number, round: number): Promise<CiResult | null> {
+  const start = await step.run(`ci-${round}-start`, () => startCiWait(runId));
+  const sha = start.sha;
+  if (!sha) return null;
+  for (let poll = 1; poll <= CI_MAX_POLLS; poll++) {
+    await step.sleep(`ci-${round}-wait-${poll}`, poll === 1 ? "10s" : `${CI_POLL_SECONDS}s`);
+    const result = await step.run(`ci-${round}-poll-${poll}`, () => pollCi(runId, sha, poll, start.hasWorkflows));
+    if (result) return result;
+  }
+  return null;
+}
+
+/**
+ * The agent pipeline for one board card: Analyst → Developer → CI → Reviewer and Security (in parallel) → Lead → Tester
+ * → merge. A failing CI, the Lead or the tests can send the work back to the Developer up to MAX_REWORK_ROUNDS times.
  */
 export const agentTaskRun = inngest.createFunction(
   {
@@ -131,6 +150,23 @@ export const agentTaskRun = inngest.createFunction(
       if (!pr.ok) {
         await step.run(`no-changes-${round}`, () => stopRun(runId, pr.error, null));
         return { stopped: "pull-request" };
+      }
+
+      // CI gate: a push that breaks the build goes back to the developer with the failures before anyone reviews it.
+      const ci = await waitForCi(step, runId, round);
+      if (ci?.state === "failed") {
+        if (round >= MAX_REWORK_ROUNDS) {
+          await step.run("ci-exhausted", () =>
+            stopRun(
+              runId,
+              `CI still fails after ${MAX_REWORK_ROUNDS} rework rounds (${ci.failing.map((c) => c.name).join(", ")}). See PR #${pr.number}.`,
+              null
+            )
+          );
+          return { stopped: "ci" };
+        }
+        await step.run(`rework-after-ci-${round}`, () => startRework(runId));
+        continue;
       }
 
       // Code review and security review read the same pull request at the same time; each turn is still its own step.
