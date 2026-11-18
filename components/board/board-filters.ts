@@ -31,3 +31,15 @@ export function matchesQuery(card: BoardCard, rawQuery: string) {
 export function matchesFilters(card: BoardCard, filters: BoardFilters) {
   return (filters.type === "all" || card.type === filters.type) && matchesQuery(card, filters.query);
 }
+
+/** Cards a column shows before "Show more": the rest stays one click away (and in the column's own scroll). */
+export const COLUMN_PREVIEW = 5;
+
+/**
+ * A collapsed column's cards: the first `limit`, plus any card in `keep` wherever it sits (the card being dragged, so
+ * it never vanishes mid-drag, and one just created or saved). Order is kept; `hidden` counts the rest.
+ */
+export function previewCards<T extends { id: string }>(cards: T[], limit: number, keep: readonly (string | null)[] = []) {
+  const shown = cards.filter((card, index) => index < limit || keep.includes(card.id));
+  return { shown, hidden: cards.length - shown.length };
+}

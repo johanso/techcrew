@@ -460,7 +460,13 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   - **Remove task** (`removeCardAction`, after an `AlertDialog` confirm) sets `removed_at`. Rows are never deleted:
     keys aren't reused, and a removed GitHub card is never imported again (the issue stays open on GitHub).
     Every board query goes through `onBoard()` in `lib/board.ts`, which skips removed rows. The board opts out of the page max width with
-  `data-page-width="full"` and scrolls horizontally (snapping on mobile).
+  `data-page-width="full"` and scrolls horizontally (snapping on mobile). It never grows the page: from `md` up it
+  fills the panel's height (the layout gives a full-width page `min-h-0`; at least 24rem, then the panel scrolls), on
+  phones it is 75svh tall, and each column scrolls inside under its fixed header (`overflow-y-auto` on the drop
+  area; dnd-kit auto-scrolls it while dragging). A highlighted (just created or saved) card scrolls into view.
+  Collapsed columns show `COLUMN_PREVIEW` cards (`previewCards` in `board-filters.ts`, tested) plus the dragged and
+  highlighted card, with **Show N more** / **Show less** (`expanded` in `KanbanBoard`, per visit); filters show all;
+  a drop past the preview opens the column.
 - **Board filters** (`BoardToolbar` + `board-filters.ts`): a search box (title or key — "ACM-142", "acm142",
   "#142", "142"; `/` focuses it, Escape clears) and segmented type tabs (All / Features / Bugs / Issues, counts follow
   the search). Filters only *hide* cards — `columns` keeps the full order, so drag and drop stays consistent while

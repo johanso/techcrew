@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isFiltering, matchesFilters, matchesQuery, NO_FILTERS } from "@/components/board/board-filters";
+import { isFiltering, matchesFilters, matchesQuery, NO_FILTERS, previewCards } from "@/components/board/board-filters";
 import type { BoardCard } from "@/lib/board-config";
 
 const card = (overrides: Partial<BoardCard> = {}): BoardCard => ({
@@ -51,5 +51,18 @@ describe("matchesFilters", () => {
     expect(isFiltering(NO_FILTERS)).toBe(false);
     expect(isFiltering({ query: " x ", type: "all" })).toBe(true);
     expect(isFiltering({ query: "", type: "issue" })).toBe(true);
+  });
+});
+
+describe("previewCards", () => {
+  const cards = ["a", "b", "c", "d", "e"].map((id) => ({ id }));
+
+  it("shows the first cards and counts the rest", () => {
+    expect(previewCards(cards, 3)).toEqual({ shown: [{ id: "a" }, { id: "b" }, { id: "c" }], hidden: 2 });
+    expect(previewCards(cards, 10)).toEqual({ shown: cards, hidden: 0 });
+  });
+
+  it("keeps a dragged or highlighted card in place even past the limit", () => {
+    expect(previewCards(cards, 2, ["e", null])).toEqual({ shown: [{ id: "a" }, { id: "b" }, { id: "e" }], hidden: 2 });
   });
 });

@@ -19,6 +19,9 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   90 days.
 
 ### Changed
+- Board columns scroll on their own: the board fits the screen and a long column scrolls under its title and count
+  instead of stretching the page. Each column shows its first 5 cards with **Show N more** (and **Show less**); a
+  search shows every match.
 - The Lead's default model is GPT-6.1 Sol / Claude Sonnet 5.5 instead of GPT-6 Astra / Claude Opus 5.5. In the first
   real run with skills the Lead on Astra was 38 % of the cost while it only decides on the two reviews. Existing
   workspaces keep their choice.

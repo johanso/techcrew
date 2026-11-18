@@ -144,7 +144,11 @@ own is a 404.
 
 **Columns** — Todo, Analysis, In Development, In Review, Testing, Done. Each has a light tint (slate, brand blue, sky, amber, orange,
 green), a count, and a **+** button that opens the create dialog preset to that column. Empty columns say what
-belongs there ("Ready to be picked up. Drop a card here.").
+belongs there ("Ready to be picked up. Drop a card here."). The board fits the screen: a long column scrolls inside,
+under its title and count, instead of making the page longer (while dragging, it scrolls when the card nears its
+edge). A card you just created or saved scrolls into view. Each column shows its first 5 cards and a **Show N more**
+button at the bottom that opens the rest (**Show less** closes it again); the count in the header is always the total.
+A search or type filter shows every match. A card dropped below a closed column's first 5 opens that column.
 
 **Cards** show:
 - type pill (Feature ✦, Bug 🐞, Issue ◉) and the key (`ACM-142`, always);

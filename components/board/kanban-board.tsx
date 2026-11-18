@@ -33,7 +33,16 @@ import {
 } from "@/app/dashboard/[workspaceId]/board/actions";
 import { BoardCardView } from "@/components/board/board-card";
 import { BoardColumn } from "@/components/board/board-column";
-import { isFiltering, matchesFilters, matchesQuery, NO_FILTERS, type BoardFilters, type TypeFilter } from "@/components/board/board-filters";
+import {
+  COLUMN_PREVIEW,
+  NO_FILTERS,
+  isFiltering,
+  matchesFilters,
+  matchesQuery,
+  previewCards,
+  type BoardFilters,
+  type TypeFilter,
+} from "@/components/board/board-filters";
 import { BoardToolbar } from "@/components/board/board-toolbar";
 import { AnswerDialog, type AnswerSubmit } from "@/components/board/answer-dialog";
 import { CardDialog, type CardDialogMode, type CardDialogSubmit } from "@/components/board/card-dialog";
@@ -103,6 +112,8 @@ export function KanbanBoard({
   const [overlayWidth, setOverlayWidth] = useState<number | undefined>(undefined);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [filters, setFilters] = useState<BoardFilters>(NO_FILTERS);
+  // Columns opened with "Show more"; the others show their first COLUMN_PREVIEW cards.
+  const [expanded, setExpanded] = useState<ReadonlySet<BoardColumnId>>(new Set());
   // Typing stays responsive while the columns re-filter in the background.
   const deferredFilters = useDeferredValue(filters);
   const [dialog, setDialog] = useState<{ open: boolean; mode: CardDialogMode }>({
@@ -403,6 +414,9 @@ export function KanbanBoard({
       if (from !== to && to >= 0) next = { ...columns, [column]: arrayMove(columns[column], from, to) };
     }
     if (next !== columns) setColumns(next);
+    // A card dropped below a collapsed column's preview would vanish from view: open that column.
+    const landed = BOARD_COLUMNS.find((c) => next[c.id].includes(String(active.id)))?.id;
+    if (landed && next[landed].indexOf(String(active.id)) >= COLUMN_PREVIEW) setExpanded((open) => new Set(open).add(landed));
     const changed = before
       ? Object.fromEntries(BOARD_COLUMNS.filter((c) => next[c.id].join() !== before[c.id].join()).map((c) => [c.id, next[c.id]]))
       : {};
@@ -451,11 +465,23 @@ export function KanbanBoard({
   // Filtering only hides cards; `columns` keeps the full order, so drag and drop stays consistent.
   const visibleIn = (column: BoardColumnId) =>
     columns[column].map((id) => cards[id]!).filter((card) => card && (!filtering || matchesFilters(card, deferredFilters)));
+  // A search shows every match; otherwise a column shows its first cards until opened with "Show more".
+  const previewIn = (column: BoardColumnId) => {
+    const visible = visibleIn(column);
+    if (filtering || expanded.has(column)) return { shown: visible, hidden: 0 };
+    return previewCards(visible, COLUMN_PREVIEW, [activeId === null ? null : String(activeId), highlightId]);
+  };
+  const toggleColumn = (column: BoardColumnId) =>
+    setExpanded((open) => {
+      const next = new Set(open);
+      if (!next.delete(column)) next.add(column);
+      return next;
+    });
   const visibleTotal = filtering ? allCards.filter((card) => matchesFilters(card, deferredFilters)).length : total;
 
   return (
     // data-page-width lets the dashboard layout drop its max width for this page.
-    <div data-page-width="full" className="flex min-w-0 flex-1 flex-col gap-6">
+    <div data-page-width="full" className="flex min-w-0 flex-1 flex-col gap-6 md:min-h-0">
       <PageHeader
         eyebrow="Plan"
         title="Board"
@@ -553,28 +579,36 @@ export function KanbanBoard({
           Bleeds to the panel edges so the horizontal scroll reaches them. `relative` makes this the containing
           block for absolutely positioned descendants (sr-only labels), otherwise they escape the overflow clip
           and widen the whole page on mobile.
+          Its height is bounded so long columns scroll inside instead of stretching the page: the rest of the panel
+          from md up (at least 24rem, then the panel scrolls), most of the screen on phones.
         */}
-        <div className="relative -mx-6 flex flex-1 snap-x snap-mandatory items-stretch gap-4 overflow-x-auto px-6 pb-4 lg:-mx-10 lg:px-10 xl:snap-none">
-          {BOARD_COLUMNS.map((column) => (
-            <BoardColumn
-              key={column.id}
-              column={column}
-              cards={visibleIn(column.id)}
-              totalCount={columns[column.id].length}
-              filtering={filtering}
-              highlightId={highlightId}
-              runningIds={runningIds}
-              mergingIds={mergingIds}
-              onAdd={() => openCreate({ status: column.id })}
-              onOpenCard={openCard}
-              onRunCard={(card) => void runCard(card)}
-              onStopCard={(card) => void stopCard(card)}
-              onMergeCard={(card) => void mergeCard(card)}
-              onAnswerCard={(card) => setAnswerCardId(card.id)}
-              onViewLog={(card) => setLogCardId(card.id)}
-              onRemoveCard={(card) => setRemoval({ open: true, card, pending: false })}
-            />
-          ))}
+        <div className="relative -mx-6 flex h-[75svh] snap-x snap-mandatory items-stretch gap-4 overflow-x-auto px-6 pb-4 md:h-auto md:min-h-96 md:flex-1 lg:-mx-10 lg:px-10 xl:snap-none">
+          {BOARD_COLUMNS.map((column) => {
+            const { shown, hidden } = previewIn(column.id);
+            return (
+              <BoardColumn
+                key={column.id}
+                column={column}
+                cards={shown}
+                hiddenCount={hidden}
+                expanded={!filtering && expanded.has(column.id) && columns[column.id].length > COLUMN_PREVIEW}
+                onToggleExpanded={() => toggleColumn(column.id)}
+                totalCount={columns[column.id].length}
+                filtering={filtering}
+                highlightId={highlightId}
+                runningIds={runningIds}
+                mergingIds={mergingIds}
+                onAdd={() => openCreate({ status: column.id })}
+                onOpenCard={openCard}
+                onRunCard={(card) => void runCard(card)}
+                onStopCard={(card) => void stopCard(card)}
+                onMergeCard={(card) => void mergeCard(card)}
+                onAnswerCard={(card) => setAnswerCardId(card.id)}
+                onViewLog={(card) => setLogCardId(card.id)}
+                onRemoveCard={(card) => setRemoval({ open: true, card, pending: false })}
+              />
+            );
+          })}
         </div>
 
         {/* The lifted copy that follows the pointer. A floating layer, so it may carry a shadow. */}
