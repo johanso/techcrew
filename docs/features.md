@@ -144,7 +144,11 @@ own is a 404.
 
 **Columns** — Todo, Analysis, In Development, In Review, Testing, Done. Each has a light tint (slate, brand blue, sky, amber, orange,
 green), a count, and a **+** button that opens the create dialog preset to that column. Empty columns say what
-belongs there ("Ready to be picked up. Drop a card here.").
+belongs there ("Ready to be picked up. Drop a card here."). The board fits the screen: a long column scrolls inside,
+under its title and count, instead of making the page longer (while dragging, it scrolls when the card nears its
+edge). A card you just created or saved scrolls into view. Each column shows its first 5 cards and a **Show N more**
+button at the bottom that opens the rest (**Show less** closes it again); the count in the header is always the total.
+A search or type filter shows every match. A card dropped below a closed column's first 5 opens that column.
 
 **Cards** show:
 - type pill (Feature ✦, Bug 🐞, Issue ◉) and the key (`ACM-142`, always);
@@ -257,14 +261,16 @@ Review, so the board still has six columns:
 | --- | --- | --- |
 | Analysis | Analyst | Reads the card and the code (read-only). Hands it to the Developer with acceptance criteria, a plan, relevant files and notes, or asks one question (**needs info**: comment on the GitHub issue with *Comment on issues*, card back to Todo). |
 | In Development | Developer | Creates `agent/<key>-<slug>` from the default branch and commits to it through the GitHub API (write, edit, delete files). Then a pull request is opened (`Closes #<issue>` for GitHub cards). |
+| In Development (CI) | — | The **CI gate**: the card waits ("Waiting for CI on PR #n…") until every check on the pushed commit finishes, polling every 30 s for up to 15 minutes. A check the change broke sends the work straight back to the Developer with each failing check's annotations and the end of its job log; nobody reviews a red build. A check that fails on the default branch too doesn't block. No CI in the repository (no workflow in `.github/workflows/` and no check within about a minute): it moves on. Still running at 15 minutes: review starts and the merge waits for CI. |
 | In Review (review) | Reviewer + Security, in parallel | The **Reviewer** reads the diff for correctness and conventions against the acceptance criteria: approve or request changes with file-level findings. Only for what the developer can fix in code: checks that need a browser or device are listed as manual checks and never block. **Security** reads the same diff for leaked secrets, injection, missing auth checks, unsafe permissions and risky dependencies: each finding has a severity (critical, high, medium, low), a category, the file and the fix. Both post on the PR with *Review pull requests*. After rework each gets its earlier findings and checks those. |
 | In Review (approval) | Lead | Reads both reviews and the measured diff (files, changed lines) and decides: **approve** or **request changes** (a list of what must change, with its source). Rates the change's **risk** — low, medium or high — with reasons; the pipeline raises it to a floor it can't talk away (below). Posted on the PR. |
-| Testing | Tester | Verifies statically (no test runner): automated pre-checks (branch exists and has commits, reported files are in the diff, no conflict markers, PR open) plus its own review and CI results. |
+| Testing | Tester | Verifies statically (no test runner): automated pre-checks (branch exists and has commits, reported files are in the diff, no conflict markers, PR open, the CI gate's result) plus its own review. |
 | Done | — | After the merge. |
 
-- The Lead's requested changes or failed verification send the work back to the Developer (same branch and PR) — at
-  most **2 rework rounds**, then the run stops and the PR waits for a human. The Reviewer and Security never send work
-  back on their own; the Developer gets the Lead's list plus both reviews' findings.
+- A failing CI, the Lead's requested changes or failed verification send the work back to the Developer (same branch
+  and PR) — at most **2 rework rounds** in all, then the run stops and the PR waits for a human. The Reviewer and
+  Security never send work back on their own; the Developer gets the Lead's list plus both reviews' findings, or after a
+  failed CI only the failures. The Lead and the Tester see the CI result of the round.
 - **Risk floor** (`riskFloor`): Security's worst finding (critical or high → high, medium → medium) and what the diff
   touches — dependency manifests, database schema or migrations, authentication or permissions code, CI or
   infrastructure, more than 10 files or 400 changed lines → at least medium. The Lead may rate higher, never lower.
@@ -285,7 +291,7 @@ Review, so the board still has six columns:
   gets two read-only tools in every stage, `search_skill` and `read_skill`; always-loaded skills ride in the prompt.
 - If one of the two parallel reviewers stops (paused, budget, error), the other stops at its next turn and the run
   ends with the first reason (one notification).
-- Each card shows its run: phase in progress ("Reviewing…", "Approving…"), "Analyst needs info" + the question, "Agents stopped" + the reason,
+- Each card shows its run: phase in progress ("Reviewing…", "Waiting for CI on PR #n…", "Approving…"), "Analyst needs info" + the question, "Agents stopped" + the reason,
   "PR #n ready to merge" or "Merged PR #n". The board re-reads itself every 10 s while any run is active (database only; GitHub is synced every minute).
 - **Answering the analyst**: while a card waits on a question, ▶ becomes **Answer** (also in the ⋯ menu and the agent
   log). The answer is saved with the question, posted under it on the GitHub issue when the question is there, and the
@@ -414,6 +420,23 @@ Security), Approval (Lead), Testing, Merge (automatic, no agent).
 - **Several cards** at once (you pressed Run on more than one) → one block per card, oldest first.
 - **Live**: the chip says "Live · N working". It refreshes every 5 s while someone works and 15 s otherwise, only while
   the tab is visible (the same poll as the Overview's AI team card); "Reconnecting…" if a refresh fails. Read-only.
+
+## Metrics
+
+`/dashboard/<id>/metrics` (sidebar → Metrics): how the pipeline delivers, for the runs started in the last **7, 30 or
+90 days** (`?days=`, 30 by default).
+
+- **Delivered** (merged or ready to merge) with the success rate: delivered out of the runs that ended delivered or
+  stopped by the agents. Runs you stopped and questions for you don't count either way.
+- **First pass**: delivered without a rework round. **CI pass rate**: pushes whose CI passed, out of those CI decided.
+- **Cost per delivered card**: everything spent in the period divided by what was delivered, so failed attempts are
+  part of the price.
+- **Outcomes** (merged, ready, agents stopped, stopped by you, needed info, running), **Why work went back** (CI failed,
+  Lead sent it back, tests failed: one count per rework round) and **Spend by agent** (pipeline work only), as ranked
+  bars with every value printed.
+- **Recent runs**: the latest 15 with outcome, PR, rework rounds, cost and when they started; the card opens its
+  agent log.
+- Empty state: "No runs in the last N days" with **Open the board**.
 
 ## Pull Requests, Activity
 

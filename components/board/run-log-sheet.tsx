@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { format, formatDistanceStrict, formatDistanceToNowStrict } from "date-fns";
 import {
   BookOpenTextIcon,
   CircleAlertIcon,
   CircleCheckIcon,
+  ClockIcon,
+  ExternalLinkIcon,
   FileDiffIcon,
   FilePenIcon,
   FilePlusIcon,
@@ -35,6 +37,7 @@ import type { RunLog, RunLogStage, RunLogStep } from "@/lib/agent-runs";
 
 type RunLogEnd = NonNullable<RunLogStage["end"]>;
 import type { BoardCard } from "@/lib/board-config";
+import { ciForRound, ciSummary, type CiResult, type CiState } from "@/lib/ci-gate";
 import { cn } from "@/lib/utils";
 
 // While the agents work, the log follows them.
@@ -152,6 +155,64 @@ function StageBlock({ stage, live }: { stage: RunLogStage; live: boolean }) {
   );
 }
 
+const CI_END: Record<CiState, { icon: LucideIcon; tone: string; box: string; spin?: boolean }> = {
+  waiting: { icon: LoaderCircleIcon, tone: "text-action", box: "bg-muted/60 ring-border/70", spin: true },
+  passed: STAGE_END.result,
+  failed: STAGE_END.stopped,
+  none: { icon: ListChecksIcon, tone: "text-muted-foreground", box: "bg-muted/60 ring-border/70" },
+  timed_out: { icon: ClockIcon, tone: "text-warning", box: "bg-warning/8 ring-warning/25" },
+};
+
+/** The CI gate after a development round: what the checks said on the pushed commit, and links to the failures. */
+function CiBlock({ ci }: { ci: CiResult }) {
+  const end = CI_END[ci.state];
+  return (
+    <section className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 last:border-b-0">
+      <div className="flex items-center gap-3">
+        <span className="icon-tile size-9 rounded-full text-brand-emphasis">
+          <ListChecksIcon />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <p className="truncate text-sm font-bold">
+            CI checks
+            {ci.round > 0 && <span className="font-medium text-muted-foreground"> · rework {ci.round}</span>}
+          </p>
+          <p className="truncate text-xs text-muted-foreground">
+            Automatic · <span className="font-mono">{ci.sha.slice(0, 7)}</span>
+          </p>
+        </div>
+      </div>
+      <p className={cn("flex items-start gap-2 rounded-lg px-3 py-2 text-xs ring-1", end.box)}>
+        <end.icon aria-hidden className={cn("mt-px size-3.5 shrink-0", end.tone, end.spin && "motion-safe:animate-spin")} />
+        <span className="line-clamp-4">{ciSummary(ci)}</span>
+      </p>
+      {ci.failing.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {ci.failing.map((check) => (
+            <li key={check.name} className="flex min-w-0 items-center gap-2 text-xs">
+              <CircleAlertIcon aria-hidden className="size-3.5 shrink-0 text-error" />
+              <span className="min-w-0 truncate font-medium">{check.name}</span>
+              <span className="shrink-0 text-muted-foreground">{check.conclusion}</span>
+              {check.url && (
+                <a
+                  href={check.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ml-auto inline-flex shrink-0 items-center gap-1 text-brand-emphasis hover:underline"
+                >
+                  Open
+                  <ExternalLinkIcon aria-hidden className="size-3" />
+                  <span className="sr-only">{check.name} on GitHub</span>
+                </a>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /**
  * What the agents did on a card's latest run, stage by stage: who worked, on which model, the tools they used, the
  * files they changed and how each stage ended. Opened from the card's ⋯ menu or a notification (?log=<card>).
@@ -255,19 +316,24 @@ export function RunLogSheet({
               </p>
             </div>
           ) : (
-            data.stages.map((stage) => (
-              <StageBlock
-                key={`${stage.stage}-${stage.round}`}
-                stage={stage}
-                // Two blocks can be live at once: Reviewer and Security work the review phase in parallel.
-                live={
-                  isActiveRun(data.run.status) &&
-                  !stage.end &&
-                  data.run.stage === STAGE_META[stage.stage].phase &&
-                  data.run.reworkRounds === stage.round
-                }
-              />
-            ))
+            data.stages.map((stage) => {
+              const ci = stage.stage === "development" ? ciForRound(data.ci, stage.round) : null;
+              return (
+                <Fragment key={`${stage.stage}-${stage.round}`}>
+                  <StageBlock
+                    stage={stage}
+                    // Two blocks can be live at once: Reviewer and Security work the review phase in parallel.
+                    live={
+                      isActiveRun(data.run.status) &&
+                      !stage.end &&
+                      data.run.stage === STAGE_META[stage.stage].phase &&
+                      data.run.reworkRounds === stage.round
+                    }
+                  />
+                  {ci && <CiBlock ci={ci} />}
+                </Fragment>
+              );
+            })
           )}
         </div>
       </SheetContent>

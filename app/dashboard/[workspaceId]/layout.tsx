@@ -49,8 +49,11 @@ export default async function WorkspaceDashboardLayout({ children, params }: Lay
             }}
             notifications={notifications}
           />
-          {/* Pages render inside a max-w-7xl column; a page marked data-page-width="full" (the board) opts out. */}
-          <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-6 py-8 has-data-[page-width=full]:max-w-none lg:px-10">
+          {/*
+            Pages render inside a max-w-7xl column; a page marked data-page-width="full" (the board) opts out, and
+            from md up it also fits the panel's height (min-h-0) so its columns scroll on their own.
+          */}
+          <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-6 py-8 has-data-[page-width=full]:max-w-none md:has-data-[page-width=full]:min-h-0 lg:px-10">
             {children}
           </div>
         </SidebarInset>

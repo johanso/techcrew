@@ -6,10 +6,10 @@ import { agentRunSteps, agentRuns, db, pullRequests, tasks, workspaces, type Age
 import type { AgentKey, AgentModelId } from "@/lib/agent-config";
 import {
   ACTIVE_RUN_STATUSES,
-  RUN_STATUSES,
   STAGE_META,
   isAgentStage,
   isRunStage,
+  isRunStatus,
   workingAgents,
   type AgentStage,
   type BoardCardRun,
@@ -19,13 +19,13 @@ import {
 } from "@/lib/agent-run-config";
 import type { ToolStep } from "@/lib/agent-tools";
 import type { BoardColumnId } from "@/lib/board-config";
+import { ciForRound, type CiResult } from "@/lib/ci-gate";
 
 /**
  * Agent runs: one pass of a card through the pipeline (lib/inngest/agent-run.ts). Callers authorize the workspace;
  * the pipeline itself only touches the run's own workspace and task.
  */
 
-const isRunStatus = (value: string): value is RunStatus => (RUN_STATUSES as readonly string[]).includes(value);
 
 export async function createRun(values: {
   workspaceId: number;
@@ -112,6 +112,8 @@ export async function getLatestRuns(workspaceId: number) {
       stage: agentRuns.stage,
       error: agentRuns.error,
       failure: agentRuns.failure,
+      ci: agentRuns.ci,
+      reworkRounds: agentRuns.reworkRounds,
       prNumber: pullRequests.number,
       prUrl: pullRequests.url,
     })
@@ -130,6 +132,7 @@ export async function getLatestRuns(workspaceId: number) {
       error: row.error,
       failure: row.failure ?? null,
       pullRequest: row.prNumber !== null && row.prUrl ? { number: row.prNumber, url: row.prUrl } : null,
+      ci: ciForRound(row.ci, row.reworkRounds)?.state ?? null,
     });
   }
   return byTask;
@@ -294,6 +297,8 @@ export type RunLog = {
     finishedAt: Date | null;
   };
   stages: RunLogStage[];
+  /** CI on each development round's push (the gate before review). */
+  ci: CiResult[];
 };
 
 const WRITE_TOOLS = new Set(["write_file", "replace_in_file", "delete_file"]);
@@ -361,5 +366,6 @@ export async function getTaskRunLog(workspaceId: number, taskId: number): Promis
       finishedAt: run.finishedAt,
     },
     stages,
+    ci: run.ci ?? [],
   };
 }

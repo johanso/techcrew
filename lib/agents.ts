@@ -42,6 +42,7 @@ import {
 import { getEndedStages, getWorkingAgents } from "@/lib/agent-runs";
 import { ensureBuiltinSkills, getEnabledSkillIds, getTrustSkills } from "@/lib/agent-skills";
 import { ISSUE_TYPES, type IssueType } from "@/lib/board-config";
+import { ciForRound } from "@/lib/ci-gate";
 import { LIVE_ACTIONS, agentDoingSentence, type LiveRun, type LiveStage } from "@/lib/live-process";
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
 import type { TrustScanView } from "@/lib/switch-trust-config";
@@ -481,6 +482,7 @@ async function getLiveRuns(workspace: Pick<Workspace, "id" | "name">, rows: Agen
       phase: isRunStage(run.stage) ? run.stage : null,
       round: run.reworkRounds,
       startedAt: run.startedAt,
+      ci: ciForRound(run.ci, run.reworkRounds),
       costMicros: run.costMicros,
       branch: run.branch,
       pullRequest: pr ?? null,

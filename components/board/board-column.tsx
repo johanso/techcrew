@@ -2,7 +2,7 @@
 
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { PlusIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronUpIcon, PlusIcon } from "lucide-react";
 
 import { SortableBoardCard } from "@/components/board/board-card";
 import { COLUMN_STYLE } from "@/components/board/issue-meta";
@@ -14,6 +14,9 @@ import { cn } from "@/lib/utils";
 export function BoardColumn({
   column,
   cards,
+  hiddenCount,
+  expanded,
+  onToggleExpanded,
   totalCount,
   filtering,
   highlightId,
@@ -29,8 +32,13 @@ export function BoardColumn({
   onRemoveCard,
 }: {
   column: (typeof BOARD_COLUMNS)[number];
-  /** Cards to render (already filtered). */
+  /** Cards to render (already filtered, and cut to the preview while the column is collapsed). */
   cards: BoardCard[];
+  /** Cards left out of the collapsed preview: "Show N more". */
+  hiddenCount: number;
+  /** Opened with "Show more" and long enough to offer "Show less". */
+  expanded: boolean;
+  onToggleExpanded: () => void;
   /** All cards in the column, ignoring filters. */
   totalCount: number;
   filtering: boolean;
@@ -51,12 +59,13 @@ export function BoardColumn({
   // The column itself is a drop target, so empty columns accept cards too.
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const style = COLUMN_STYLE[column.id];
+  const listId = `board-column-${column.id}`;
 
   return (
     <section
       aria-label={column.title}
       className={cn(
-        "flex w-[17rem] shrink-0 snap-start flex-col rounded-xl ring-1 transition-shadow xl:w-auto xl:min-w-60 xl:flex-1",
+        "flex min-h-0 w-[17rem] shrink-0 snap-start flex-col rounded-xl ring-1 transition-shadow xl:w-auto xl:min-w-60 xl:flex-1",
         style.tint,
         isOver ? cn("ring-2", style.over) : style.ring
       )}
@@ -89,7 +98,12 @@ export function BoardColumn({
       </header>
 
       <SortableContext id={column.id} items={cards.map((card) => card.id)} strategy={verticalListSortingStrategy}>
-        <div ref={setNodeRef} className="flex min-h-32 flex-1 flex-col gap-2.5 px-2.5 pb-2.5">
+        {/* The column's own scroll: its header and count stay put. dnd-kit scrolls it while a card is dragged near an edge. */}
+        <div
+          ref={setNodeRef}
+          id={listId}
+          className="flex min-h-32 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-2.5 pb-2.5 [scrollbar-width:thin]"
+        >
           {cards.map((card) => (
             <SortableBoardCard
               key={card.id}
@@ -111,6 +125,19 @@ export function BoardColumn({
             <div className="flex flex-1 items-center justify-center rounded-lg bg-card/50 p-4 text-center text-xs text-muted-foreground ring-1 ring-border/60 ring-inset">
               {filtering && totalCount > 0 ? "No matching cards." : `${column.hint}. Drop a card here.`}
             </div>
+          )}
+          {(hiddenCount > 0 || expanded) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onToggleExpanded}
+              aria-expanded={expanded}
+              aria-controls={listId}
+              className="h-8 shrink-0 text-xs text-muted-foreground hover:bg-card hover:text-foreground"
+            >
+              {expanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+              {expanded ? "Show less" : `Show ${hiddenCount} more`}
+            </Button>
           )}
         </div>
       </SortableContext>

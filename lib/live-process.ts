@@ -15,6 +15,7 @@ import {
   type TestReport,
 } from "@/lib/agent-run-config";
 import type { IssueType } from "@/lib/board-config";
+import { ciSummary, type CiResult } from "@/lib/ci-gate";
 
 /**
  * The AI Team page's live process: a card in flight as six steps (one per pipeline phase). Pure and client-safe:
@@ -55,6 +56,8 @@ export type LiveRun = {
   securityReport: SecurityReport | null;
   approval: LeadDecision | null;
   testReport: TestReport | null;
+  /** CI on this round's push, once the Developer opened or updated the pull request. */
+  ci: CiResult | null;
   stages: Partial<Record<AgentStage, LiveStage>>;
 };
 
@@ -80,7 +83,7 @@ export type LiveStepView = {
 
 const IDLE: Record<RunStage, string> = {
   analysis: "Turns a card into a brief, or asks you when something is missing.",
-  development: "Builds what the brief asks for on its own branch and opens a pull request.",
+  development: "Builds what the brief asks for on its own branch, opens a pull request and waits for CI.",
   review: "Reviewer and Security check the pull request at the same time.",
   approval: "The Lead combines both reviews, decides on rework and rates the risk.",
   testing: "Verifies the change against the brief and CI.",
@@ -157,7 +160,12 @@ function doneText(phase: RunStage, run: LiveRun): string {
     case "analysis":
       return run.brief ? `Brief ready: ${run.brief.summary}` : "Brief ready.";
     case "development":
-      return run.pullRequest ? `Pull request #${run.pullRequest} is open${run.branch ? ` on ${run.branch}` : ""}.` : "Work committed.";
+      return [
+        run.pullRequest ? `Pull request #${run.pullRequest} is open${run.branch ? ` on ${run.branch}` : ""}.` : "Work committed.",
+        run.ci && run.ci.state !== "waiting" ? ciSummary(run.ci) : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
     case "review": {
       const review = run.review ? (run.review.verdict === "approve" ? "Reviewer approved" : "Reviewer asked for changes") : "Reviewer done";
       const count = run.securityReport?.findings.length ?? 0;
@@ -204,6 +212,10 @@ function workingStep(phase: RunStage, run: LiveRun): Pick<LiveStepView, "people"
       actions: [],
       meta: "No model cost",
     };
+  }
+  // The Developer finished and the CI gate holds the card until the checks decide.
+  if (phase === "development" && run.stages.development?.end && run.ci?.state === "waiting") {
+    return { people: [{ agent: "developer", working: false }], text: `Waiting for CI on ${prLabel(run)}.`, actions: [], meta: "No model cost" };
   }
   const people = agents.map((agent) => ({ agent, working: !run.stages[AGENT_STAGE[agent]]?.end }));
   const text = people

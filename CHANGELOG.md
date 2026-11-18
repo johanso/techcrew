@@ -8,7 +8,26 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+### Added
+- **CI in the loop**: after each push the pipeline waits for the pull request's checks (up to 15 minutes) before
+  review. A check the change broke goes back to the Developer with its annotations and the end of its job log, as a
+  rework round; checks that fail on the default branch too don't block, and a repository without CI moves on. Cards
+  say "Waiting for CI on PR #n…", the agent log has a **CI checks** block per round, the live process waits in
+  Development, and the Lead and the Tester see the result.
+- **Metrics** page (sidebar): delivered cards and success rate, first-pass rate, CI pass rate, cost per delivered card
+  (failed runs included), outcomes, why work went back (CI, Lead, tests), spend by agent and recent runs, over 7, 30 or
+  90 days.
+
+### Fixed
+- Automatic provider switch: when the second company is out of credit too, the run stops with "out of credit" instead
+  of switching the team back to the first one (which had just run dry) and announcing that the card carried on.
+- Auto pickup now logs "Picked up AJU-n" in the activity feed, like Run does.
+- Draft with AI no longer promises that an agent runs tests or code: agents work through the GitHub API only.
+
 ### Changed
+- Board columns scroll on their own: the board fits the screen and a long column scrolls under its title and count
+  instead of stretching the page. Each column shows its first 5 cards with **Show N more** (and **Show less**); a
+  search shows every match.
 - The Lead's default model is GPT-6.1 Sol / Claude Sonnet 5.5 instead of GPT-6 Astra / Claude Opus 5.5. In the first
   real run with skills the Lead on Astra was 38 % of the cost while it only decides on the two reviews. Existing
   workspaces keep their choice.
@@ -18,6 +37,7 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ### Database
 - Migration `0007_drop_agent_auto_merge`: drops `workspaces.agent_auto_merge`.
+- Migration `0008_ci_gate`: `agent_runs.ci` (jsonb, the CI result of each development round; additive).
 
 ## [0.3.0] — 2026-11-17
 

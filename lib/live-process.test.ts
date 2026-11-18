@@ -23,6 +23,7 @@ function run(overrides: Partial<LiveRun> = {}): LiveRun {
     securityReport: null,
     approval: null,
     testReport: null,
+    ci: null,
     stages: {},
     ...overrides,
   };
@@ -135,6 +136,21 @@ describe("liveProcessSteps", () => {
     expect(steps[4]!.text).toBe("Tests passed · 2 checks held.");
     expect(steps[5]).toMatchObject({ people: [], who: "Automatic", meta: "No model cost" });
     expect(steps[5]!.text).toMatch(/^Merging PR #11/);
+  });
+  it("holds the development step while the CI gate waits, then shows the CI result", () => {
+    const ended = { turn: 6, maxTurns: 30, costMicros: 120_000, actions: [], end: { ok: true, summary: "Done." } };
+    const ci = { round: 0, sha: "abc1234", total: 2, failing: [], preexisting: [] };
+    const waiting = liveProcessSteps(
+      run({ phase: "development", pullRequest: 12, stages: { development: ended }, ci: { ...ci, state: "waiting" } }),
+      "manual"
+    )[1]!;
+    expect(waiting.state).toBe("working");
+    expect(waiting.text).toBe("Waiting for CI on PR #12.");
+    expect(waiting.people).toEqual([{ agent: "developer", working: false }]);
+    expect(waiting.meta).toBe("No model cost");
+
+    const passed = liveProcessSteps(run({ phase: "review", pullRequest: 12, ci: { ...ci, state: "passed" } }), "manual")[1]!;
+    expect(passed.text).toBe("Pull request #12 is open. CI passed: 2 checks.");
   });
 });
 

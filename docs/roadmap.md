@@ -102,6 +102,12 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
 - **Production** step after merge (deploy, check, roll back).
 - Throughput: several cards at once per workspace.
 
+### In progress (Unreleased)
+- **CI in the loop**: the pipeline waits for the PR's checks after each push; a failure the change caused goes back
+  to the Developer with the output before review.
+- **Metrics page**: delivered, first pass, CI pass rate, cost per delivered card, outcomes, rework causes, spend by
+  agent.
+
 ## Backlog
 
 Not tied to a phase yet:

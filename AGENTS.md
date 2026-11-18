@@ -95,7 +95,7 @@ app/
       page.tsx            Overview.
       actions.ts          Workspace-wide reads: getTeamStatusAction (live team), getNotificationsAction,
                           markNotificationsReadAction.
-      board/ ai-team/ pull-requests/ activity/   One page.tsx per sidebar section.
+      board/ ai-team/ pull-requests/ metrics/ activity/   One page.tsx per sidebar section.
       ai-team/actions.ts  saveAgentAction, scanAgentAction, switchScanAgentAction (SwitchAgent Scan), generateAgentAction
                           (auth + validation).
       board/actions.ts    createCardAction, updateCardAction, moveCardsAction, removeCardAction, runCardAction,
@@ -124,6 +124,8 @@ components/
                           answer-dialog (answer the analyst's question).
   pull-requests/          pull-requests-view (PR list, verdict chips), merge-button.
   activity/               activity-timeline (Activity page: events grouped by day, Show older).
+  metrics/                metrics-view (Metrics page markup: period tabs, stat tiles, bar lists, recent runs), bar-list
+                          (ranked one-hue bars with printed values).
   settings/               agent-automation-form (task pickup + merge mode), provider-switch-form, auto-failover-toggle,
                           provider-key-form
                           (masked key + show/hide), switch-connection-form (Switch Trust account), switch-weekly-toggle,
@@ -204,6 +206,10 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           MAX_REWORK_ROUNDS, max-turn limits, ANSWER_MAX + parseAnswer, brief/review/security/Lead/test
                           report types, riskFloor + applyRiskFloor, MERGE_MODES + mergeDecision, BoardCardRun.
   live-process.ts         Pure, client-safe: LiveRun (a run in flight) → liveProcessSteps (six steps), agentDoingSentence.
+  ci-gate.ts              Pure, client-safe: the CI gate's vocabulary (CiResult, CiState), classifyCi (one poll →
+                          waiting/passed/failed/none/timed_out), ciSummary, ciForRound, logExcerpt (job log → failure).
+  run-metrics.ts          Pure, client-safe: Metrics page math (summarizeRuns, outcomes, reworkCause, periods).
+  metrics.ts              getWorkspaceMetrics(): runs started in the period + Lead send-backs + spend by agent.
   agent-runs.ts           agent_runs persistence: createRun, markStageRunning, finishRun, getActiveRun, getLatestRuns,
                           getEndedStages / getWorkingAgents (who works now, two in review), placeTask (moves +
                           assigns a card for the pipeline), releaseTask, replaceWaitingRuns (rerun), findAutoPickupCandidates;
@@ -454,7 +460,13 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   - **Remove task** (`removeCardAction`, after an `AlertDialog` confirm) sets `removed_at`. Rows are never deleted:
     keys aren't reused, and a removed GitHub card is never imported again (the issue stays open on GitHub).
     Every board query goes through `onBoard()` in `lib/board.ts`, which skips removed rows. The board opts out of the page max width with
-  `data-page-width="full"` and scrolls horizontally (snapping on mobile).
+  `data-page-width="full"` and scrolls horizontally (snapping on mobile). It never grows the page: from `md` up it
+  fills the panel's height (the layout gives a full-width page `min-h-0`; at least 24rem, then the panel scrolls), on
+  phones it is 75svh tall, and each column scrolls inside under its fixed header (`overflow-y-auto` on the drop
+  area; dnd-kit auto-scrolls it while dragging). A highlighted (just created or saved) card scrolls into view.
+  Collapsed columns show `COLUMN_PREVIEW` cards (`previewCards` in `board-filters.ts`, tested) plus the dragged and
+  highlighted card, with **Show N more** / **Show less** (`expanded` in `KanbanBoard`, per visit); filters show all;
+  a drop past the preview opens the column.
 - **Board filters** (`BoardToolbar` + `board-filters.ts`): a search box (title or key — "ACM-142", "acm142",
   "#142", "142"; `/` focuses it, Escape clears) and segmented type tabs (All / Features / Bugs / Issues, counts follow
   the search). Filters only *hide* cards — `columns` keeps the full order, so drag and drop stays consistent while
@@ -530,8 +542,16 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   - Motion: the working marker spins and the face ring pulses only with `motion-safe:`; chips and markers carry text
     (screen readers get the step state), never color alone.
 - **Agent pipeline** (`lib/inngest/agent-run.ts` + `lib/agent-pipeline.ts`): Analyst (Analysis) → Developer (In
-  Development, branch `agent/<key>-<slug>`, PR) → Reviewer and Security in parallel (In Review) → Lead (approval, still
-  In Review) → Tester (Testing) → merge (Done). Rules:
+  Development, branch `agent/<key>-<slug>`, PR) → CI gate (still In Development) → Reviewer and Security in parallel
+  (In Review) → Lead (approval, still In Review) → Tester (Testing) → merge (Done). Rules:
+  - **CI gate** (`waitForCi` → `startCiWait` / `pollCi`, pure rules in `lib/ci-gate.ts`): after every push, one step
+    per poll with `step.sleep` between, until every check finished (`classifyCi`). Failing checks the change caused
+    (not failing on the default branch's head too) → a rework round; the Developer's brief then carries only the
+    failures (`ciFeedbackBlock`: annotations without the runner's `.github` ones, plus `logExcerpt` of the job log,
+    fetched when the brief is built and never stored; CI output is untrusted data). Results live in `agent_runs.ci`
+    (one per round); the Lead and the Tester's pre-checks read the round's result. Only workflows in
+    `.github/workflows/` count as CI (GitHub's dynamic Pages workflow never runs on PRs). Rework rounds from CI, the
+    Lead and the tests share `MAX_REWORK_ROUNDS`.
   - **Phase vs stage**: a phase (`RUN_STAGES`, stored in `agent_runs.stage`, shown on the board and the live process)
     can hold two agents; a stage (`AGENT_STAGES`) is one agent's tool loop. The agent log (`agent_run_steps.stage`), the
     Claude conversation key (`<stage>:<round>`) and Inngest step ids use the stage, so parallel work never collides.
@@ -579,7 +599,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   - **Out of credit** (`isOpenAIOutOfCredit` / `isAnthropicOutOfCredit`) is not a generic failure: the run stops with
     `agent_runs.failure = { kind: "out_of_credit", provider }` and the board offers switch-and-retry
     (`switchProviderAndRetryAction`). With `workspaces.ai_auto_failover` and the other company's key, `runStageTurn`
-    switches the team and returns `restart` instead: the stage starts over, at most once per stage.
+    switches the team and returns `restart` instead: the stage starts over, at most once per stage. After a failover it
+    never switches back (`failedOver`): the second company running dry stops the run with `out_of_credit`.
   - **Notifications**: `notify()` at the moments that need the owner (PR ready, merged, merge blocked, needs info, run
     failed, out of credit, provider switched). A new failure path goes through `stopRun` so it gets logged and notified.
   - The pipeline moves cards with `placeTask` (top of the column, bottom for Done). It owns column + assignee while a
@@ -609,6 +630,11 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
 - **Pull Requests** (`/dashboard/[id]/pull-requests`): the page calls `refreshOpenPullRequests` (picks up merges/closes
   made on GitHub), then renders `PullRequestsView`: approval (the Lead), tests and risk chips. **Merge** only for PRs
   the Lead approved and tests passed.
+- **Metrics** (`/dashboard/[id]/metrics`, `?days=` 7 / 30 / 90): runs *started* in the period. The math is pure and
+  tested (`summarizeRuns`); success rate = delivered / (delivered + failed), cost per delivered card = all spend in
+  the period / delivered. A rework round's cause: CI if that round's CI failed, else the Lead if its approval result
+  in the agent log says it sent the work back, else the tests. Charts are ranked one-hue bars (`BarList`,
+  `bg-brand-emphasis`) with every value printed, so no hover is needed; outcomes carry an icon and a label.
 - **Activity feed** (`lib/activity.ts`): `agent_activity` rows, cards people created (`tasks.created_by_id`) and
   people's card moves, edits and removals (`task_events`, logged by the board actions after the change is saved),
   merged newest first. The Activity page shows every kind (`?show=` grows the list in steps of 50, up to 500); the

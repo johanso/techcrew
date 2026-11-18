@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -278,9 +280,13 @@ export function SortableBoardCard({
   onViewLog: () => void;
   onRemove: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging, node } = useSortable({
     id: card.id,
   });
+  // A card just created or saved may sit below its column's scroll: bring it into view.
+  useEffect(() => {
+    if (highlight) node.current?.scrollIntoView({ block: "nearest" });
+  }, [highlight, node]);
 
   return (
     <div

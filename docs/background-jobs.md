@@ -103,7 +103,11 @@ analysis ──ready──▶ development ──▶ PR ──┤                
      Otherwise the run stops with `failure: { kind: "out_of_credit", provider }`, which the board turns into a
      "switch and retry" notice.
 - **Between stages**: `branch-<round>` (creates `agent/<key>-<slug>` from the default branch, once per run),
-  `pull-request-<round>` (opens the PR, fails if nothing was committed), `record-review-<round>` and
+  `pull-request-<round>` (opens the PR, fails if nothing was committed), the **CI gate** — `ci-<round>-start` (records
+  "waiting" on the branch head; knows whether the repo has workflows in `.github/workflows/`), then
+  `ci-<round>-wait-<n>` sleeps and `ci-<round>-poll-<n>` checks (10 s, then every 30 s, at most 30 polls) until every
+  check finished (`classifyCi`); a failure caused by the change → `rework-after-ci-<round>`, or `ci-exhausted` after
+  the last round — then `record-review-<round>` and
   `record-security-<round>` (after both parallel stages), `record-approval-<round>` (the Lead's decision raised to the
   risk floor; sets the PR's review status and risk), `record-test-<round>` (deterministic pre-checks always fail the
   verdict when they fail), `ready-to-merge` (merge mode × final risk, `mergeDecision`), then `merge-<n>` attempts

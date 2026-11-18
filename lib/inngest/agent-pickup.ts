@@ -1,8 +1,11 @@
 import "server-only";
 
+import { eq } from "drizzle-orm";
+
+import { db, tasks, workspaces } from "@/db";
 import { pipelineModelProblem } from "@/lib/agent-pipeline";
 import { createRun, findAutoPickupCandidates } from "@/lib/agent-runs";
-import { checkAgentCanRun } from "@/lib/agents";
+import { checkAgentCanRun, logAgentActivity, taskKeyPrefix } from "@/lib/agents";
 import { inngest } from "@/lib/inngest/client";
 import { AGENT_TASK_RUN, type AgentTaskRunData } from "@/lib/inngest/agent-run";
 
@@ -18,11 +21,28 @@ export const agentAutoPickup = inngest.createFunction(
       const started: AgentTaskRunData[] = [];
       for (const pick of await findAutoPickupCandidates()) {
         // Paused or over-budget analysts skip their turn; the card waits for the next tick.
-        if (!(await checkAgentCanRun(pick.workspaceId, "analyst")).ok) continue;
+        const allowed = await checkAgentCanRun(pick.workspaceId, "analyst");
+        if (!allowed.ok) continue;
         // No key for an agent's model (Settings → AI providers): don't start a run that would stop halfway.
         if (await pipelineModelProblem(pick.workspaceId)) continue;
         const run = await createRun({ workspaceId: pick.workspaceId, taskId: pick.taskId, trigger: "auto" });
         started.push({ workspaceId: pick.workspaceId, taskId: pick.taskId, runId: run.id });
+        // Like Run on the board, the activity feed says who took the card; here nobody clicked, so it says why.
+        const [card] = await db
+          .select({ number: tasks.number, title: tasks.title, workspace: workspaces.name })
+          .from(tasks)
+          .innerJoin(workspaces, eq(workspaces.id, tasks.workspaceId))
+          .where(eq(tasks.id, pick.taskId));
+        if (card) {
+          await logAgentActivity({
+            workspaceId: pick.workspaceId,
+            agentId: allowed.row.id,
+            kind: "task_assigned",
+            title: `Picked up ${taskKeyPrefix(card.workspace)}-${card.number}`,
+            detail: `${card.title} (auto pickup)`,
+            taskId: pick.taskId,
+          }).catch((error) => console.error("[pickup] activity not logged", error));
+        }
       }
       return started;
     });
