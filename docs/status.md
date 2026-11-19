@@ -1,7 +1,7 @@
 # Project status
 
-Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-17**
-(release **v0.4.0**, on `main`). For what has been tested and how to test the agents, see [testing.md](testing.md).
+Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-19**
+(release **v0.4.0** on `main`, plus the sandbox (PR #12) and account settings, both towards v0.6). For what has been tested and how to test the agents, see [testing.md](testing.md).
 
 - [Feature status](#feature-status)
 - [Dummy data and placeholders](#dummy-data-and-placeholders)
@@ -41,7 +41,9 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | Pull Requests page (agent PRs, approval and test verdicts, risk, Merge) | ✅ Real | `components/pull-requests`, `lib/pull-requests.ts` |
 | Activity page (workspace timeline, incl. people's card moves, edits and removals) | ✅ Real | `lib/activity.ts`, `components/activity` |
 | Notifications (header bell): PR ready, merged, merge blocked, needs info, run stopped, out of credit, provider switched | ✅ Real (polled every 30 s) | `lib/notifications.ts`, `components/dashboard/notifications-menu.tsx` |
-| Settings page | ✅ AI providers (encrypted keys, provider switch), agent automation and agent skills editable; account and workspace read-only | `app/dashboard/[workspaceId]/settings` |
+| Settings page | ✅ Your account (profile, AI providers with account keys, spending across projects) and this workspace (automation, sandbox, Switch Trust, skills) editable; account and workspace details read-only | `app/dashboard/[workspaceId]/settings` |
+| AI keys on the account, company and model per agent | ✅ Real (one account key serves every project; agents can mix OpenAI and Anthropic; a mixed-company run not tried yet) | `lib/ai-keys.ts`, `components/ai-team/agent-config-dialog.tsx` |
+| Agent sandbox (run tests, build, commands) | ✅ Real, verified live (run 49 on techteam-sandbox-demo, $0.17) | `lib/sandbox/`, `deploy/setup.sh`, [sandbox.md](sandbox.md) |
 | Landing page `/` | ➖ None: redirects to the dashboard or sign-in | `app/page.tsx` |
 
 ## Dummy data and placeholders
@@ -75,7 +77,6 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
   fake of its API. Simulated agents always take the happy path.
 - **Switch scans need a public URL** (not deployed yet: a tunnel such as ngrok), for both Switch's tests and the
   Cloudhike jobs. Weekly scans fail while it's unreachable.
-- **One AI company per workspace**: agents can't mix OpenAI and Anthropic models (by design; see features.md).
 - **Out of credit** stops the run with a notice and a one-click "switch and retry". The automatic switch is opt-in
   (Settings → AI providers), restarts the current stage once, and has only been verified by unit tests (detection),
   not against a real provider running dry.
@@ -89,7 +90,7 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 | Item | Notes |
 | --- | --- |
-| Unit tests only | 147 Vitest tests for pure logic (filters, model mapping, roles, trust scan, costs, credit detection, tools per stage, log steps, phases and working agents, risk floor and merge decision, CI gate, run metrics, live process, Switch mapping, card-change descriptions, skill frontmatter/zip/scan/search/prompt), run by CI on every push. No integration tests for the database, the sync or the pipeline yet. |
+| Unit tests only | 164 Vitest tests for pure logic (filters, model mapping, roles, trust scan, costs, credit detection, tools per stage, log steps, phases and working agents, risk floor and merge decision, CI gate, run metrics, live process, Switch mapping, card-change descriptions, skill frontmatter/zip/scan/search/prompt), run by CI on every push. No integration tests for the database, the sync or the pipeline yet. |
 | Two `cn` helpers | shadcn components import `cn` from the `cn` npm package; app code uses `cn` from `@/lib/utils` (`clsx` + `tailwind-merge`). Pick one. |
 | `server-only` isn't installed as a package | Next.js handles it internally (optional per the Next docs), but scripts run outside Next (e.g. with `tsx`) can't import `server-only` modules without a shim. |
 | Sequential updates in `reorderTasks` | One `UPDATE` per card in the moved columns. Fine at board sizes; batch it if columns grow large. |
@@ -97,13 +98,16 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 ## Suggested next steps
 
 The plan lives in [roadmap.md](roadmap.md): smarter gates and the live process are done (v0.2), agent skills (v0.3), and
-CI in the loop with a Metrics page (v0.4); next are deploy and hardening, including mixed model companies per agent
-(v0.5), a sandbox to run code (v0.6), and a shared project memory (v0.7).
+CI in the loop with a Metrics page (v0.4). Mixed model companies per agent and account-level keys landed early
+(2026-11-19), and the sandbox's first milestone (run code) is done. Next: v0.6 previews with a browser for the Tester
+and a Designer agent, deploy and hardening (v0.5), and a shared project memory (v0.7).
 
 ## History
 
 | Commit | Change |
 | --- | --- |
+| `feat/account-settings` | AI keys on the account (migration 0010) with optional workspace keys, spending this month across projects, company and model per agent (no team-wide provider switch), Settings regrouped into Your account / This workspace, one Settings item in the account menu. |
+| `feat/sandbox` | v0.6 milestone 1: agent sandbox (`run_tests`, `run_build`, `run_command` in gVisor containers on a VPS, migration 0009), Settings → Sandbox, `deploy/setup.sh`; first live run (run 49, $0.17). |
 | `8d05f34` | Auth (email + social), workspace onboarding with GitHub repo linking, theme tokens, AGENTS.md. |
 | `7bcf7a6` | Dashboard shell with collapsible sidebar and workspace-scoped routes. |
 | `2457df6` | Visual redesign: flat, tinted surfaces, Plus Jakarta Sans. |

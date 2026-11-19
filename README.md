@@ -28,7 +28,7 @@ cards from analysis to a merged pull request.
 | Pull Requests page | ✅ Real | Agent PRs with review/test verdicts and **Merge**. |
 | Settings → Agent automation | ✅ Real | Task pickup and merge mode per workspace. |
 | Agent skills | ✅ Real | Knowledge packs in the Agent Skills format that agents search and read (never run). Built-ins vendored at pinned commits (`modern-web-guidance`, `chrome-extensions`; `npm run skills:sync`); upload your own `SKILL.md` or `.zip` in **Settings → Agent skills** (validated, security-scanned, AI-reviewed when a key exists, then assigned per agent); switch them per agent in AI Team → Configure. |
-| Settings → AI keys and providers | ✅ Real | Encrypted OpenAI / Anthropic keys on your account (optional per-workspace keys), spending across projects, provider switch per workspace, optional automatic switch when out of credit. |
+| Settings → AI providers | ✅ Real | Encrypted OpenAI / Anthropic keys on your account for every project (optional per-workspace keys), spending this month across projects, optional automatic switch when out of credit. Each agent picks its company and model on the AI Team page. |
 | Activity page | ✅ Real | Workspace timeline (agent events + cards people created, moved, edited or removed), grouped by day. |
 | Notifications (header bell) | ✅ Real | PR ready to merge, analyst questions, stopped runs, out of credit, provider switched, merges and blocked merges. |
 | Landing page (`/`) | ➖ None yet | Redirects to the dashboard (signed in) or to sign-in. |
