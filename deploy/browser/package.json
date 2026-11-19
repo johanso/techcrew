@@ -1,0 +1,9 @@
+{
+  "name": "techteam-browser",
+  "private": true,
+  "type": "module",
+  "description": "The Tester's headless browser (lib/sandbox/browser.ts). Keep playwright-core at the base image's version.",
+  "dependencies": {
+    "playwright-core": "1.64.1"
+  }
+}

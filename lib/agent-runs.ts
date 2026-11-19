@@ -276,6 +276,8 @@ async function upsertSteps(rows: (typeof agentRunSteps.$inferInsert)[]) {
         summary: sql`excluded.summary`,
         model: sql`excluded.model`,
         costMicros: sql`excluded.cost_micros`,
+        // A retried browse_preview took a new screenshot: point at it (the old object stays, unreferenced).
+        screenshotKey: sql`excluded.screenshot_key`,
       },
     });
 }
@@ -302,7 +304,27 @@ export async function saveStageEnd(runId: number, at: StepPosition, end: { ok: b
   await upsertSteps([{ runId, ...at, seq: END_SEQ, tool: end.ok ? "result" : "stopped", target: null, ...end }]);
 }
 
-export type RunLogStep = { id: number; tool: string; target: string | null; ok: boolean; summary: string | null; turn: number };
+export type RunLogStep = {
+  id: number;
+  tool: string;
+  target: string | null;
+  ok: boolean;
+  summary: string | null;
+  turn: number;
+  /** The step has a screenshot (browse_preview), served by /api/runs/<run>/steps/<id>/screenshot. Never the key. */
+  screenshot: boolean;
+};
+
+/** The storage key of a step's screenshot, only when the step belongs to that run in a workspace `ownerId` owns. */
+export async function getStepScreenshotKey(ownerId: number, runId: number, stepId: number) {
+  const [row] = await db
+    .select({ key: agentRunSteps.screenshotKey })
+    .from(agentRunSteps)
+    .innerJoin(agentRuns, eq(agentRuns.id, agentRunSteps.runId))
+    .innerJoin(workspaces, eq(workspaces.id, agentRuns.workspaceId))
+    .where(and(eq(agentRunSteps.id, stepId), eq(agentRunSteps.runId, runId), eq(workspaces.ownerId, ownerId)));
+  return row?.key ?? null;
+}
 
 export type RunLogStage = {
   stage: AgentStage;
@@ -381,7 +403,15 @@ export async function getTaskRunLog(workspaceId: number, taskId: number): Promis
       group.costMicros = row.costMicros;
       continue;
     }
-    group.steps.push({ id: row.id, tool: row.tool, target: row.target, ok: row.ok, summary: row.summary, turn: row.turn });
+    group.steps.push({
+      id: row.id,
+      tool: row.tool,
+      target: row.target,
+      ok: row.ok,
+      summary: row.summary,
+      turn: row.turn,
+      screenshot: row.screenshotKey !== null,
+    });
     if (row.ok && row.target && WRITE_TOOLS.has(row.tool) && !group.filesChanged.includes(row.target)) {
       group.filesChanged.push(row.target);
     }
