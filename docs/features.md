@@ -89,7 +89,7 @@ Every `/dashboard/[workspaceId]/*` page shares one layout (`app/dashboard/[works
 - Sidebar toggle, breadcrumb (`Workspace › Section`).
 - GitHub button with the repository's name (the project being worked on; the tooltip adds the owner, phones show just
   the icon), opens the repository; the notifications bell (see [Notifications](#notifications)); your avatar, which
-  opens the user menu (Account settings, Workspace settings, AI providers, Theme, Sign out). The sidebar has no user
+  opens the user menu (Settings, Agent skills, Theme, Sign out). The sidebar has no user
   menu.
 
 ### Notifications
@@ -104,7 +104,7 @@ The header bell shows a count of unread notifications (9+ above nine) and opens 
 | Analyst needs info | The analyst asked a question instead of starting | The card's agent log (Answer the analyst) |
 | Agents stopped | A run failed (paused agent, budget, missing permission, GitHub, out of turns, error) | The card's agent log |
 | Out of credit | The provider refused for lack of credit and the run stopped | The board (switch and retry) |
-| Switched provider | Auto failover moved the team to the other company | Settings → AI providers |
+| Switched provider | Auto failover moved the agents on a company out of credit to the other one | Settings → AI providers |
 
 Unread items are bold with a dot; opening one marks it read, and **Mark all as read** clears the count. The bell
 refreshes every 30 s while the tab is visible and whenever it opens. Notifications go to the workspace's owner only;
@@ -245,12 +245,12 @@ Locally, Run needs the Inngest Dev Server (`npm run inngest:dev`); otherwise it 
 When OpenAI or Anthropic refuses a request because the account has no credit, the run stops with that reason (not a
 generic failure):
 - The card says **Out of OpenAI credit** (wallet icon), and the AI team card on the Overview too.
-- A notice above the board lists the stopped cards with **Add credit** (the provider's billing page) and **Switch to
-  Anthropic and retry**: it moves the team to the other company (like Settings → AI providers) and runs each card
-  again; reruns continue on their open pull requests. Without a key for the other company it offers **Add an … key**
-  instead. If the team already switched, the button says **Retry on …**.
-- **Automatic switch** (Settings → AI providers, off by default): the team moves to the other company on its own and
-  the current stage starts over there (once per stage); you get a "Switched the team to …" notification.
+- A notice above the board lists the stopped cards with **Add credit** (the provider's billing page) and **Move agents
+  to Anthropic and retry**: every agent still on the broke company moves to its closest model on the other one and each
+  card runs again; reruns continue on their open pull requests. Without a key for the other company it offers **Add an
+  … key** instead. If no agent is on that company any more, the button just says **Retry**.
+- **Automatic switch** (Settings → AI providers, off by default): the agents on the broke company move to the other one
+  on their own and the current stage starts over there (once per stage); you get a "Switched agents to …" notification.
 
 ## Agent pipeline
 
@@ -317,9 +317,10 @@ card runs. Security and Lead are read-only by default (read the repository, issu
 - **Configure** (dialog) — Active/Paused switch, description, instructions (**Reset to default**; **Draft with AI**
   asks the AI (OpenAI, else Claude) for a description and instructions tailored to the repository's description, languages, topics and
   README, the selected permissions and budget, plus an optional focus; **Undo** restores the previous text; nothing is
-  saved until **Save changes**), **Permissions** by category with risk level and *Default* tags (**Reset to defaults**), model
-  (only the workspace's company — OpenAI or Anthropic — with prices, and a *change company* link to Settings; a warning
-  shows when that company has no key) and monthly budget (presets $25/$50/$100/$250). The side panel shows the **Trust Score** (ring,
+  saved until **Save changes**), **Permissions** by category with risk level and *Default* tags (**Reset to defaults**),
+  **Company** (OpenAI or Anthropic; one without a key says *No key* and links to Settings) and **Model** (that company's
+  models with prices; changing company picks the closest tier, so each agent can work on a different company) and
+  monthly budget (presets $25/$50/$100/$250). The side panel shows the **Trust Score** (ring,
   grade — Trusted ≥ 85, Needs review ≥ 70, At risk — summary, checks passed, findings, **Scan again**) and
   **Spending** for the month (spent, budget bar, remaining, projection, reset date, breakdown: task runs, AI drafting,
   trust scans) and **Skills** (only the skills this agent has on, with type, load and source badges and a switch
@@ -395,7 +396,7 @@ never executed. Not to be confused with **permissions**, which decide what an ag
     techteam-roles: tester, reviewer # agents it fits
     techteam-requires: tests.write   # permissions it assumes (warning in the configure dialog)
   ```
-  otherwise the AI review proposes them (one call on the workspace's provider, billed to the Security agent as a
+  otherwise the AI review proposes them (one call on OpenAI, else Anthropic, billed to the Security agent as a
   scan), and the user confirms.
 - **Security scan** (`lib/skill-scan.ts` + the AI review when a provider key exists): prompt-injection phrases,
   credentials, sending secrets out (critical: blocked); pushing to the default branch, disabling tests or CI, sending
@@ -459,23 +460,25 @@ Security), Approval (Lead), Testing, Merge (automatic, no agent).
 
 ## Settings
 
-`/dashboard/[workspaceId]/settings` (also reachable from the user menu, which jumps to `#account`, `#workspace` or `#ai`; its Agent skills item opens `/settings/skills`):
-- **Account** — avatar, name, verified-email badge, email, member since, last sign-in, account id.
-- **Workspace** — avatar, name, repository, default branch, visibility, creation date, **Open repository**.
-- **AI providers** (`#ai`) — **Agents work on** OpenAI or Anthropic: each agent then picks its model from that company on
-  the AI Team page and remembers one per company, so switching back restores those choices. The first time, each agent
-  gets the closest model (GPT-6.1 Sol ↔ Claude Sonnet 5.5, GPT-6 Astra ↔ Claude Opus 5.5, GPT-6 Luna ↔ Claude Haiku 5.5;
-  Terra → Sonnet). Every change is logged on the agent; a company without a key can't be chosen. Below, one key field per
-  provider: status (Connected with the masked key, Using the server's key, or Not connected), a password field with a
-  show/hide eye, **Save key** / **Replace key** (checked with the provider first; errors stay next to the field) and
-  **Remove** (confirmation dialog). The AI Team's "No AI provider connected" chip links here.
-- **Switch automatically when out of credit** (`#ai`, toggle, off by default) — see [Out of credit](#out-of-credit).
-  Needs a key for both companies to do anything.
-- **Switch Trust** (`#switch`) — connect the workspace's Switch account: API key (masked, show/hide), instance URL,
-  tenant and workspace IDs (detected from the key), **Connect securely**. Connecting checks the key with Switch and
-  starts a SwitchAgent scan of every agent; the status line shows the masked key and the evaluation each agent
-  runs; **Disconnect** asks first. A warning explains when this server can't run scans (no jobs config or a local URL).
-  **Scan every week** (toggle, on by default) re-scans every agent each Monday.
+`/dashboard/[workspaceId]/settings` (the user menu's **Settings** item; **Agent skills** opens `/settings/skills`).
+Two groups: **Your account** (applies to every project you own) and **This workspace**.
+
+Your account:
+- **Account** (`#account`) — avatar, name, verified-email badge, email, member since, last sign-in, account id.
+- **AI providers** (`#ai`) — everything about AI companies in one card. On top, your account's OpenAI and Anthropic
+  keys, used by every project: a saved key shows in its field masked (first characters, dots, last four); **Replace
+  key** opens an empty password field with a show/hide eye (**Save key**, checked with the provider first, or
+  **Cancel**); **Remove** asks first. Without a key: Using the server's key, or Not connected. Every company with a key
+  is available: each agent picks its company and model on the AI Team page. Below, **This workspace only**:
+  **Switch automatically when out of credit** (toggle, off by default; needs both keys; see
+  [Out of credit](#out-of-credit)) and **Workspace keys (optional)**, used only for a company your account has no key
+  for (while the account has one, only "Using your account's key" shows). The AI Team's "No AI provider connected"
+  chip links here.
+- **Spending this month** (`#usage`) — model spend across every project this calendar month (UTC): the total, ranked
+  bars by project and by agent. Each project's own spend stays on its AI Team page.
+
+This workspace:
+- **Workspace** (`#workspace`) — avatar, name, repository, default branch, visibility, creation date, **Open repository**.
 - **Agent automation** (`#agents`) — **Task pickup** (Manual: Run on each card / Automatic: the Analyst picks the top
   never-run Todo card every 2 minutes) and **Merging pull requests** (Manual: from the Pull Requests page / Automatic when
   low risk: once tests and CI pass, if the Lead rated it low risk / Automatic: once approval, tests and CI pass). Both
@@ -484,6 +487,11 @@ Security), Approval (Lead), Testing, Merge (automatic, no agent).
 - **Sandbox** (`#sandbox`) — **Let agents run code in the sandbox** (off by default; needs a sandbox host on the
   server) and the **install / test / build** commands, prefilled from `package.json`. **Test the sandbox** runs them on
   the default branch and shows the result. See [sandbox.md](sandbox.md).
+- **Switch Trust** (`#switch`) — connect the workspace's Switch account: API key (masked, show/hide), instance URL,
+  tenant and workspace IDs (detected from the key), **Connect securely**. Connecting checks the key with Switch and
+  starts a SwitchAgent scan of every agent; the status line shows the masked key and the evaluation each agent
+  runs; **Disconnect** asks first. A warning explains when this server can't run scans (no jobs config or a local URL).
+  **Scan every week** (toggle, on by default) re-scans every agent each Monday.
 - **Agent skills** (`#skills`) — a summary card (installed and uploaded counts) with **Manage skills**, which opens the library page; see [Agent skills](#agent-skills).
 
 Account and workspace details are read-only.

@@ -2,12 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 
-import { PROVIDERS, isAgentKey, isAgentProvider } from "@/lib/agent-config";
+import { isAgentKey, isAgentProvider } from "@/lib/agent-config";
 import { isMergeMode } from "@/lib/agent-run-config";
 import { UPLOAD_MAX_BYTES, formatBytes } from "@/lib/agent-skills-config";
 import { getOwnedSkill } from "@/lib/agent-skills";
-import { getAIKeys, keyStatus, removeProviderKey, saveProviderKey, verifyProviderKey } from "@/lib/ai-keys";
-import { switchAgentsToProvider } from "@/lib/agents";
+import { removeProviderKey, saveProviderKey, verifyProviderKey } from "@/lib/ai-keys";
 import { requireUser } from "@/lib/current-user";
 import {
   connectSwitch,
@@ -21,7 +20,7 @@ import { deleteUploadedSkill, inspectSkillUpload, installSkillUpload, setSkillAs
 import { normalizeInstanceUrl } from "@/lib/switch-trust-config";
 import { checkSandbox, sandboxAvailable } from "@/lib/sandbox";
 import { SANDBOX_COMMAND_KINDS, parseSandboxCommand, sandboxReport, type SandboxCommandKind, type SandboxCommands } from "@/lib/sandbox/config";
-import { getOwnedWorkspace, updateAgentAutomation, updateAIProvider, updateAutoFailover, updateSandbox } from "@/lib/workspaces";
+import { getOwnedWorkspace, updateAgentAutomation, updateAutoFailover, updateSandbox } from "@/lib/workspaces";
 
 export type AutomationFormState = { ok?: boolean; message?: string; savedAt?: number };
 
@@ -32,6 +31,11 @@ async function authorize(workspaceId: number) {
   const user = await requireUser(`/dashboard/${workspaceId}/settings`);
   return getOwnedWorkspace(user.id, workspaceId);
 }
+
+// Where a key is saved: the user's account (every workspace they own) or this workspace only.
+const KEY_SCOPES = ["account", "workspace"] as const;
+export type KeyScopeName = (typeof KEY_SCOPES)[number];
+const isKeyScope = (value: unknown): value is KeyScopeName => KEY_SCOPES.includes(value as never);
 
 // Provider changes show on the AI Team page too (model picker, "not connected" labels, agent models).
 function refresh(workspaceId: number) {
@@ -115,44 +119,24 @@ export async function saveAutoFailoverAction(workspaceId: number, enabled: unkno
   return { ok: true };
 }
 
-export type ProviderSwitchState = { ok?: boolean; message?: string; switched?: number };
-
-/** Settings → AI providers: the provider the team works on. Moves every agent to the equivalent model there. */
-export async function switchProviderAction(workspaceId: number, _prev: ProviderSwitchState, formData: FormData): Promise<ProviderSwitchState> {
-  const workspace = await authorize(workspaceId);
-  if (!workspace) return { message: "Workspace not found." };
-  const provider = formData.get("provider");
-  if (!isAgentProvider(provider)) return { message: "Choose a provider." };
-  if (!keyStatus(await getAIKeys(workspace.id))[provider]) {
-    return { message: `Add an ${PROVIDERS[provider].label} API key below first.` };
-  }
-
-  try {
-    await updateAIProvider(workspace.id, provider);
-    const switched = await switchAgentsToProvider(workspace.id, provider);
-    refresh(workspaceId);
-    return { ok: true, switched };
-  } catch (error) {
-    console.error("[settings] provider switch failed", error);
-    return { message: "We couldn't switch the provider. Please try again." };
-  }
-}
-
 export type ProviderKeyState = { ok?: boolean; errors?: { apiKey?: string }; message?: string; savedAt?: number; scansQueued?: number };
 
 /**
- * Saves a workspace API key after checking it with the provider. The key is encrypted at rest and never sent back:
- * the form only ever shows its masked hint. Bound to the workspace id and provider (validated: bound args are input too).
+ * Saves an API key after checking it with the provider: on the account (every workspace the user owns) or on this
+ * workspace only. The key is encrypted at rest and never sent back: the form only ever shows its masked hint. Bound
+ * to the workspace id, provider and scope (validated: bound args are input too).
  */
 export async function saveProviderKeyAction(
   workspaceId: number,
   provider: unknown,
+  scope: unknown,
   _prev: ProviderKeyState,
   formData: FormData
 ): Promise<ProviderKeyState> {
   const workspace = await authorize(workspaceId);
   if (!workspace) return { message: "Workspace not found." };
   if (!isAgentProvider(provider)) return { message: "Unknown provider." };
+  if (!isKeyScope(scope)) return { message: "Unknown key scope." };
 
   const raw = formData.get("apiKey");
   const key = typeof raw === "string" ? raw.trim() : "";
@@ -163,7 +147,7 @@ export async function saveProviderKeyAction(
   if (!verified.ok) return { errors: { apiKey: verified.error } };
 
   try {
-    await saveProviderKey(workspace.id, provider, key);
+    await saveProviderKey(scope === "account" ? { userId: workspace.ownerId } : { workspaceId: workspace.id }, provider, key);
   } catch (error) {
     console.error("[settings] key save failed", error);
     return { message: "We couldn't save the key. Please try again." };
@@ -175,21 +159,32 @@ export async function saveProviderKeyAction(
     const scans = await requestSwitchScans({ workspaceId: workspace.id, trigger: "connected", userId: user.id });
     if (scans.ok) scansQueued = scans.queued;
   }
-  refresh(workspaceId);
+  refreshKeys(workspaceId, scope);
   return { ok: true, savedAt: Date.now(), scansQueued };
 }
 
-export async function removeProviderKeyAction(workspaceId: number, provider: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
+// An account key serves every workspace the user owns: refresh all their dashboards.
+function refreshKeys(workspaceId: number, scope: KeyScopeName) {
+  if (scope === "account") revalidatePath("/dashboard", "layout");
+  else refresh(workspaceId);
+}
+
+export async function removeProviderKeyAction(
+  workspaceId: number,
+  provider: unknown,
+  scope: unknown
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const workspace = await authorize(workspaceId);
   if (!workspace) return { ok: false, error: "Workspace not found." };
   if (!isAgentProvider(provider)) return { ok: false, error: "Unknown provider." };
+  if (!isKeyScope(scope)) return { ok: false, error: "Unknown key scope." };
   try {
-    await removeProviderKey(workspace.id, provider);
+    await removeProviderKey(scope === "account" ? { userId: workspace.ownerId } : { workspaceId: workspace.id }, provider);
   } catch (error) {
     console.error("[settings] key remove failed", error);
     return { ok: false, error: "We couldn't remove the key. Please try again." };
   }
-  refresh(workspaceId);
+  refreshKeys(workspaceId, scope);
   return { ok: true };
 }
 

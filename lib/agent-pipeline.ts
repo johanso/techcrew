@@ -8,9 +8,10 @@ import { agentActivity, agentRuns, agentRunSteps, db, pullRequests, tasks, works
 import {
   AGENT_ROLES,
   PROVIDERS,
+  defaultProvider,
   isPermissionId,
   modelInfo,
-  workspaceProvider,
+  type AgentKey,
   type AgentModelId,
   type AgentProvider,
   type PermissionId,
@@ -54,7 +55,7 @@ import {
   logAgentActivity,
   monthSpendMicros,
   startAgentActivity,
-  switchAgentsToProvider,
+  moveAgentsToProvider,
   taskKeyPrefix,
   updateAgentActivity,
 } from "@/lib/agents";
@@ -80,7 +81,6 @@ import { agentLogHref, notify } from "@/lib/notifications";
 import { isOpenAIOutOfCredit } from "@/lib/openai";
 import { sandboxAvailable } from "@/lib/sandbox";
 import { skillsPromptBlock } from "@/lib/skill-runtime";
-import { updateAIProvider } from "@/lib/workspaces";
 
 /**
  * The work behind each pipeline stage. lib/inngest/agent-run.ts sequences these as durable steps; every function
@@ -629,13 +629,11 @@ export async function beginStage(runId: number, stage: AgentStage): Promise<Begi
  * null. Checked before a run starts so it doesn't stop halfway, after the analyst already spent.
  */
 export async function pipelineModelProblem(workspaceId: number) {
-  const [workspace] = await db.select({ aiProvider: workspaces.aiProvider }).from(workspaces).where(eq(workspaces.id, workspaceId));
-  const provider = workspace ? workspaceProvider(workspace) : "openai";
   const providers = keyStatus(await getAIKeys(workspaceId));
   for (const stage of AGENT_STAGES) {
     const key = STAGE_META[stage].agent;
     const row = await getAgentRow(workspaceId, key);
-    const model = row ? activeAgentModel(row, provider) : AGENT_ROLES[key].defaults.models[provider];
+    const model = row ? activeAgentModel(row) : AGENT_ROLES[key].defaults.models[defaultProvider(providers)];
     const reason = modelUnavailableReason(model, providers);
     if (reason) return `${AGENT_ROLES[key].name}: ${reason}`;
   }
@@ -700,7 +698,7 @@ export async function runStageTurn<S extends AgentStage>(input: {
     sandbox: ctx.workspace.sandboxEnabled && ctx.workspace.sandboxCommands && sandboxAvailable() ? { runId: input.runId, commands: ctx.workspace.sandboxCommands } : null,
   };
   const tools = toolsFor(toolContext);
-  const model: AgentModelId = input.state?.model ?? activeAgentModel(row, workspaceProvider(ctx.workspace));
+  const model: AgentModelId = input.state?.model ?? activeAgentModel(row);
   const keys = await getAIKeys(ctx.workspace.id);
   const unavailable = modelUnavailableReason(model, keyStatus(keys));
   if (unavailable) return { kind: "stopped", reason: unavailable };
@@ -734,7 +732,7 @@ export async function runStageTurn<S extends AgentStage>(input: {
     });
   } catch (error) {
     const broke = isOpenAIOutOfCredit(error) ? "openai" : isAnthropicOutOfCredit(error) ? "anthropic" : null;
-    if (broke) return outOfCredit(ctx, broke, keyStatus(keys)[otherProvider(broke)], input.failedOver ?? false);
+    if (broke) return outOfCredit(ctx, key, broke, keyStatus(keys)[otherProvider(broke)], input.failedOver ?? false);
     rethrowGithub(error);
   }
 
@@ -760,19 +758,22 @@ async function activityCost(activityId: number) {
 
 /**
  * The stage's provider refused for lack of credit. With auto failover on (Settings → AI providers) and a key for the
- * other company, the team switches to it and the stage starts over there; otherwise the run stops with a failure the
- * board can act on (switch and retry). If the team already moved to another provider, the stage just restarts. After a
- * failover the stage never switches back: the first provider just ran dry, so both are out and the run stops.
+ * other company, every agent on the broke company moves to the other one and the stage starts over there; otherwise
+ * the run stops with a failure the board can act on (switch and retry). If this stage's agent already moved to another
+ * provider (another stage failed over first), the stage just restarts. After a failover the stage never switches back:
+ * the first provider just ran dry, so both are out and the run stops.
  */
 async function outOfCredit(
   ctx: RunContext,
+  key: AgentKey,
   broke: AgentProvider,
   otherHasKey: boolean,
   failedOver: boolean
 ): Promise<{ kind: "restart" | "stopped"; reason: string; failure?: RunFailure }> {
   const other = otherProvider(broke);
   const reason = `${PROVIDERS[broke].label} is out of credit.`;
-  if (workspaceProvider(ctx.workspace) !== broke) return { kind: "restart", reason };
+  const current = await getAgentRow(ctx.workspace.id, key);
+  if (current && modelInfo(activeAgentModel(current)).provider !== broke) return { kind: "restart", reason };
   if (failedOver) {
     return {
       kind: "stopped",
@@ -781,12 +782,11 @@ async function outOfCredit(
     };
   }
   if (ctx.workspace.aiAutoFailover && otherHasKey) {
-    await updateAIProvider(ctx.workspace.id, other);
-    await switchAgentsToProvider(ctx.workspace.id, other);
+    await moveAgentsToProvider(ctx.workspace.id, broke, other, `${reason} Switched automatically (Settings → AI providers).`);
     await notify(ctx.workspace.id, {
       kind: "provider_switched",
-      title: `Switched the team to ${PROVIDERS[other].label}`,
-      body: `${reason} The agents moved to ${PROVIDERS[other].label} and ${ctx.key} carried on.`,
+      title: `Switched agents to ${PROVIDERS[other].label}`,
+      body: `${reason} The agents on ${PROVIDERS[broke].label} moved to ${PROVIDERS[other].label} and ${ctx.key} carried on.`,
       href: `/dashboard/${ctx.workspace.id}/settings#ai`,
       taskId: ctx.task.id,
     });
@@ -795,7 +795,7 @@ async function outOfCredit(
   return {
     kind: "stopped",
     reason: otherHasKey
-      ? `${reason} Add credit, or switch the team to ${PROVIDERS[other].label} and run it again.`
+      ? `${reason} Add credit, or move its agents to ${PROVIDERS[other].label} and run it again.`
       : `${reason} Add credit, or add a ${PROVIDERS[other].label} key in Settings → AI providers.`,
     failure: { kind: "out_of_credit", provider: broke },
   };

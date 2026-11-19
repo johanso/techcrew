@@ -44,7 +44,7 @@ flowchart LR
 | Input | GitHub issues and board cards |
 | Spec writer | Analyst (brief, questions to the owner) |
 | Builder | Developer (branch + PR); CI on the PR checked before review, failures go back to it |
-| Specialist reviewers in parallel, mixed model companies | Reviewer and Security in parallel, then the Tester; one company per workspace |
+| Specialist reviewers in parallel, mixed model companies | Reviewer and Security in parallel, then the Tester; each agent picks its own company and model (v0.6) |
 | Approver with a loop back | Lead: combines the reviews, sends work back (max 2 rework rounds, shared with the tests and CI) |
 | Risk-based human gate | Lead's risk rating with a deterministic floor; "Automatic when low risk" merge mode |
 | Production | No deploy step |

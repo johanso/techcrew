@@ -7,6 +7,7 @@ The hosted auth service keeps identities elsewhere (its own `auth` schema); the 
 - [users](#users)
 - [github_connections](#github_connections)
 - [workspaces](#workspaces)
+- [user_ai_keys](#user_ai_keys)
 - [ai_provider_keys](#ai_provider_keys)
 - [tasks](#tasks)
 - [agents](#agents)
@@ -27,6 +28,7 @@ The hosted auth service keeps identities elsewhere (its own `auth` schema); the 
 erDiagram
     users ||--o| github_connections : "has (0..1)"
     users ||--o{ workspaces : owns
+    users ||--o{ user_ai_keys : "AI keys (one per provider)"
     users ||--o{ tasks : "created (nullable)"
     workspaces ||--o{ tasks : contains
     workspaces ||--o{ agents : "has (6)"
@@ -206,8 +208,8 @@ A workspace is bound to **exactly one** GitHub repository, chosen at creation. O
 | `github_issues_synced_at` | timestamp | yes | Last successful issue sync, **minus 60 s** of overlap; passed to GitHub as `since`. `null` = never synced (the next sync imports all open issues). |
 | `agent_auto_pickup` | boolean | no | Default `false`. Settings → Agents: the analyst takes never-run Todo cards on its own. |
 | `agent_merge_mode` | text | no | Default `manual`. Settings → Agents → Merging (`MERGE_MODES`): `manual`, `auto_low_risk` (merge on their own only when the Lead's final risk is low) or `auto` (merge once approval, tests and CI pass). Backfilled from v0.1's `agent_auto_merge` (true → `auto`) by migration 0005; that column was dropped in 0007. Unknown values read as `manual`. |
-| `ai_provider` | text | no | Default `openai`. Settings → AI providers: `openai` or `anthropic`; drives AI drafting/trust reviews and the last provider switch. |
-| `ai_auto_failover` | boolean | no | Default `false`. Settings → AI providers: when the provider runs out of credit mid-run and the other has a key, switch the team and restart the stage. |
+| `ai_provider` | text | no | Default `openai`. **No longer read** (2026-11-19): each agent's model sets its company. Kept while the dev database is shared with older branches; a later migration drops it. |
+| `ai_auto_failover` | boolean | no | Default `false`. Settings → AI providers: when a company runs out of credit mid-run and the other has a key, move the agents on it there and restart the stage. |
 | `sandbox_enabled` | boolean | no | Default `false`. Settings → Sandbox: agents with `tests.run` get the sandbox tools (migration 0009). |
 | `sandbox_commands` | jsonb | yes | `{ install, test, build }` (each a command or null), saved with the switch, prefilled from `package.json`. See [sandbox.md](sandbox.md). |
 | `created_at`, `updated_at` | timestamp | no | |
@@ -215,10 +217,25 @@ A workspace is bound to **exactly one** GitHub repository, chosen at creation. O
 The repository metadata is captured once. If the repo is renamed or its default branch changes on GitHub, these
 columns aren't updated (yet).
 
+## user_ai_keys
+
+A user's API key per AI provider (Settings → Your account → AI keys), used by every workspace they own. It wins over a
+workspace's own key; the server's environment key comes last (`keyInUse` in `lib/ai-keys.ts`). Migration 0010 moved
+every workspace key here (the newest per owner and provider) and deleted the workspace copies.
+
+| Column | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | serial | no | Primary key. |
+| `user_id` | integer | no | → `users.id`, cascade. **Unique with `provider`.** |
+| `provider` | text | no | `openai` or `anthropic`. |
+| `api_key` | text | no | **Encrypted** with AES-256-GCM (`lib/crypto.ts`). Only `getAIKeys()` decrypts it; never send it to the client. |
+| `hint` | text | no | Masked key for display, e.g. `sk-ant-••••a1B2`. |
+| `updated_at` | timestamp | no | |
+
 ## ai_provider_keys
 
-A workspace's API key per AI provider (Settings → AI providers). Separate from `workspaces` so a workspace row never
-carries a secret. Without a row, the server's environment key is used.
+A workspace's own API key per AI provider (Settings → This workspace → AI provider), optional: used only for a provider
+the owner's account has no key for. Separate from `workspaces` so a workspace row never carries a secret.
 
 | Column | Type | Null | Notes |
 | --- | --- | --- | --- |
@@ -277,7 +294,7 @@ One row per agent role per workspace. The six roles (`analyst`, `developer`, `re
 | `key` | text | no | | Role key. **Unique with `workspace_id`.** Also what `tasks.assignee_agent_id` stores. |
 | `description` | text | no | | One sentence, ≤ 280 chars. |
 | `instructions` | text | no | | The agent's operating instructions (system prompt), 50–8,000 chars. |
-| `model` | text | no | | Active model id from `AGENT_MODELS`, always on the workspace's provider (`workspaces.ai_provider`). |
+| `model` | text | no | | Model id from `AGENT_MODELS`, on either company: its provider is the agent's company (AI Team → Configure). |
 | `provider_models` | jsonb | no | `{}` | The agent's model per provider (`{ openai, anthropic }`), so a provider switch and back restores it. |
 | `skills` | text[] | no | `{}` | **Permission** ids from `PERMISSIONS` (`permissions` in Drizzle). Kept its v0.1 name; "skills" now means the knowledge packs in `agent_skills`. |
 | `monthly_budget_cents` | integer | no | | $1–$10,000. |

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { AGENT_KEYS, AGENT_MODELS, AGENT_ROLES, EQUIVALENT_MODEL, agentModelFor, formatMicros, modelInfo, modelsFor } from "@/lib/agent-config";
+import { AGENT_KEYS, AGENT_MODELS, AGENT_ROLES, EQUIVALENT_MODEL, agentModel, agentModelFor, defaultProvider, formatMicros, modelInfo, modelsFor } from "@/lib/agent-config";
 
 describe("models per provider", () => {
   it("lists only that company's models", () => {
@@ -59,5 +59,21 @@ describe("formatMicros", () => {
     expect(formatMicros(0)).toBe("$0.00");
     expect(formatMicros(3_100)).toBe("$0.0031");
     expect(formatMicros(1_250_000)).toBe("$1.25");
+  });
+});
+
+describe("agentModel", () => {
+  it("keeps a saved model on either company, and falls back to the role's OpenAI default for a retired id", () => {
+    expect(agentModel("developer", "claude-opus-5-5")).toBe("claude-opus-5-5");
+    expect(agentModel("tester", "gpt-6-luna")).toBe("gpt-6-luna");
+    expect(agentModel("analyst", "retired-model")).toBe(AGENT_ROLES.analyst.defaults.models.openai);
+  });
+});
+
+describe("defaultProvider", () => {
+  it("starts new agents on a company with a key, OpenAI first", () => {
+    expect(defaultProvider({ openai: true, anthropic: true })).toBe("openai");
+    expect(defaultProvider({ openai: false, anthropic: true })).toBe("anthropic");
+    expect(defaultProvider({ openai: false, anthropic: false })).toBe("openai");
   });
 });

@@ -4,7 +4,6 @@ import { useTransition } from "react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import {
-  KeyRoundIcon,
   LibraryBigIcon,
   LogOutIcon,
   MonitorIcon,
@@ -12,7 +11,6 @@ import {
   SettingsIcon,
   SunIcon,
   SunMoonIcon,
-  UserIcon,
 } from "lucide-react";
 
 import { signOut } from "@/app/(auth)/actions";
@@ -77,17 +75,10 @@ function UserMenuItems({ user, workspaceId }: { user: MenuUser; workspaceId: num
       </DropdownMenuGroup>
       <DropdownMenuSeparator />
       <DropdownMenuGroup>
-        <DropdownMenuItem render={<Link href={`${settings}#account`} />}>
-          <UserIcon />
-          Account settings
-        </DropdownMenuItem>
-        <DropdownMenuItem render={<Link href={`${settings}#workspace`} />}>
+        {/* One entry for the Settings page (account, AI and workspace are sections of it); skills have their own page. */}
+        <DropdownMenuItem render={<Link href={settings} />}>
           <SettingsIcon />
-          Workspace settings
-        </DropdownMenuItem>
-        <DropdownMenuItem render={<Link href={`${settings}#ai`} />}>
-          <KeyRoundIcon />
-          AI providers
+          Settings
         </DropdownMenuItem>
         <DropdownMenuItem render={<Link href={`${settings}/skills`} />}>
           <LibraryBigIcon />

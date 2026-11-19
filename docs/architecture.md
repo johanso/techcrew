@@ -148,7 +148,7 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `/dashboard/[workspaceId]/ai-team` | owner | AI Team: agents, configure dialog, trust score, spending, activity. |
 | `/dashboard/[workspaceId]/pull-requests` | owner | Agent pull requests (refreshed from GitHub on load), review/test verdicts, **Merge**. |
 | `/dashboard/[workspaceId]/activity` | owner | Workspace activity timeline (`?show=` for older events). |
-| `/dashboard/[workspaceId]/settings` | owner | Account (`#account`), workspace (`#workspace`), AI providers (`#ai`), Switch Trust (`#switch`), agent automation (`#agents`), Sandbox (`#sandbox`), Agent skills summary (`#skills`). |
+| `/dashboard/[workspaceId]/settings` | owner | Your account: profile (`#account`), AI providers (`#ai`: account keys, then this workspace's automatic switch and optional keys), spending across projects (`#usage`). This workspace: details (`#workspace`), automation (`#agents`), Sandbox (`#sandbox`), Switch Trust (`#switch`), Agent skills summary (`#skills`). |
 
 "owner" = signed in **and** owner of that workspace; anything else is a 404.
 
@@ -174,7 +174,7 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `app/dashboard/[workspaceId]/board/actions.ts` | `createCardAction`, `updateCardAction`, `moveCardsAction`, `removeCardAction`, `runCardAction`, `answerCardAction`, `stopCardAction`, `mergeCardAction`, `switchProviderAndRetryAction`, `getRunLogAction`, `syncIssuesAction`, `getBoardAction` |
 | `app/dashboard/[workspaceId]/ai-team/actions.ts` | `saveAgentAction`, `scanAgentAction`, `switchScanAgentAction`, `generateAgentAction`, `setAgentSkillAction` |
 | `app/dashboard/[workspaceId]/pull-requests/actions.ts` | `mergePullRequestAction` |
-| `app/dashboard/[workspaceId]/settings/actions.ts` | `saveAutomationAction`, `saveSandboxAction`, `checkSandboxAction`, `saveAutoFailoverAction`, `switchProviderAction`, `saveProviderKeyAction`, `removeProviderKeyAction`, `connectSwitchAction`, `disconnectSwitchAction`, `saveSwitchWeeklyAction`, `inspectSkillAction`, `installSkillAction`, `saveSkillAssignmentsAction`, `deleteSkillAction` |
+| `app/dashboard/[workspaceId]/settings/actions.ts` | `saveAutomationAction`, `saveSandboxAction`, `checkSandboxAction`, `saveAutoFailoverAction`, `saveProviderKeyAction`, `removeProviderKeyAction`, `connectSwitchAction`, `disconnectSwitchAction`, `saveSwitchWeeklyAction`, `inspectSkillAction`, `installSkillAction`, `saveSkillAssignmentsAction`, `deleteSkillAction` |
 
 Server Actions are POST endpoints. Each one re-checks the session and ownership itself; never assume the page that
 rendered the form already did.

@@ -71,13 +71,14 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 
 ## AI provider keys
 
-- Saved per workspace in Settings → AI providers, in their own table (`ai_provider_keys`) so a workspace row never
-  carries a secret. Encrypted like GitHub tokens (`lib/crypto.ts`, `TOKEN_ENCRYPTION_KEY`).
+- Saved on the user's account (`user_ai_keys`, used by every workspace they own) or, optionally, on one workspace
+  (`ai_provider_keys`), in their own tables so a workspace row never carries a secret. Encrypted like GitHub tokens
+  (`lib/crypto.ts`, `TOKEN_ENCRYPTION_KEY`). A workspace's agents use its **owner's** keys, like its GitHub token.
 - Checked with the provider before saving (a free model listing), so a wrong key fails at once.
 - Never sent back to the browser: Settings shows only a masked hint (`sk-ant-••••a1B2`). The eye button shows what you
   are typing, not the saved key. A successful save clears the field.
 - Decrypted only server-side, per call (`getAIKeys`), and passed to the SDK client for that call.
-- Without a workspace key, the server's `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` is used, if set.
+- Order: the account's key, else the workspace's, else the server's `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`, if set.
 
 ## Switch Trust
 

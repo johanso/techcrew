@@ -6,25 +6,24 @@ import { ArrowRightIcon, BadgeCheckIcon, BotIcon, ContainerIcon, ExternalLinkIco
 
 import { dashboardHref } from "@/components/dashboard/nav";
 import { DetailGrid, PageHeader, SurfaceHeader } from "@/components/dashboard/page-header";
+import { AccountSpendCard } from "@/components/settings/account-spend";
 import { AgentAutomationForm } from "@/components/settings/agent-automation-form";
 import { AutoFailoverToggle } from "@/components/settings/auto-failover-toggle";
 import { ProviderKeyForm } from "@/components/settings/provider-key-form";
-import { ProviderSwitchForm } from "@/components/settings/provider-switch-form";
 import { SandboxFormSkeleton, SandboxSettings } from "@/components/settings/sandbox-form";
 import { SwitchConnectionForm } from "@/components/settings/switch-connection-form";
 import { SwitchWeeklyToggle } from "@/components/settings/switch-weekly-toggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { WorkspaceAvatar, workspaceLogoSrc } from "@/components/workspace/workspace-avatar";
-import { workspaceProvider } from "@/lib/agent-config";
 import { parseMergeMode } from "@/lib/agent-run-config";
 import { getSkillLibrary } from "@/lib/agent-skills";
-import { ensureDefaultAgents } from "@/lib/agents";
+import { ensureDefaultAgents, getAccountSpend } from "@/lib/agents";
 import { getProviderKeyViews } from "@/lib/ai-keys";
 import { detectRepoCommands, sandboxAvailable } from "@/lib/sandbox";
 import { getSwitchConnectionView } from "@/lib/switch-trust";
 import { initials } from "@/lib/utils";
-import { getDashboardContext } from "@/lib/workspaces";
+import { getDashboardContext, listWorkspaces } from "@/lib/workspaces";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -32,20 +31,26 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
   const { user, workspace } = await getDashboardContext((await params).workspaceId);
   // Agents and built-in skills exist before the library lists who uses what.
   await ensureDefaultAgents(workspace.id);
-  const [keys, switchView, skills] = await Promise.all([
-    getProviderKeyViews(workspace.id),
+  const [keys, switchView, skills, spend, owned] = await Promise.all([
+    getProviderKeyViews(user.id, workspace.id),
     getSwitchConnectionView(workspace.id),
     getSkillLibrary(workspace.id),
+    getAccountSpend(user.id),
+    listWorkspaces(user.id),
   ]);
-  const provider = workspaceProvider(workspace);
   // Reads package.json on GitHub: streamed in so the rest of the page doesn't wait for it.
   const detectedCommands = detectRepoCommands(workspace).catch(() => null);
 
   return (
     <>
-      <PageHeader eyebrow="Settings" title="Account & workspace" description="Your account and this workspace's configuration." />
+      <PageHeader
+        eyebrow="Settings"
+        title="Account & workspace"
+        description="Your account applies to every project you own; the rest is this workspace's configuration."
+      />
 
-      {/* scroll-mt clears the sticky header when opened from the user menu (#account / #workspace). */}
+      <GroupLabel title="Your account" description="Applies to every project you own." />
+
       <section id="account" className="surface scroll-mt-24">
         <SurfaceHeader
           icon={
@@ -76,6 +81,49 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
         />
       </section>
 
+      <section id="ai" className="surface scroll-mt-24">
+        <SurfaceHeader
+          icon={
+            <span className="icon-tile text-brand-emphasis">
+              <KeyRoundIcon />
+            </span>
+          }
+          title="AI providers"
+          description="Your keys pay for every project. Each agent picks its company and model on the AI Team page."
+          actions={<span className="eyebrow text-muted-foreground">AI</span>}
+        />
+        <div className="flex flex-col gap-6 p-6">
+          <ProviderKeyForm workspaceId={workspace.id} provider="openai" scope="account" view={keys.openai} />
+          <ProviderKeyForm workspaceId={workspace.id} provider="anthropic" scope="account" view={keys.anthropic} />
+        </div>
+        {/* Workspace-only settings live here too, so everything about AI companies is in one place. */}
+        <div className="flex flex-col gap-6 border-t border-border/70 p-6">
+          <div className="flex min-w-0 flex-col gap-1">
+            <p className="eyebrow text-muted-foreground">This workspace only</p>
+            <p className="truncate text-xs text-muted-foreground">{workspace.name}</p>
+          </div>
+          <AutoFailoverToggle
+            workspaceId={workspace.id}
+            enabled={workspace.aiAutoFailover}
+            bothConnected={keys.openai.inUse !== null && keys.anthropic.inUse !== null}
+          />
+          <div className="flex flex-col gap-6 border-t border-border/70 pt-6">
+            <div className="flex flex-col gap-1">
+              <h3 className="text-sm font-bold">Workspace keys (optional)</h3>
+              <p className="text-xs text-muted-foreground">
+                Only used for a company your account has no key for. Your account&apos;s key always wins.
+              </p>
+            </div>
+            <ProviderKeyForm workspaceId={workspace.id} provider="openai" scope="workspace" view={keys.openai} />
+            <ProviderKeyForm workspaceId={workspace.id} provider="anthropic" scope="workspace" view={keys.anthropic} />
+          </div>
+        </div>
+      </section>
+
+      <AccountSpendCard spend={spend} workspaces={owned.map((w) => ({ id: w.id, icon: w.icon, logoSrc: workspaceLogoSrc(w) }))} />
+
+      <GroupLabel title="This workspace" description={`${workspace.name} · ${workspace.githubRepoFullName}`} />
+
       <section id="workspace" className="surface scroll-mt-24">
         <SurfaceHeader
           icon={<WorkspaceAvatar icon={workspace.icon} logoSrc={workspaceLogoSrc(workspace)} />}
@@ -101,58 +149,6 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
             { label: "Created", value: format(workspace.createdAt, "MMMM d, yyyy") },
           ]}
         />
-      </section>
-
-      <section id="ai" className="surface scroll-mt-24">
-        <SurfaceHeader
-          icon={
-            <span className="icon-tile text-brand-emphasis">
-              <KeyRoundIcon />
-            </span>
-          }
-          title="AI providers"
-          description="The models your agents run on and the API keys that pay for them. Keys are encrypted and never shown again."
-          actions={<span className="eyebrow text-muted-foreground">AI</span>}
-        />
-        <div className="flex flex-col gap-6 border-t border-border/70 p-6">
-          <ProviderSwitchForm
-            workspaceId={workspace.id}
-            provider={provider}
-            connected={{ openai: keys.openai.source !== null, anthropic: keys.anthropic.source !== null }}
-          />
-          <div className="border-t border-border/70 pt-6">
-            <AutoFailoverToggle
-              workspaceId={workspace.id}
-              enabled={workspace.aiAutoFailover}
-              bothConnected={keys.openai.source !== null && keys.anthropic.source !== null}
-            />
-          </div>
-          <div className="flex flex-col gap-6 border-t border-border/70 pt-6">
-            <ProviderKeyForm workspaceId={workspace.id} provider="openai" view={keys.openai} />
-            <ProviderKeyForm workspaceId={workspace.id} provider="anthropic" view={keys.anthropic} />
-          </div>
-        </div>
-      </section>
-
-      <section id="switch" className="surface scroll-mt-24">
-        <SurfaceHeader
-          icon={
-            <span className="icon-tile text-brand-emphasis">
-              <ShieldCheckIcon />
-            </span>
-          }
-          title="Switch Trust"
-          description="Connect your Switch account: your agents are registered there and SwitchAgent scans score them with one evaluation each."
-          actions={<span className="eyebrow text-muted-foreground">Trust</span>}
-        />
-        <div className="flex flex-col gap-6 border-t border-border/70 p-6">
-          <SwitchConnectionForm workspaceId={workspace.id} view={switchView} />
-          {switchView.connected && (
-            <div className="border-t border-border/70 pt-6">
-              <SwitchWeeklyToggle workspaceId={workspace.id} enabled={switchView.weeklyScans} />
-            </div>
-          )}
-        </div>
       </section>
 
       <section id="agents" className="surface scroll-mt-24">
@@ -191,6 +187,27 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
         </Suspense>
       </section>
 
+      <section id="switch" className="surface scroll-mt-24">
+        <SurfaceHeader
+          icon={
+            <span className="icon-tile text-brand-emphasis">
+              <ShieldCheckIcon />
+            </span>
+          }
+          title="Switch Trust"
+          description="Connect your Switch account: your agents are registered there and SwitchAgent scans score them with one evaluation each."
+          actions={<span className="eyebrow text-muted-foreground">Trust</span>}
+        />
+        <div className="flex flex-col gap-6 border-t border-border/70 p-6">
+          <SwitchConnectionForm workspaceId={workspace.id} view={switchView} />
+          {switchView.connected && (
+            <div className="border-t border-border/70 pt-6">
+              <SwitchWeeklyToggle workspaceId={workspace.id} enabled={switchView.weeklyScans} />
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* The library has its own page (it can grow to many skills); #skills stays as an anchor for old links. */}
       <section id="skills" className="surface scroll-mt-24">
         <SurfaceHeader
@@ -210,5 +227,15 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
         />
       </section>
     </>
+  );
+}
+
+/** Splits Settings into what applies to every project and what belongs to this one. */
+function GroupLabel({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="-mb-4 flex min-w-0 flex-col gap-1 pt-2">
+      <p className="eyebrow text-brand-emphasis">{title}</p>
+      <p className="truncate text-sm text-muted-foreground">{description}</p>
+    </div>
   );
 }

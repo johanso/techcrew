@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 
 import { AiTeamView } from "@/components/ai-team/ai-team-view";
-import { workspaceProvider } from "@/lib/agent-config";
 import { getSkillLibrary } from "@/lib/agent-skills";
 import { getAIKeys, keyStatus } from "@/lib/ai-keys";
 import { getAgentTeam, getTeamOverview } from "@/lib/agents";
@@ -30,7 +29,6 @@ export default async function AiTeamPage({ params }: PageProps<"/dashboard/[work
       stats={stats}
       aiEnabled={providers.openai || providers.anthropic}
       providers={providers}
-      provider={workspaceProvider(workspace)}
       switchTrust={{ connected: switchConnection !== null, problem: switchScanProblem() }}
       skills={skills}
     />

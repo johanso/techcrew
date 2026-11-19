@@ -28,7 +28,7 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | Remove task (soft delete) | ✅ Real | `removeCardAction` |
 | Answer the analyst's question from the card, its menu or the agent log (answer kept for later runs) | ✅ Real, verified with OpenAI | `components/board/answer-dialog.tsx`, `answerCardAction`, `agent_runs.answer` |
 | Agent log per card (tool calls, files changed, how each stage ended, cost) | ✅ Real (from runs started after it shipped) | `components/board/run-log-sheet.tsx`, `agent_run_steps` |
-| Out of credit: board notice, switch company and retry, optional automatic switch | ✅ Real (automatic switch not run end to end) | `components/board/credit-notice.tsx`, `lib/agent-pipeline.ts` |
+| Out of credit: board notice, move agents to the other company and retry, optional automatic switch | ✅ Real (automatic switch not run end to end) | `components/board/credit-notice.tsx`, `lib/agent-pipeline.ts` |
 | Agent pipeline: Run / Stop, Analyst → Developer → Reviewer + Security (parallel) → Lead (approval + risk) → Tester → merge | ✅ Real (the v0.2 Security/Lead stages verified in simulated mode only), needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (verified live with OpenAI on 2026-11-05; the Claude path only against a local fake of the API). `AGENTS_SIMULATED=true` runs it with scripted agents | `lib/agent-pipeline.ts`, `lib/inngest/agent-run.ts` |
 | Auto pickup of Todo cards; manual, automatic-when-low-risk or automatic merge | ✅ Real | `lib/inngest/agent-pickup.ts`, `lib/agent-run-config.ts` (`mergeDecision`), `lib/pull-requests.ts` |
 | Follow-up card from the Tester on merge conflict / failing build | ✅ Real | `lib/pull-requests.ts` |

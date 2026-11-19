@@ -9,6 +9,14 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 ## [Unreleased]
 
 ### Added
+- **AI keys on your account** (Settings → Your account → AI keys): save an OpenAI or Anthropic key once and every
+  project you own uses it. A workspace can still have its own key, used only for a company the account has no key
+  for; the account's key always wins. Existing workspace keys moved to their owner's account.
+- **Company and model per agent**: in AI Team → Configure, pick the agent's company (OpenAI or Anthropic), then a model
+  from it. A team can mix both: a cheap model for one agent, a strong one for another. Every company with a key is
+  available.
+- **Spending this month** across every project (Settings → Your account): the total, by project and by agent. Each
+  project keeps its own spend on its AI Team page.
 - **Agent sandbox** (v0.6 milestone 1): with Settings → Sandbox on, the Developer and the Tester run the repository's
   tests, build or one command (`run_tests`, `run_build`, `run_command`) on the branch's latest commit, in throwaway gVisor
   containers on a Docker host. Dependencies install with network; the code runs without. The Developer fixes what fails
@@ -20,6 +28,11 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 - `.gitattributes` keeps LF line endings in the repository, so scripts committed from Windows still run on the VPS.
 
 ### Changed
+- Settings is split into **Your account** (profile, **AI providers**, spending) and **This workspace** (details,
+  automation, sandbox, Switch Trust, skills). **AI providers** holds your keys plus, under "This workspace only", the
+  automatic switch and optional workspace keys; it no longer switches the whole team between companies.
+- The account menu has one **Settings** item instead of three links into the same page.
+- Out of credit, the board's retry and the automatic switch move only the agents on the company that ran dry.
 - The stage protocol follows what an agent can do: with the sandbox tools the Developer runs the tests and the build
   and fixes what broke before handing off, and the Tester runs them itself and fails the card when they fail. The
   Reviewer and the Lead are told they can't run code.
@@ -27,6 +40,8 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   sandbox*, sandbox on); otherwise it still says the agent can't run code.
 
 ### Database
+- Migration `0010_account_ai_keys`: `user_ai_keys` (one encrypted key per user and provider); moves every workspace
+  key to its owner's account (the newest per provider) and deletes the workspace copies.
 - Migration `0009_sandbox`: `workspaces.sandbox_enabled` (boolean, default false) and `workspaces.sandbox_commands`
   (jsonb: install, test and build commands; additive).
 

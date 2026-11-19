@@ -29,8 +29,10 @@ import {
   PROVIDERS,
   PERMISSION_CATEGORIES,
   PERMISSIONS,
+  agentModelFor,
   formatMicros,
   isAgentModelId,
+  isAgentProvider,
   modelInfo,
   modelsFor,
   type AgentModelId,
@@ -44,6 +46,8 @@ import type { AgentConfigField, AgentView } from "@/lib/agents";
 import type { SkillView } from "@/lib/agent-skills-config";
 import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
 import { cn } from "@/lib/utils";
+
+const PROVIDER_IDS = Object.keys(PROVIDERS) as AgentProvider[];
 
 const RISK: Record<PermissionRisk, { label: string; dot: string; text: string }> = {
   low: { label: "Low risk", dot: "bg-success", text: "text-muted-foreground" },
@@ -62,7 +66,6 @@ export function AgentConfigDialog({
   repoFullName,
   aiEnabled,
   providers,
-  provider,
   switchTrust,
   skills,
 }: {
@@ -73,7 +76,6 @@ export function AgentConfigDialog({
   repoFullName: string;
   aiEnabled: boolean;
   providers: ProviderStatus;
-  provider: AgentProvider;
   switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
@@ -88,7 +90,6 @@ export function AgentConfigDialog({
           repoFullName={repoFullName}
           aiEnabled={aiEnabled}
           providers={providers}
-          provider={provider}
           switchTrust={switchTrust}
           skills={skills}
           onSaved={() => onOpenChange(false)}
@@ -104,7 +105,6 @@ function ConfigForm({
   repoFullName,
   aiEnabled,
   providers,
-  provider,
   switchTrust,
   skills,
   onSaved,
@@ -114,7 +114,6 @@ function ConfigForm({
   repoFullName: string;
   aiEnabled: boolean;
   providers: ProviderStatus;
-  provider: AgentProvider;
   switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
@@ -125,6 +124,8 @@ function ConfigForm({
   const [description, setDescription] = useState(agent.description);
   const [instructions, setInstructions] = useState(agent.instructions);
   const [model, setModel] = useState<AgentModelId>(agent.model);
+  // The company follows the model: changing it in the Company select picks that company's closest model.
+  const provider = modelInfo(model).provider;
   const [permissions, setPermissions] = useState<PermissionId[]>(agent.permissions);
   const [budget, setBudget] = useState(String(agent.monthlyBudgetCents / 100));
   const [maxTurns, setMaxTurns] = useState(String(agent.maxTurns));
@@ -251,6 +252,46 @@ function ConfigForm({
           />
 
           <div className="grid gap-6 border-t border-border/70 pt-6 sm:grid-cols-2">
+            <Field>
+              <FieldLabel htmlFor="agent-provider">Company</FieldLabel>
+              <Select
+                items={PROVIDER_IDS.map((id) => ({ value: id, label: providers[id] ? PROVIDERS[id].label : `${PROVIDERS[id].label} (no key)` }))}
+                value={provider}
+                onValueChange={(value) => {
+                  // Moving company keeps the tier: the closest model there (GPT-6.1 Sol ↔ Claude Sonnet 5.5, …).
+                  if (isAgentProvider(value) && value !== provider) setModel(agentModelFor(agent.id, value, model, {}));
+                  clearError("model");
+                }}
+              >
+                <SelectTrigger id="agent-provider" className="w-full data-[size=default]:h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PROVIDER_IDS.map((id) => (
+                    <SelectItem key={id} value={id}>
+                      <span className="flex w-full items-baseline justify-between gap-3">
+                        <span className="font-medium">{PROVIDERS[id].label}</span>
+                        {!providers[id] && <span className="text-xs text-muted-foreground">No key</span>}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldDescription>
+                {providers[provider] ? (
+                  <>Each agent can work on a different company.</>
+                ) : (
+                  <>
+                    No {PROVIDERS[provider].label} key yet:{" "}
+                    <Link href={`/dashboard/${workspaceId}/settings#ai`} className="font-medium text-brand-emphasis hover:underline">
+                      add one in Settings
+                    </Link>{" "}
+                    to run this agent.
+                  </>
+                )}
+              </FieldDescription>
+            </Field>
+
             <Field data-invalid={!!errors.model}>
               <FieldLabel htmlFor="agent-model">Model</FieldLabel>
               <Select
@@ -292,14 +333,7 @@ function ConfigForm({
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <FieldDescription>
-                {providers[provider] ? modelInfo(model).hint : `Add an ${PROVIDERS[provider].label} API key in Settings → AI providers to run this agent.`}{" "}
-                The team works with {PROVIDERS[provider].label};{" "}
-                <Link href={`/dashboard/${workspaceId}/settings#ai`} className="font-medium text-brand-emphasis hover:underline">
-                  change company
-                </Link>
-                .
-              </FieldDescription>
+              <FieldDescription>{modelInfo(model).hint}</FieldDescription>
               <FieldError>{errors.model}</FieldError>
             </Field>
 

@@ -4,7 +4,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { agents, db, switchConnections, trustScans, workspaces, type AgentRow, type SwitchConnectionRow, type TrustScanRow } from "@/db";
-import { AGENT_ROLES, PROVIDERS, modelInfo, workspaceProvider, type AgentKey } from "@/lib/agent-config";
+import { AGENT_ROLES, PROVIDERS, modelInfo, type AgentKey } from "@/lib/agent-config";
 import { activeAgentModel, saveTrustScan } from "@/lib/agents";
 import { getAIKeys } from "@/lib/ai-keys";
 import { decrypt, deriveSecret, encrypt } from "@/lib/crypto";
@@ -316,11 +316,7 @@ export async function requestSwitchScans(input: {
 
   const rows = await db.select().from(agents).where(eq(agents.workspaceId, input.workspaceId));
   const targets = rows.filter((row) => !input.keys || input.keys.includes(row.key as AgentKey));
-  const [latest, keys, [workspace]] = await Promise.all([
-    getLatestTrustScans(input.workspaceId),
-    getAIKeys(input.workspaceId),
-    db.select({ aiProvider: workspaces.aiProvider }).from(workspaces).where(eq(workspaces.id, input.workspaceId)),
-  ]);
+  const [latest, keys] = await Promise.all([getLatestTrustScans(input.workspaceId), getAIKeys(input.workspaceId)]);
   const simulated = process.env.AGENTS_SIMULATED === "true";
 
   let queued = 0;
@@ -333,9 +329,9 @@ export async function requestSwitchScans(input: {
       continue;
     }
     // Switch tests the agent through its own model: without a key every test would fail, so say so now.
-    const provider = modelInfo(activeAgentModel(row, workspaceProvider(workspace ?? { aiProvider: "openai" }))).provider;
+    const provider = modelInfo(activeAgentModel(row)).provider;
     if (!simulated && !keys[provider]) {
-      firstError ??= `Add an ${PROVIDERS[provider].label} API key in Settings → AI providers: Switch tests each agent through its model.`;
+      firstError ??= `Add an ${PROVIDERS[provider].label} API key in Settings: Switch tests each agent through its model.`;
       continue;
     }
     const [scan] = await db
@@ -366,7 +362,7 @@ const switchAgentName = (workspace: { id: number; name: string }, key: AgentKey)
   `TechTeam ${workspace.name} (#${workspace.id}) · ${AGENT_ROLES[key].name}`;
 
 /** Registers the agent (once), points Switch at its endpoint, makes sure it has the one evaluation, and starts a run. */
-async function startEvaluation(agent: AgentRow, workspace: { id: number; name: string; aiProvider: string }, connection: SwitchConnectionRow, creds: SwitchCredentials) {
+async function startEvaluation(agent: AgentRow, workspace: { id: number; name: string }, connection: SwitchConnectionRow, creds: SwitchCredentials) {
   const base = publicAppUrl();
   if (!base) throw new JobsError("The app has no public URL for Switch to call.");
   const key = agent.key as AgentKey;
@@ -380,7 +376,7 @@ async function startEvaluation(agent: AgentRow, workspace: { id: number; name: s
   await putSwitchAgentEndpoint(creds, switchAgentId, {
     url: `${base}/api/switch-trust/agents/${agent.id}`,
     credential: agentEndpointCredential(agent.id),
-    modelName: activeAgentModel(agent, workspaceProvider(workspace)),
+    modelName: activeAgentModel(agent),
   });
 
   await putCostCap(creds, switchAgentId, agent);
@@ -434,7 +430,7 @@ export async function advanceTrustScan(scanId: number): Promise<TrustScanStatus>
 
   const [agent] = await db.select().from(agents).where(eq(agents.id, scan.agentId));
   const [workspace] = await db
-    .select({ id: workspaces.id, name: workspaces.name, aiProvider: workspaces.aiProvider })
+    .select({ id: workspaces.id, name: workspaces.name })
     .from(workspaces)
     .where(eq(workspaces.id, scan.workspaceId));
   const connection = await getSwitchConnection(scan.workspaceId);

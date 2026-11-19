@@ -3,7 +3,7 @@ import "server-only";
 import { and, eq, gte, sql } from "drizzle-orm";
 
 import { agentActivity, agents, db, workspaces, type AgentRow } from "@/db";
-import { modelInfo, workspaceProvider } from "@/lib/agent-config";
+import { modelInfo } from "@/lib/agent-config";
 import { activeAgentModel, logAgentActivity, monthSpendMicros } from "@/lib/agents";
 import { getAgentSkills, promptSkills } from "@/lib/agent-skills";
 import { getAIKeys } from "@/lib/ai-keys";
@@ -33,7 +33,7 @@ export async function answerEvaluation(agentId: number, messages: EvalMessage[])
   const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, agent.workspaceId));
   if (!workspace) return { ok: false, status: 404, error: "Unknown agent." };
 
-  const model = activeAgentModel(agent, workspaceProvider(workspace));
+  const model = activeAgentModel(agent);
   // Simulated agents answer without a model, so the whole Switch flow can be tried without spend.
   if (process.env.AGENTS_SIMULATED === "true") {
     return { ok: true, model, content: "I can't help with that. I only work on this repository's tasks, within my instructions." };

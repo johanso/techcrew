@@ -98,8 +98,9 @@ analysis ──ready──▶ development ──▶ PR ──┤                
      to `agent_run_steps` (the card's agent log), and the stage's end too. If the run stopped meanwhile (the parallel
      stage failed), the turn stops too and only this stage's log is closed.
   3. **Out of credit** (OpenAI `insufficient_quota` / billing codes, Anthropic "credit balance too low"): with
-     `workspaces.ai_auto_failover` on and a key for the other company, the turn switches the team
-     (`switchAgentsToProvider`) and returns `restart`: the stage starts over on the new provider, **once per stage**.
+     `workspaces.ai_auto_failover` on and a key for the other company, the turn moves every agent on the broke company
+     to the other one (`moveAgentsToProvider`) and returns `restart`: the stage starts over on the new provider,
+     **once per stage**.
      Otherwise the run stops with `failure: { kind: "out_of_credit", provider }`, which the board turns into a
      "switch and retry" notice.
 - **Sandbox** ([sandbox.md](sandbox.md)): with Settings → Sandbox on, a Developer or Tester turn may call

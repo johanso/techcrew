@@ -7,7 +7,6 @@ import {
   INSTRUCTIONS_MAX,
   PERMISSION_BY_ID,
   formatCents,
-  workspaceProvider,
   type AgentKey,
   type AgentModelId,
   type AgentProvider,
@@ -25,8 +24,8 @@ import { SANDBOX_STAGES } from "@/lib/sandbox/config";
 
 /**
  * AI-assisted agent configuration: writing instructions tailored to the workspace's repository, and an AI
- * review layered on the rule-based Trust Score. Runs on the workspace's provider (Settings → AI providers),
- * or on the other one when only that has a key. Callers get a ConfigAI from configAI() first.
+ * review layered on the rule-based Trust Score. Runs on OpenAI when it has a key, else Anthropic. Callers get a
+ * ConfigAI from configAI() first.
  */
 
 /** Model for configuration helpers per provider: strong writing at a moderate price. */
@@ -44,9 +43,9 @@ export function configAI(keys: AIKeys, preferred: AgentProvider): ConfigAI | nul
   return null;
 }
 
-/** configAI() for a workspace: its keys and its chosen provider (Settings → AI providers). */
-export async function getWorkspaceConfigAI(workspace: { id: number; aiProvider: string }) {
-  return configAI(await getAIKeys(workspace.id), workspaceProvider(workspace));
+/** configAI() for a workspace: its keys, OpenAI first. */
+export async function getWorkspaceConfigAI(workspace: { id: number }) {
+  return configAI(await getAIKeys(workspace.id), "openai");
 }
 
 /** One message for users when the AI request fails. */

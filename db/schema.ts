@@ -71,10 +71,11 @@ export const workspaces = pgTable(
     // agent pull requests merge on their own (always, or only when the Lead rated them low risk).
     agentAutoPickup: boolean("agent_auto_pickup").default(false).notNull(),
     agentMergeMode: text("agent_merge_mode").default("manual").notNull(),
-    // Settings → AI providers: the provider the team works on ("openai" | "anthropic"). Also used by AI drafting/scans.
+    // No longer read: each agent's model sets its company (AI Team → Configure). Kept while the dev database is
+    // shared with older branches; a later migration drops it.
     aiProvider: text("ai_provider").default("openai").notNull(),
-    // When the provider runs out of credit mid-run and the other one has a key, switch the team to it and restart
-    // the stage instead of stopping (Settings → AI providers). Off by default: switching changes every agent's model.
+    // When a company runs out of credit mid-run and the other one has a key, move the agents on it there and restart
+    // the stage instead of stopping (Settings → AI providers). Off by default: moving changes those agents' models.
     aiAutoFailover: boolean("ai_auto_failover").default(false).notNull(),
     // Settings → Sandbox: agents with "Run tests in a sandbox" get run_tests / run_build / run_command. The commands
     // are saved with the switch (prefilled from package.json), so a run never guesses them.
@@ -89,8 +90,31 @@ export const workspaces = pgTable(
 export type Workspace = typeof workspaces.$inferSelect;
 
 /**
- * A workspace's API key for an AI provider (Settings → AI providers). One per provider; without one, the server's
- * environment key is used. Kept out of `workspaces` so a workspace row passed around can never carry a secret.
+ * A user's API key for an AI provider (Settings → Your account → AI keys): every workspace they own uses it. One per
+ * provider. It wins over a workspace's own key (ai_provider_keys), which only covers a provider the account has no
+ * key for; the server's environment key comes last. Never select `api_key` into client-facing data.
+ */
+export const userAiKeys = pgTable(
+  "user_ai_keys",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    // AES-256-GCM ciphertext (lib/crypto.ts).
+    apiKey: text("api_key").notNull(),
+    // Masked form for display, e.g. "sk-ant-••••a1B2".
+    hint: text("hint").notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [unique("user_ai_keys_user_provider").on(table.userId, table.provider)]
+);
+
+/**
+ * A workspace's own API key for an AI provider (Settings → This project → AI providers), optional: used only when
+ * the owner's account has no key for that provider (user_ai_keys wins). Kept out of `workspaces` so a workspace row
+ * passed around can never carry a secret.
  */
 export const aiProviderKeys = pgTable(
   "ai_provider_keys",
@@ -174,9 +198,9 @@ export const agents = pgTable(
     key: text("key").notNull(),
     description: text("description").notNull(),
     instructions: text("instructions").notNull(),
-    // Active model id from AGENT_MODELS, always on the workspace's provider (workspaces.ai_provider).
+    // Model id from AGENT_MODELS, on either company: its provider is the agent's company (each agent picks its own).
     model: text("model").notNull(),
-    // The model this agent uses on each provider, so switching provider and back restores the user's choice.
+    // The model this agent last used on each company, so an out-of-credit move there and back restores the choice.
     providerModels: jsonb("provider_models").$type<Partial<Record<AgentProvider, AgentModelId>>>().notNull().default({}),
     // Permission ids from PERMISSIONS (lib/agent-config.ts). The column kept its v0.1 name "skills"; "skills" now
     // means the installable knowledge packs in agent_skills.
