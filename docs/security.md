@@ -78,7 +78,12 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 - Never sent back to the browser: Settings shows only a masked hint (`sk-ant-••••a1B2`). The eye button shows what you
   are typing, not the saved key. A successful save clears the field.
 - Decrypted only server-side, per call (`getAIKeys`), and passed to the SDK client for that call.
-- Order: the account's key, else the workspace's, else the server's `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`, if set.
+- Order: the account's key, else the workspace's, else the server's `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` /
+  `OPENROUTER_API_KEY`, if set.
+- OpenRouter forwards each call to a host it picks. Every call carries `OPENROUTER_ROUTING` (`lib/openrouter.ts`):
+  `data_collection: "deny"` (only hosts that don't store or train on prompts, since prompts carry the repository's
+  code), `require_parameters` (only hosts that support tools and structured output) and no 4-bit quantizations.
+  Hosts don't all enforce strict schemas, so the finish call is checked again (`parseFinishArguments`).
 
 ## Switch Trust
 
