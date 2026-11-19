@@ -1,6 +1,6 @@
 # Roadmap
 
-Where TechTeam goes next (latest release: [v0.4.0](../CHANGELOG.md#040--2026-11-18)), and how a version is released.
+Where TechTeam goes next (latest release: [v0.5.0](../CHANGELOG.md#050--2026-11-19)), and how a version is released.
 For what works today see [status.md](status.md); for what's verified see [testing.md](testing.md).
 
 - [Direction: an AI software factory](#direction-an-ai-software-factory)
@@ -39,12 +39,12 @@ flowchart LR
     BRAIN -.-> APP
 ```
 
-| Target piece | Today (v0.4) |
+| Target piece | Today (v0.5) |
 | --- | --- |
 | Input | GitHub issues and board cards |
 | Spec writer | Analyst (brief, questions to the owner) |
-| Builder | Developer (branch + PR); CI on the PR checked before review, failures go back to it |
-| Specialist reviewers in parallel, mixed model companies | Reviewer and Security in parallel, then the Tester; each agent picks its own company and model (v0.6) |
+| Builder | Developer (branch + PR) runs the tests and the build in a sandbox before review; CI on the PR checked too, failures go back to it |
+| Specialist reviewers in parallel, mixed model companies | Reviewer and Security in parallel, then the Tester; each agent picks its own company and model (OpenAI, Anthropic, OpenRouter) |
 | Approver with a loop back | Lead: combines the reviews, sends work back (max 2 rework rounds, shared with the tests and CI) |
 | Risk-based human gate | Lead's risk rating with a deterministic floor; "Automatic when low risk" merge mode |
 | Production | No deploy step |
@@ -83,51 +83,45 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
 - Board columns that scroll inside with **Show N more**; fixes to the automatic provider switch and auto pickup.
 - Released as **v0.4.0** (2026-11-18); see [CHANGELOG.md](../CHANGELOG.md#040--2026-11-18).
 
-### v0.5 — Deploy and hardening
-- Deploy (Vercel works: 300 s functions vs our 120 s routes; Postgres is already hosted). Hobby is non-commercial only.
-  Needs Inngest Cloud, a production GitHub OAuth App and `PUBLIC_APP_URL` set to the production domain.
-- Weekly Switch scans in production, without a tunnel.
-- The post-MVP rows of the [test plan](testing.md#test-plan-and-status): Anthropic live, blocked merge, auto pickup
-  and auto merge, pause or budget mid-run, Draft with AI, automatic provider switch.
-- Skill uploads under Vercel's 4.5 MB request limit: move the upload out of a Server Action (a route handler or a
-  direct upload to S3) so `serverActions.bodySizeLimit` goes back to the 1 MB default for every other action. Next.js
-  only sets that limit globally.
+### v0.5 — Sandbox, previews and account keys ✅
+- **Agent sandbox**: the Developer and the Tester run the repository's tests, build or a command in throwaway gVisor
+  containers on a VPS (`deploy/setup.sh`); install with network, the code without (live run 49).
+- **Previews**: each agent PR runs at `https://pr-<n>-<random>.preview.<domain>` over HTTPS (Caddy) once CI passes,
+  stopped on merge or close or after 2 hours; **the Tester tries it in a headless browser** with screenshots in the
+  agent log (live run 51).
+- **AI keys on the account**, spending across projects, a **company and model per agent**, and **OpenRouter** as a
+  third company (Google, DeepSeek, Z.ai, xAI, Moonshot; live run 50).
+- The VPS: keys-only SSH, firewall, containers kept off the host's services.
+- Released as **v0.5.0** (2026-11-19); see [CHANGELOG.md](../CHANGELOG.md#050--2026-11-19).
+
+### v0.6 — Deploy and hardening
+Run TechTeam itself on the VPS, so nothing has to run on a laptop: open `https://app.<domain>` from any computer.
+- The app (Next.js standalone) and a self-hosted Inngest as services on the VPS behind the same Caddy, restarting on
+  boot; Postgres and auth stay on Cloudhike. A production GitHub OAuth App, `PUBLIC_APP_URL`, backups (`pg_dump`).
+- Weekly Switch scans in production, without a tunnel; GitHub webhooks instead of the 60 s issue sync.
+- The post-MVP rows of the [test plan](testing.md#test-plan-and-status): Anthropic live, mixed three-company run,
+  blocked merge, auto pickup and auto merge, pause or budget mid-run, Draft with AI, automatic provider switch.
+- Skill uploads out of a Server Action, so `serverActions.bodySizeLimit` goes back to the 1 MB default.
 - **Project skills**: read skills from the linked repository (e.g. `.agents/skills/`, `.claude/skills/`) as a third
   source (`agent_skills.source = 'project'` is reserved), scanned like uploads.
-- ~~**Mixed companies per agent**~~: done early (2026-11-19, `feat/account-settings`): each agent picks its company
-  and model, and AI keys live on the account. OpenRouter followed as a third company (`feat/openrouter`, PR #15):
-Google, DeepSeek, Z.ai, xAI and Moonshot models with one key.
 
-### v0.6 — Sandbox
-Agents run the code, not only read it. Sandboxes are throwaway Docker containers under gVisor on a VPS
-(`deploy/setup.sh`), driven over SSH; the repository goes in as a tarball, so no token ever enters a container. Built in
-four milestones on the `feat/sandbox` branch, tested against `techteam-sandbox-demo` (Vite + TypeScript, tests, build,
-CI).
-
-1. **Run code**
-   - VPS ready: Docker, gVisor, firewall, keys-only SSH ✅. Test repository with tests, build and CI ✅.
-   - `lib/sandbox/`: one interface, a Docker-over-SSH implementation. CPU, memory, process and time limits; output
-     clipped; no network for the code (install only) ✅.
-   - Settings → Sandbox: on/off, install / test / build commands detected from `package.json`, editable ✅.
-   - Tools behind the existing `tests.run` permission: `run_tests`, `run_build`, `run_command` for the Developer
-     (fix what fails before review) and the Tester (runs the tests itself, not only CI). The agent log records each
-     command, its exit code and duration, never its output ✅.
-   - Simulated mode scripts a sandbox call ✅; one live run on the test repository ✅ (run 49, $0.17). Still unseen:
-     the Developer fixing a failure it found (everything passed first time).
-2. **Preview and a browser for the Tester**
-   - A preview of each agent PR on `pr-<n>-<random>.preview.lugarescolombia.com`, HTTPS by Caddy, stopped when the PR
-     closes, the run ends or after 2 hours ✅ (live run 51; `feat/sandbox-preview`).
-   - The Tester drives it in headless Chromium (Playwright): steps, console errors, screenshots in the agent log ✅
-     (live run 51: 6 browser calls on desktop and mobile, screenshots in the agent log).
-3. **Designer agent** (seventh role, a reviewer first)
+### v0.7 — Designer agent and sandbox polish
+The next step on the sandbox (milestones 1 and 2 shipped in v0.5), tested against `techteam-sandbox-demo`.
+1. **Designer agent** (seventh role, a reviewer first)
    - Reviews in parallel with the Reviewer and Security: screenshots of the changed pages at 375 / 768 / 1280 px in
-     light and dark, read by a vision model; findings go to the Lead.
+     light and dark from the run's preview (`browse_preview` with `PREVIEW_STAGES` including `review`), read by a
+     vision model; findings go to the Lead.
    - Face, defaults, AI Team card, live process and metrics like every role.
-4. **Polish and release**
-   - Sandbox numbers on the Metrics page; limits per workspace; cleanup of stale containers, previews and images.
-   - Docs, test plan rows, CHANGELOG, release **v0.6.0**.
+2. **Sandbox polish**
+   - Sandbox numbers on the Metrics page; limits per workspace; cleanup of stale containers, previews, images and
+     screenshot objects (they stay in S3 today).
+   - Still unseen live: the Developer fixing a failure it found, and a preview stopping on merge.
+   - A Docker socket proxy for Caddy; an optional login in front of previews for private apps; a slimmer browser
+     image pinned by digest; Draft with AI aware of the browser; git history inside the sandbox (`git diff` fails on a
+     tarball checkout).
+3. Docs, test plan rows, CHANGELOG, release **v0.7.0**.
 
-### v0.7 — Brain
+### v0.8 — Brain
 - A project memory every agent reads before working: repository conventions, decisions, what earlier cards learned.
   Kept per workspace, editable by the owner.
 
