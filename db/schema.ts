@@ -6,7 +6,7 @@ import type { AnalystBrief, LeadDecision, ReviewReport, RunFailure, SecurityRepo
 import type { SkillScan } from "@/lib/agent-skills-config";
 import type { TrustReport } from "@/lib/agent-trust";
 import type { CiResult } from "@/lib/ci-gate";
-import type { SandboxCommands } from "@/lib/sandbox/config";
+import type { RunPreview, StoredSandboxCommands } from "@/lib/sandbox/config";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -80,7 +80,9 @@ export const workspaces = pgTable(
     // Settings → Sandbox: agents with "Run tests in a sandbox" get run_tests / run_build / run_command. The commands
     // are saved with the switch (prefilled from package.json), so a run never guesses them.
     sandboxEnabled: boolean("sandbox_enabled").default(false).notNull(),
-    sandboxCommands: jsonb("sandbox_commands").$type<SandboxCommands>(),
+    sandboxCommands: jsonb("sandbox_commands").$type<StoredSandboxCommands>(),
+    // Settings → Sandbox → Previews: each agent PR gets a preview on SANDBOX_PREVIEW_DOMAIN that the Tester can browse.
+    sandboxPreview: boolean("sandbox_preview").default(false).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -463,6 +465,8 @@ export const agentRuns = pgTable(
     testReport: jsonb("test_report").$type<TestReport>(),
     // CI on the pull request after each development round (the CI gate before review), oldest first.
     ci: jsonb("ci").$type<CiResult[]>(),
+    // The run's live preview on the sandbox host (Settings → Sandbox → Previews), started after the CI gate.
+    preview: jsonb("preview").$type<RunPreview>(),
     // Development rounds after the first one (the Lead or the tests sent the work back).
     reworkRounds: integer("rework_rounds").notNull().default(0),
     // Why the run stopped (failed / needs info / merge blocked), in words for the user.
@@ -536,6 +540,8 @@ export const agentRunSteps = pgTable(
     model: text("model"),
     // Only on `result` rows: the stage's model spend in micro-dollars.
     costMicros: integer("cost_micros").notNull().default(0),
+    // S3 key of the screenshot a browse_preview call took; served only to the workspace owner.
+    screenshotKey: text("screenshot_key"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [unique("agent_run_steps_position").on(table.runId, table.stage, table.round, table.turn, table.seq)]

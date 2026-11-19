@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Prepares a fresh Ubuntu 24.04 VPS for TechTeam: updates, firewall, swap, Docker and gVisor (the runtime agent
-# sandboxes run under). Idempotent: run it again after a change, and run it as-is on the next VPS.
+# Prepares a fresh Ubuntu 24.04 VPS for TechTeam: updates, firewall, swap, Docker, gVisor (the runtime agent
+# sandboxes run under) and Caddy (HTTPS for previews). Idempotent: run it again after a change, and as-is on the next VPS.
 #
 #   bash setup.sh              base setup (as root)
 #   bash setup.sh --lock-ssh   also turn off password and root logins; only after `ssh techteam@<ip>` works with a key
@@ -41,7 +41,19 @@ ufw default allow outgoing
 ufw allow OpenSSH
 ufw allow 80/tcp
 ufw allow 443/tcp
+# Containers never reach the host's own services: SSH (allowed above from anywhere) and whatever else listens
+# answered on every Docker bridge's gateway and on the public IP from inside a container. Traffic arriving from a
+# bridge (docker0, br-<id>) is refused after the established-connections rule; a container's traffic to the internet
+# is forwarded, not input, so installs still work, and SSH from outside comes in on the public interface.
+if ! grep -q '^# techteam: containers' /etc/ufw/before.rules; then
+  sed -i '/^-A ufw-before-input -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT$/a\
+# techteam: containers never reach the host'"'"'s services\
+-A ufw-before-input -i docker0 -j REJECT\
+-A ufw-before-input -i br-+ -j REJECT' /etc/ufw/before.rules
+fi
+grep -q '^-A ufw-before-input -i br-+ -j REJECT$' /etc/ufw/before.rules || { echo "Couldn't add the container rules to /etc/ufw/before.rules."; exit 1; }
 ufw --force enable
+ufw reload >/dev/null
 
 step "Docker Engine"
 if ! command -v docker >/dev/null; then
@@ -87,6 +99,45 @@ docker run --rm --runtime=runsc hello-world >/dev/null && echo "gVisor runtime w
 # The sandbox image (SANDBOX_IMAGE in the app), pulled now so an agent's first call doesn't wait for it.
 docker pull --quiet node:24-bookworm
 
+# Previews (Settings → Sandbox → Previews) are served at https://pr-<n>-<random>.<SANDBOX_PREVIEW_DOMAIN> by
+# caddy-docker-proxy: it routes each host to the preview container labeled with it and gets that host's certificate
+# over HTTP-01, so only running previews ever have one. The app connects it to each preview's internal network, where
+# it only opens connections to the preview: it listens on its own network's fixed address alone (default_bind), and
+# its admin API on its loopback, so a preview (or a browser beside it) finds nothing of Caddy to talk to.
+# Its config is the image, the address and the ACME CA; a change recreates it. To try the staging CA first:
+#   CADDY_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory bash setup.sh
+# Unset, Caddy uses its defaults (Let's Encrypt, then ZeroSSL).
+step "Caddy (HTTPS for previews)"
+CADDY_NAME=techteam-caddy
+CADDY_IMAGE=lucaslorentz/caddy-docker-proxy:2.13.1
+CADDY_SUBNET=172.31.254.0/24
+CADDY_IP=172.31.254.2
+CADDY_CONFIG="$CADDY_IMAGE ip=$CADDY_IP ca=${CADDY_ACME_CA:-default}"
+if [ "$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' "$CADDY_NAME" 2>/dev/null)" != "$CADDY_SUBNET" ]; then
+  docker rm --force "$CADDY_NAME" >/dev/null 2>&1 || true
+  docker network rm "$CADDY_NAME" >/dev/null 2>&1 || true
+  docker network create --subnet "$CADDY_SUBNET" "$CADDY_NAME" >/dev/null
+fi
+docker volume create "$CADDY_NAME-data" >/dev/null
+if [ "$(docker inspect -f '{{index .Config.Labels "techteam.caddy-config"}}' "$CADDY_NAME" 2>/dev/null)" != "$CADDY_CONFIG" ]; then
+  # No `caddy` label on this container, so its caddy.* labels are global options.
+  CADDY_ARGS=(--label "techteam.caddy-config=$CADDY_CONFIG" --label "caddy.default_bind=$CADDY_IP")
+  [ -z "${CADDY_ACME_CA:-}" ] || CADDY_ARGS+=(--label "caddy.acme_ca=$CADDY_ACME_CA")
+  docker rm --force "$CADDY_NAME" >/dev/null 2>&1 || true
+  # The only service published on every interface (the daemon defaults to 127.0.0.1). The admin API stays on its
+  # loopback, so preview containers sharing a network with it can't reconfigure it.
+  docker run --detach --name "$CADDY_NAME" --restart=always \
+    --publish 0.0.0.0:80:80 --publish 0.0.0.0:443:443 \
+    --network "$CADDY_NAME" --ip "$CADDY_IP" \
+    --volume /var/run/docker.sock:/var/run/docker.sock:ro \
+    --volume "$CADDY_NAME-data:/data" \
+    "${CADDY_ARGS[@]}" "$CADDY_IMAGE" >/dev/null
+  # A new container lost the old one's networks: rejoin the previews still running.
+  for network in $(docker network ls --quiet --filter label=techteam.preview=1); do
+    docker network connect "$network" "$CADDY_NAME" 2>/dev/null || true
+  done
+fi
+
 # The app (and Docker over SSH from a dev machine) connects as this user, never as root. The docker group is
 # root-equivalent anyway, so passwordless sudo adds nothing an attacker with this account wouldn't already have.
 step "User $APP_USER"
@@ -117,5 +168,6 @@ fi
 step "Done"
 docker --version
 runsc --version | head -1
+echo "Caddy: $(docker inspect -f '{{.State.Status}}' "$CADDY_NAME") (${CADDY_ACME_CA:-default CA})"
 ufw status | head -1
 echo "fail2ban: $(systemctl is-active fail2ban)"

@@ -11,6 +11,7 @@ import {
   notifyMerged,
   openPullRequest,
   pollCi,
+  pollPreview,
   prepareBranch,
   readyToMerge,
   recordApproval,
@@ -20,6 +21,7 @@ import {
   runStageTurn,
   saveBrief,
   startCiWait,
+  startPreview,
   startRework,
   stopRun,
   type StageResult,
@@ -27,6 +29,7 @@ import {
   type WorkResult,
 } from "@/lib/agent-pipeline";
 import { CI_MAX_POLLS, CI_POLL_SECONDS, type CiResult } from "@/lib/ci-gate";
+import { PREVIEW_READY_TIMEOUT_MS } from "@/lib/sandbox/config";
 import { getRunPullRequest, mergeAgentPullRequest } from "@/lib/pull-requests";
 import { inngest } from "@/lib/inngest/client";
 import type { LoopState } from "@/lib/agent-loop";
@@ -109,6 +112,24 @@ async function waitForCi(step: Step, runId: number, round: number): Promise<CiRe
   return null;
 }
 
+const PREVIEW_POLL_SECONDS = 10;
+// A backstop: pollPreview fails the preview itself once PREVIEW_READY_TIMEOUT_MS has passed.
+const PREVIEW_MAX_POLLS = Math.ceil(PREVIEW_READY_TIMEOUT_MS / 1000 / PREVIEW_POLL_SECONDS) + 3;
+
+/**
+ * The pull request's preview (Settings → Sandbox → Previews): one step to prepare and start it, then one step per
+ * readiness check with a sleep in between, like the CI gate. A rework round restarts it on the new commit. Its
+ * steps never throw, so a preview that fails leaves the run alone.
+ */
+async function runPreview(step: Step, runId: number, round: number) {
+  const { polling } = await step.run(`preview-${round}-start`, () => startPreview(runId));
+  if (!polling) return;
+  for (let poll = 1; poll <= PREVIEW_MAX_POLLS; poll++) {
+    await step.sleep(`preview-${round}-wait-${poll}`, `${PREVIEW_POLL_SECONDS}s`);
+    if (await step.run(`preview-${round}-poll-${poll}`, () => pollPreview(runId))) return;
+  }
+}
+
 /**
  * The agent pipeline for one board card: Analyst → Developer → CI → Reviewer and Security (in parallel) → Lead → Tester
  * → merge. A failing CI, the Lead or the tests can send the work back to the Developer up to MAX_REWORK_ROUNDS times.
@@ -170,9 +191,11 @@ export const agentTaskRun = inngest.createFunction(
       }
 
       // Code review and security review read the same pull request at the same time; each turn is still its own step.
+      // The preview builds and starts alongside them, so it's ready for the Tester without holding up review.
       const [review, security] = await Promise.all([
         runStage(step, runId, "review", round, work),
         runStage(step, runId, "security", round, work),
+        runPreview(step, runId, round),
       ]);
       if (!review || !security) return { stopped: "review" };
       await step.run(`record-review-${round}`, () => recordReview(runId, review));

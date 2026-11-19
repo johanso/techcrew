@@ -42,7 +42,10 @@ export async function updateAutoFailover(workspaceId: number, enabled: boolean) 
 }
 
 /** Settings → Sandbox: the switch and the commands, saved together so a run never guesses them. */
-export async function updateSandbox(workspaceId: number, values: { sandboxEnabled: boolean; sandboxCommands: SandboxCommands }) {
+export async function updateSandbox(
+  workspaceId: number,
+  values: { sandboxEnabled: boolean; sandboxCommands: SandboxCommands; sandboxPreview: boolean }
+) {
   await db
     .update(workspaces)
     .set({ ...values, updatedAt: new Date() })

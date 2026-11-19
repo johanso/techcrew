@@ -126,6 +126,18 @@ function PullRequestRow({ pr, workspaceId }: { pr: PullRequestView; workspaceId:
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
+        {pr.previewUrl && (
+          <a
+            href={pr.previewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={buttonVariants({ variant: "outline", className: "h-9" })}
+            aria-label={`View preview of PR #${pr.number} (opens in a new tab)`}
+          >
+            View preview
+            <ExternalLinkIcon data-icon="inline-end" />
+          </a>
+        )}
         {pr.state === "open" && pr.canMerge && <MergeButton workspaceId={workspaceId} pullRequestId={pr.id} />}
         <a
           href={pr.url}

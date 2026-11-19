@@ -120,6 +120,7 @@ function CardActions({
   const runLabel = working ? `Agents are working on ${card.key}` : running ? `Starting the agents on ${card.key}` : `Run ${card.key}: start the agents`;
   const pullRequest = card.run?.status === "awaiting_merge" ? card.run.pullRequest : null;
   const needsInfo = card.run?.status === "needs_info";
+  const preview = card.run?.preview ?? null;
   return (
     <div className="absolute top-2.5 right-2.5 flex items-center gap-0.5">
       {pullRequest ? (
@@ -197,6 +198,15 @@ function CardActions({
           <EllipsisIcon />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" sideOffset={4} className="w-48">
+          {preview && (
+            <>
+              <DropdownMenuItem render={<a href={preview} target="_blank" rel="noopener noreferrer" />} className="gap-2 py-1.5">
+                <ExternalLinkIcon />
+                View preview
+              </DropdownMenuItem>
+              {!pullRequest && <DropdownMenuSeparator />}
+            </>
+          )}
           {pullRequest && (
             <>
               <DropdownMenuItem onClick={onMerge} disabled={merging} className="gap-2 py-1.5">

@@ -117,7 +117,16 @@ The pipeline acts on the repository with the workspace owner's token, so its gua
   capabilities, on a read-only root filesystem, with CPU, memory, process and time limits. Only the Developer and the
   Tester get the tools (`tests.run`, Settings → Sandbox on); the agent log keeps the command and its outcome line,
   never the output. The host itself is set up by `deploy/setup.sh`: firewall (SSH, 80, 443), keys-only SSH without
-  root (`--lock-ssh`), Docker publishing ports on localhost by default, fail2ban and unattended upgrades.
+  root (`--lock-ssh`), Docker publishing ports on localhost by default, fail2ban and unattended upgrades. A ufw rule
+  refuses traffic from Docker bridges to the host, so no container reaches the host's SSH or other services.
+- **Previews** run like sandbox commands, on an `--internal` network with no route out, and are public only at a
+  random host (`pr-<n>-<6 random>.<domain>`) while running (2 h at most). Anyone with the link can open it: fine for
+  test repositories; a login in front of previews is a follow-up for private apps. Caddy listens on nothing inside
+  preview networks and keeps its admin API on its loopback.
+- **The Tester's browser** runs Chromium (its sandbox on) under gVisor on the preview's network only, with no secrets.
+  Pages are untrusted: the agent log keeps only a first line built from our own data, the report frames the page's
+  content as data, and the protocol lists web pages as data. Screenshots are private on S3 and served to the workspace
+  owner only, always as `image/png` with `nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`.
 
 ## Agent skills
 
@@ -172,6 +181,7 @@ Skills are text that reaches agent prompts, so they're treated like any other un
 | No rate limiting on Server Actions or route handlers. | Brute-force or abuse of create/sync endpoints. | Add per-user limits (e.g. Upstash Ratelimit) on sync, create and run. |
 | Workspaces have no members or roles. | Not a risk today, but anything shared later needs an access model. | Add memberships before any sharing feature. |
 | Disconnecting GitHub doesn't revoke the token on GitHub. | The (encrypted, deleted) token stays valid on GitHub's side until the user revokes it. | Call GitHub's "delete an app token" endpoint on disconnect. |
+| Caddy mounts the Docker socket (caddy-docker-proxy reads container labels). | A compromised Caddy, which faces the internet, could control Docker on the sandbox host (root-equivalent there, not in the app). | A Docker socket proxy that only allows reading containers and networks. |
 | The sandbox's install step has network, and packages' install scripts run there. | A malicious dependency can reach the internet during install. It still runs under gVisor and the limits, with no secrets inside, and the command step has no network. | Allow-list registries through a proxy; per-volume disk quotas. |
 | Content Security Policy is not configured. | Defense-in-depth only. | Add CSP headers in `next.config.ts` or `proxy.ts`. |
 | The repository a workspace links to is fixed at creation. | If access is lost, the board can't sync (it says so). | Add a "change repository" setting with the same re-check as creation. |

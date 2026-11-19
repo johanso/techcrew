@@ -4,8 +4,8 @@ import { randomUUID } from "node:crypto";
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 /**
- * Private S3 storage for workspace logos. Objects are never public; they are served
- * through an ownership-checked route (app/api/workspaces/[id]/logo).
+ * Private S3 storage for workspace logos and the Tester's browser screenshots. Objects are never public; they are
+ * served through ownership-checked routes (app/api/workspaces/[id]/logo, app/api/runs/…/screenshot).
  */
 
 export const LOGO_MAX_BYTES = 1024 * 1024;
@@ -45,6 +45,24 @@ export async function uploadWorkspaceLogo(ownerId: number, file: File) {
       Key: key,
       Body: new Uint8Array(await file.arrayBuffer()),
       ContentType: file.type,
+      CacheControl: "private, max-age=31536000, immutable",
+    })
+  );
+  return key;
+}
+
+/**
+ * A browse_preview screenshot (the Tester's browser), under its workspace and run. Served only to the workspace owner
+ * (app/api/runs/[runId]/steps/[stepId]/screenshot). The caller checked that the bytes are a PNG.
+ */
+export async function uploadRunScreenshot(workspaceId: number, runId: number, png: Uint8Array) {
+  const key = `run-screenshots/${workspaceId}/${runId}/${randomUUID()}.png`;
+  await s3().send(
+    new PutObjectCommand({
+      Bucket: process.env.S3_BUCKET,
+      Key: key,
+      Body: png,
+      ContentType: "image/png",
       CacheControl: "private, max-age=31536000, immutable",
     })
   );
