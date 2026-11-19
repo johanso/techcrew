@@ -42,7 +42,8 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | Activity page (workspace timeline, incl. people's card moves, edits and removals) | ✅ Real | `lib/activity.ts`, `components/activity` |
 | Notifications (header bell): PR ready, merged, merge blocked, needs info, run stopped, out of credit, provider switched | ✅ Real (polled every 30 s) | `lib/notifications.ts`, `components/dashboard/notifications-menu.tsx` |
 | Settings page | ✅ Your account (profile, AI providers with account keys, spending across projects) and this workspace (automation, sandbox, Switch Trust, skills) editable; account and workspace details read-only | `app/dashboard/[workspaceId]/settings` |
-| AI keys on the account, company and model per agent | ✅ Real (one account key serves every project; agents can mix OpenAI and Anthropic; a mixed-company run not tried yet) | `lib/ai-keys.ts`, `components/ai-team/agent-config-dialog.tsx` |
+| AI keys on the account, company and model per agent | ✅ Real (one account key serves every project; agents can mix OpenAI and Anthropic; a mixed-company run not tried yet) |
+| OpenRouter (Google, DeepSeek, Z.ai, xAI, Moonshot models) | ✅ Real: all 10 models answer a strict tool call; live mixed run 50 (Developer DeepSeek V4 Pro, Tester DeepSeek V4.1 Flash, the rest OpenAI; $0.091, PR ready). Out of credit not tried live | `lib/openrouter.ts`, `lib/agent-loop.ts` | `lib/ai-keys.ts`, `components/ai-team/agent-config-dialog.tsx` |
 | Agent sandbox (run tests, build, commands) | ✅ Real, verified live (run 49 on techteam-sandbox-demo, $0.17) | `lib/sandbox/`, `deploy/setup.sh`, [sandbox.md](sandbox.md) |
 | Landing page `/` | ➖ None: redirects to the dashboard or sign-in | `app/page.tsx` |
 
@@ -74,7 +75,7 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 - **Workspace and account editing** isn't available (settings are read-only), nor deleting workspaces or accounts.
 - **The agent pipeline locally requires the Inngest Dev Server** (`npm run inngest:dev`).
 - **Live runs so far are on OpenAI** (GPT-6.1 Sol / GPT-6 Luna); the Anthropic path is verified only against a local
-  fake of its API. Simulated agents always take the happy path.
+  fake of its API. OpenRouter has one live run (DeepSeek for the Developer and the Tester). Simulated agents always take the happy path.
 - **Switch scans need a public URL** (not deployed yet: a tunnel such as ngrok), for both Switch's tests and the
   Cloudhike jobs. Weekly scans fail while it's unreachable.
 - **Out of credit** stops the run with a notice and a one-click "switch and retry". The automatic switch is opt-in

@@ -5,17 +5,18 @@ import { ArrowLeftRightIcon, ExternalLinkIcon, WalletIcon } from "lucide-react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { PROVIDERS, type AgentProvider, type ProviderStatus } from "@/lib/agent-config";
+import { PROVIDERS, fallbackProvider, type AgentProvider, type ProviderStatus } from "@/lib/agent-config";
 import type { BoardCard } from "@/lib/board-config";
 
 const BILLING_URL: Record<AgentProvider, string> = {
   openai: "https://platform.openai.com/settings/organization/billing",
   anthropic: "https://platform.claude.com/settings/billing",
+  openrouter: "https://openrouter.ai/settings/credits",
 };
 
 /**
  * Above the board when cards stopped because a provider ran out of credit: which cards, and the way out — move the
- * agents on that company to the other one and retry them, or add credit.
+ * agents on that company to another one with a key (the first, as the retry action does) and retry them, or add credit.
  */
 export function CreditNotice({
   cards,
@@ -37,10 +38,10 @@ export function CreditNotice({
   const failure = cards.find((card) => card.run?.failure)?.run?.failure;
   if (!failure) return null;
   const broke = failure.provider;
-  const other: AgentProvider = broke === "openai" ? "anthropic" : "openai";
+  const other = fallbackProvider(broke, connected);
   // No agent left on the broke company (moved by hand or auto failover): retrying just runs the cards again.
   const switched = !inUse[broke];
-  const canRetry = switched || connected[other];
+  const canRetry = switched || other !== null;
   const keys = cards.map((card) => card.key);
   const list = keys.length > 3 ? `${keys.slice(0, 3).join(", ")} and ${keys.length - 3} more` : keys.join(keys.length === 2 ? " and " : ", ");
 
@@ -53,7 +54,7 @@ export function CreditNotice({
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="font-semibold">{PROVIDERS[broke].label} is out of credit</p>
         <p className="text-muted-foreground">
-          {list} stopped. {switched ? `No agent works on ${PROVIDERS[broke].label} now.` : canRetry ? `You can carry on with ${PROVIDERS[other].label}.` : `Add credit, or a ${PROVIDERS[other].label} key to switch.`}
+          {list} stopped. {switched ? `No agent works on ${PROVIDERS[broke].label} now.` : other ? `You can carry on with ${PROVIDERS[other].label}.` : "Add credit, or another company's key to switch."}
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -64,11 +65,11 @@ export function CreditNotice({
         {canRetry ? (
           <Button size="sm" onClick={onRetry} disabled={retrying}>
             {retrying ? <Spinner /> : <ArrowLeftRightIcon data-icon="inline-start" />}
-            {retrying ? "Retrying…" : switched ? "Retry" : `Move agents to ${PROVIDERS[other].label} and retry`}
+            {retrying ? "Retrying…" : switched || !other ? "Retry" : `Move agents to ${PROVIDERS[other].label} and retry`}
           </Button>
         ) : (
           <Link href={settingsHref} className={buttonVariants({ variant: "outline", size: "sm" })}>
-            Add a {PROVIDERS[other].label} key
+            Add another company&apos;s key
           </Link>
         )}
       </div>

@@ -26,6 +26,7 @@ import {
   BUDGET_PRESETS_USD,
   DESCRIPTION_MAX,
   INSTRUCTIONS_MAX,
+  PROVIDER_IDS,
   PROVIDERS,
   PERMISSION_CATEGORIES,
   PERMISSIONS,
@@ -33,10 +34,10 @@ import {
   formatMicros,
   isAgentModelId,
   isAgentProvider,
+  makersOf,
   modelInfo,
   modelsFor,
   type AgentModelId,
-  type AgentProvider,
   type ProviderStatus,
   type PermissionId,
   type PermissionRisk,
@@ -47,7 +48,6 @@ import type { SkillView } from "@/lib/agent-skills-config";
 import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
 import { cn } from "@/lib/utils";
 
-const PROVIDER_IDS = Object.keys(PROVIDERS) as AgentProvider[];
 
 const RISK: Record<PermissionRisk, { label: string; dot: string; text: string }> = {
   low: { label: "Low risk", dot: "bg-success", text: "text-muted-foreground" },
@@ -317,20 +317,28 @@ function ConfigForm({
                       <span>{PROVIDERS[provider].label} models</span>
                       <span>per 1M tokens · in / out</span>
                     </SelectLabel>
-                    {modelsFor(provider).map((m) => (
-                      <SelectItem key={m.id} value={m.id} className="py-2">
-                        <span className="flex w-full min-w-0 flex-col gap-0.5 whitespace-normal">
-                          <span className="flex items-baseline justify-between gap-3">
-                            <span className="font-medium">{m.label}</span>
-                            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                              ${m.pricing.input} / ${m.pricing.output}
-                            </span>
-                          </span>
-                          <span className="text-xs text-muted-foreground">{m.hint}</span>
-                        </span>
-                      </SelectItem>
-                    ))}
                   </SelectGroup>
+                  {/* OpenRouter resells several companies: one group per maker. OpenAI and Anthropic are one group each. */}
+                  {makersOf(provider).map((maker) => (
+                    <SelectGroup key={maker}>
+                      {maker !== PROVIDERS[provider].label && <SelectLabel>{maker}</SelectLabel>}
+                      {modelsFor(provider)
+                        .filter((m) => m.maker === maker)
+                        .map((m) => (
+                          <SelectItem key={m.id} value={m.id} className="py-2">
+                            <span className="flex w-full min-w-0 flex-col gap-0.5 whitespace-normal">
+                              <span className="flex items-baseline justify-between gap-3">
+                                <span className="font-medium">{m.label}</span>
+                                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                                  ${m.pricing.input} / ${m.pricing.output}
+                                </span>
+                              </span>
+                              <span className="text-xs text-muted-foreground">{m.hint}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                    </SelectGroup>
+                  ))}
                 </SelectContent>
               </Select>
               <FieldDescription>{modelInfo(model).hint}</FieldDescription>
@@ -505,7 +513,7 @@ function InstructionsField({
 
       {!aiEnabled && (
         <FieldDescription>
-          AI drafting is off. Add an OpenAI or Anthropic API key in Settings → AI providers to tailor these instructions to {repoFullName}.
+          AI drafting is off. Add an OpenAI, Anthropic or OpenRouter API key in Settings → AI providers to tailor these instructions to {repoFullName}.
         </FieldDescription>
       )}
 

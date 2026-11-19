@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, eq, gte, sql } from "drizzle-orm";
+import type OpenAI from "openai";
 
 import { agentActivity, agents, db, workspaces, type AgentRow } from "@/db";
 import { modelInfo } from "@/lib/agent-config";
@@ -9,6 +10,7 @@ import { getAgentSkills, promptSkills } from "@/lib/agent-skills";
 import { getAIKeys } from "@/lib/ai-keys";
 import { anthropicClient, messageCostMicros } from "@/lib/anthropic";
 import { openAIClient, responseCostMicros } from "@/lib/openai";
+import { OPENROUTER_ROUTING, completionCostMicros, openRouterClient } from "@/lib/openrouter";
 import { skillsPromptBlock } from "@/lib/skill-runtime";
 import { addScanCost } from "@/lib/switch-trust";
 import type { EvalMessage } from "@/lib/switch-trust-config";
@@ -60,6 +62,17 @@ export async function answerEvaluation(agentId: number, messages: EvalMessage[])
     });
     content = response.output_text;
     costMicros = responseCostMicros(model, response.usage);
+  } else if (provider === "openrouter") {
+    const body: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & { provider: typeof OPENROUTER_ROUTING } = {
+      model,
+      messages: [{ role: "system", content: system }, ...messages.map((m) => ({ role: m.role, content: m.content }))],
+      max_tokens: EVAL_OUTPUT_TOKENS,
+      // The same hosts as in the pipeline, so the test sees the agent as it really runs.
+      provider: OPENROUTER_ROUTING,
+    };
+    const response = await openRouterClient(apiKey).chat.completions.create(body);
+    content = response.choices[0]?.message.content ?? "";
+    costMicros = completionCostMicros(model, response.usage);
   } else {
     const response = await anthropicClient(apiKey).messages.create({
       model,

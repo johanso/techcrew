@@ -32,8 +32,11 @@ import type { ProviderKeyView, SavedKeyView } from "@/lib/ai-keys";
 const CONSOLE_URL: Record<AgentProvider, string> = {
   openai: "https://platform.openai.com/api-keys",
   anthropic: "https://platform.claude.com/",
+  openrouter: "https://openrouter.ai/settings/keys",
 };
-const PLACEHOLDER: Record<AgentProvider, string> = { openai: "sk-proj-…", anthropic: "sk-ant-…" };
+const PLACEHOLDER: Record<AgentProvider, string> = { openai: "sk-proj-…", anthropic: "sk-ant-…", openrouter: "sk-or-v1-…" };
+// What a key buys, where the company's name doesn't say it.
+const NOTE: Partial<Record<AgentProvider, string>> = { openrouter: "One key for Google, DeepSeek, Z.ai, xAI and Moonshot models." };
 
 function StatusLine({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -145,6 +148,7 @@ export function ProviderKeyForm({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex min-w-0 flex-col gap-1">
           <h3 className="text-sm font-bold">{label}</h3>
+          {NOTE[provider] && <p className="text-xs text-muted-foreground">{NOTE[provider]}</p>}
           <KeyStatus provider={provider} scope={scope} view={view} />
         </div>
         <div className="flex items-center gap-1">

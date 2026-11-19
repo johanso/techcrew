@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { isAnthropicOutOfCredit, messageCostMicros, toClaudeSchema } from "@/lib/anthropic";
 import { isOpenAIOutOfCredit, responseCostMicros } from "@/lib/openai";
+import { completionCostMicros, isOpenRouterOutOfCredit, parseFinishArguments } from "@/lib/openrouter";
 
 const headers = new Headers();
 
@@ -26,6 +27,15 @@ describe("out-of-credit detection", () => {
     const other = new Anthropic.BadRequestError(400, { type: "error", error: { type: "invalid_request_error", message: "bad" } }, "max_tokens too large", headers);
     expect(isAnthropicOutOfCredit(credit)).toBe(true);
     expect(isAnthropicOutOfCredit(other)).toBe(false);
+  });
+
+  it("recognizes OpenRouter's 402, but not its in-flight budget, which clears on its own", () => {
+    const error = (status: number, metadata?: Record<string, unknown>) =>
+      new OpenAI.APIError(status, { code: status, message: "Insufficient credits", ...(metadata ? { metadata } : {}) }, "Insufficient credits", headers);
+    expect(isOpenRouterOutOfCredit(error(402))).toBe(true);
+    expect(isOpenRouterOutOfCredit(error(402, { limit_source: "openrouter_key_limit" }))).toBe(true);
+    expect(isOpenRouterOutOfCredit(error(402, { limit_source: "openrouter_in_flight_budget" }))).toBe(false);
+    expect(isOpenRouterOutOfCredit(error(429))).toBe(false);
   });
 });
 
@@ -50,6 +60,39 @@ describe("cost accounting", () => {
     const short = { ...long, input_tokens: 50_000 };
     expect(messageCostMicros("claude-haiku-5-5", "claude-haiku-5-5", long)).toBe(75_000);
     expect(messageCostMicros("claude-haiku-5-5", "claude-haiku-5-5", short)).toBe(5_000);
+  });
+});
+
+describe("OpenRouter cost", () => {
+  it("uses the cost OpenRouter reports", () => {
+    expect(completionCostMicros("z-ai/glm-5.3", { prompt_tokens: 10_000, completion_tokens: 500, cost: 0.0042 })).toBe(4_200);
+  });
+
+  it("estimates from the listed price when there's no cost", () => {
+    // DeepSeek V4.1 Flash: $0.30 in, $0.006 cached, $1.20 out per 1M tokens.
+    const usage = { prompt_tokens: 1_000_000, completion_tokens: 100_000, prompt_tokens_details: { cached_tokens: 500_000 } };
+    expect(completionCostMicros("deepseek/deepseek-v4.1-flash", usage)).toBe(150_000 + 3_000 + 120_000);
+    expect(completionCostMicros("deepseek/deepseek-v4.1-flash", null)).toBe(0);
+  });
+});
+
+describe("parseFinishArguments", () => {
+  const finish = {
+    type: "function" as const,
+    name: "submit_review",
+    strict: true,
+    parameters: { type: "object", properties: { verdict: { type: "string" }, summary: { type: "string" } }, required: ["verdict", "summary"] },
+  };
+
+  it("accepts an object with every required field", () => {
+    expect(parseFinishArguments('{"verdict":"approve","summary":"ok"}', finish)).toEqual({ ok: true, value: { verdict: "approve", summary: "ok" } });
+  });
+
+  it("asks again for invalid JSON, non-objects and missing fields", () => {
+    expect(parseFinishArguments('{"verdict":', finish).ok).toBe(false);
+    expect(parseFinishArguments("[]", finish).ok).toBe(false);
+    const missing = parseFinishArguments('{"verdict":"approve"}', finish);
+    expect(missing).toEqual({ ok: false, error: expect.stringContaining("missing summary") });
   });
 });
 

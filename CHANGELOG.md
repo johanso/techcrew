@@ -9,6 +9,11 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 ## [Unreleased]
 
 ### Added
+- **OpenRouter as a third company** (Settings → AI providers): one key and one credit balance for models from Google
+  (Gemini 4 Argon, Gemini 4 Hydrogen, Gemini 3.8 Flash), DeepSeek (V4 Pro, V4.1 Flash), Z.ai (GLM 5.3, GLM 5.3 Flash),
+  xAI (Grok 4.7, Grok Build 0.1) and Moonshot (Kimi K3.1 Pro). Pick them per agent in AI Team → Configure, grouped by
+  maker. Requests only go to hosts that don't keep or train on prompts, support tools and aren't 4-bit quantized; the
+  cost logged is the one OpenRouter reports. Out of credit on OpenRouter stops or switches like the other two.
 - **AI keys on your account** (Settings → Your account → AI keys): save an OpenAI or Anthropic key once and every
   project you own uses it. A workspace can still have its own key, used only for a company the account has no key
   for; the account's key always wins. Existing workspace keys moved to their owner's account.
@@ -28,6 +33,10 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 - `.gitattributes` keeps LF line endings in the repository, so scripts committed from Windows still run on the VPS.
 
 ### Changed
+- Moving an agent to another company (out of credit, or changing Company) keeps its model's tier — flagship,
+  balanced, efficient or fast — instead of a fixed OpenAI ↔ Anthropic map. The automatic switch and **Switch and
+  retry** go to the first other company with a key: OpenAI, Anthropic, then OpenRouter.
+- **Draft with AI** and AI trust reviews use OpenRouter (DeepSeek V4 Pro) when there's no OpenAI or Anthropic key.
 - Settings is split into **Your account** (profile, **AI providers**, spending) and **This workspace** (details,
   automation, sandbox, Switch Trust, skills). **AI providers** holds your keys plus, under "This workspace only", the
   automatic switch and optional workspace keys; it no longer switches the whole team between companies.

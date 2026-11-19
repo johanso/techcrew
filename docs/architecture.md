@@ -94,18 +94,20 @@ lib/                         Server logic (most files start with `import "server
   skill-scan.ts              Deterministic security rules for uploaded skills (pure)
   skill-runtime.ts           Skills prompt block, search ranking, paginated reads (pure)
   skill-install.ts           Upload inspect/install (sealed token), new versions, assignments, delete
-  agent-ai.ts                Config AI (OpenAI, else Anthropic): instruction drafting, AI trust review
+  agent-ai.ts                Config AI (OpenAI, else Anthropic, else OpenRouter): instruction drafting, AI trust review
   agent-run-config.ts        Pipeline phases and agent stages, run statuses, report types, risk floor, merge
                              decision (shared client/server)
   live-process.ts            Live process mapping: a run in flight → six steps (pure, shared client/server)
   agent-runs.ts              agent_runs persistence, card placement, auto-pickup query
   agent-pipeline.ts          Stage work: prompts, stage start/turns, branch, PR, review/security/approval/test recording
-  agent-loop.ts              One model turn with function tools (OpenAI Responses or Anthropic Messages)
+  agent-loop.ts              One model turn with function tools (OpenAI Responses, Anthropic Messages or OpenRouter
+                             Chat Completions)
   agent-simulated.ts         Scripted agents for AGENTS_SIMULATED=true
   agent-tools.ts             Agent tools on the GitHub API, gated by stage and permissions; search_skill/read_skill
   pull-requests.ts           Agent PRs: merge, Tester follow-up on conflicts/failing builds, refresh, list
   openai.ts                  OpenAI client and cost accounting
   anthropic.ts               Anthropic client, cost accounting, tool schema conversion
+  openrouter.ts              OpenRouter client (Chat Completions), routing rules, reported cost, out-of-credit
   overview.ts                Overview data: stats and upcoming tasks from the board, recent work activity
   activity.ts                Workspace activity feed (agent_activity + cards people created)
   notifications.ts           Header bell: notify(), list, mark read

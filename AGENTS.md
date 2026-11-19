@@ -49,7 +49,7 @@ sign-in / sign-up ─▶ /workspaces ──(no workspaces)──▶ /workspaces/
 | GitHub | OAuth App (`repo read:user`) | Separate from social sign-in; tokens are AES-256-GCM encrypted. |
 | File storage | Private S3 bucket | Never public; served through ownership-checked routes. |
 | Jobs | Inngest | `lib/inngest/*`, `app/api/inngest`. |
-| AI | OpenAI (`openai` SDK, Responses API) and Anthropic (`@anthropic-ai/sdk`, Messages API) | `lib/openai.ts`, `lib/anthropic.ts`; each agent's model picks the provider. Optional — features degrade without keys. |
+| AI | OpenAI (`openai` SDK, Responses API), Anthropic (`@anthropic-ai/sdk`, Messages API) and OpenRouter (`openai` SDK, Chat Completions: Google, DeepSeek, Z.ai, xAI, Moonshot models) | `lib/openai.ts`, `lib/anthropic.ts`, `lib/openrouter.ts`; each agent's model picks the provider. Optional — features degrade without keys. |
 | Quality | ESLint 9 (flat config, `eslint-config-next`) + Vitest 4 | `npm run check` = typegen + tsc + lint + unit tests. CI: `.github/workflows/ci.yml`. |
 
 ## 3. Commands
@@ -173,7 +173,8 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   activity.ts             getActivityFeed(): agent_activity + cards people created + task_events, newest first;
                           WORK_ACTIVITY_KINDS.
   agent-config.ts         AI Team vocabulary shared by server + client: roles + defaults (models per provider), PERMISSIONS,
-                          AGENT_MODELS (provider + pricing), PROVIDERS, EQUIVALENT_MODEL, agentModelFor, limits.
+                          AGENT_MODELS (provider, maker, tier, pricing), PROVIDER_IDS / PROVIDERS, closestModel (same
+                          tier), agentModelFor, fallbackProvider, limits.
   agent-trust.ts          Trust Score: scanAgentRules() (deterministic; permissions, instructions, budget, enabled uploaded
                           skills' scan findings), trustGrade(). Pure.
   agent-skills-config.ts  Agent skills vocabulary shared by server + client: SKILL_TYPES / SKILL_LOADS / SKILL_SOURCES,
@@ -201,10 +202,12 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           command without, gVisor + limits), removeSandbox, hourly sweep. index.ts: sandboxAvailable,
                           detectRepoCommands, runRepoCommand (one volume per run), removeRunSandbox, checkSandbox.
   jobs.ts                 Cloudhike Jobs: enqueueJob, getJobRun, publicAppUrl (null for local addresses).
-  agent-ai.ts             Config AI (OpenAI if configured, else Anthropic): generateAgentConfig() (repo-aware, sandbox-aware instructions),
+  agent-ai.ts             Config AI (OpenAI if configured, else Anthropic, else OpenRouter): generateAgentConfig() (repo-aware, sandbox-aware instructions),
                           scanAgentWithAI(), reviewSkillWithAI() (upload review + type/load/roles), isConfigAIAvailable().
   openai.ts               OpenAI client (null without a key), responseCostMicros().
   anthropic.ts            Anthropic client (null without a key), messageCostMicros(), toClaudeSchema().
+  openrouter.ts           OpenRouter client (Chat Completions), OPENROUTER_ROUTING (hosts that keep no data, support tools,
+                          not 4-bit), completionCostMicros (its reported cost), isOpenRouterOutOfCredit, parseFinishArguments.
   agents.ts               Agents persistence: ensureDefaultAgents(), getAgentTeam(), getAccountSpend() (Settings: month spend
                           across the owner's workspaces), getTeamOverview() (read-only: members +
                           runs in flight for the live process and the Overview),
@@ -234,7 +237,8 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   agent-simulated.ts      AGENTS_SIMULATED=true: scripted stand-in for the model (one real tool call, plus search_skill +
                           read_skill when the agent has skills, then a passing result).
   agent-loop.ts           One model turn with function tools, per provider: OpenAI Responses (previous_response_id, forced
-                          finish tool) or Anthropic Messages (history in agent_run_messages, last-turn system message);
+                          finish tool), Anthropic Messages or OpenRouter Chat Completions (both: history in
+                          agent_run_messages, last-turn message);
                           modelUnavailableReason(), initialLoopState().
   agent-tools.ts          Agent tools on the GitHub API, filtered by stage + permissions; search_skill / read_skill when the
                           agent has skills; protected paths, manifest gate;
@@ -587,16 +591,22 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     `modelsFor`; changing company picks the closest tier, `agentModelFor`). `agents.model` is the model and its
     `provider` is the agent's company; read it with `activeAgentModel(row)`. Every company with a key is available
     (Settings → `#ai` has no team-wide switch; `workspaces.ai_provider` is no longer read). `saveAgentAction` refuses a
-    new model whose company has no key. New agents start on `defaultProvider(keys)` (OpenAI first). Role defaults are
-    per provider (`defaults.models`: Sol/Sonnet, the Lead included; Tester Luna/Haiku). `agents.provider_models`
+    new model whose company has no key. New agents start on `defaultProvider(keys)` (OpenAI, Anthropic, then
+    OpenRouter). Role defaults are per provider (`defaults.models`: Sol/Sonnet/DeepSeek V4 Pro, the Lead included;
+    Tester Luna/Haiku/DeepSeek V4.1 Flash). `agents.provider_models`
     remembers each agent's model per company for out-of-credit moves (`moveAgentsToProvider`). Config AI (drafting,
-    trust reviews) runs on OpenAI, else Anthropic (`configAI`). Run refuses up front when any agent's model has no key
+    trust reviews) runs on OpenAI, else Anthropic, else OpenRouter (`configAI`). Run refuses up front when any agent's model has no key
     (`pipelineModelProblem`).
-  - **Models and providers**: `AGENT_MODELS` (`lib/agent-config.ts`) lists OpenAI and Claude models with their `provider`
-    and prices. The model is pinned per stage in `LoopState` (a change on the AI Team page applies from the next stage).
+  - **Models and providers**: `AGENT_MODELS` (`lib/agent-config.ts`) lists OpenAI, Claude and OpenRouter models with
+    their `provider`, `maker`, `tier` and prices. Moving company keeps the tier (`closestModel`). An OpenRouter model is
+    added only when its hosts support tools and structured outputs (OpenRouter's `/models`: `supported_parameters`). The model is pinned per stage in `LoopState` (a change on the AI Team page applies from the next stage).
     Claude's conversation is stored in `agent_run_messages` (append-only, written at fixed positions so a retried step
     overwrites itself); thinking blocks go back unchanged. Claude 5.5 models reject forced tool choice, so the last turn
-    is a mid-conversation system message instead. Opus/Sonnet 5.5 use refusal `fallbacks: "default"`.
+    is a mid-conversation system message instead. Opus/Sonnet 5.5 use refusal `fallbacks: "default"`. OpenRouter
+    (Chat Completions) stores its conversation the same way, sends tool calls and `reasoning_details` back unchanged,
+    routes with `OPENROUTER_ROUTING` (never send code to hosts that keep data), ends with a last-turn user message
+    (many hosts reject forced tools) and re-checks the finish call (`parseFinishArguments`: hosts don't all enforce
+    strict schemas). Its cost is `usage.cost` as reported.
   - Pause and budget are re-checked every turn; each turn adds its cost to the stage's `task_run` activity row and to
     `agent_runs.cost_micros`.
   - **The Lead decides**: its `request_changes` (or test `fail`) → back to the Developer on the same branch/PR, at most
@@ -617,10 +627,10 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   - **Simulated mode** (`AGENTS_SIMULATED=true`) scripts every stage, including Security (pass) and the Lead (approve,
     low risk), so the whole flow runs without a model. With the sandbox on, the Developer and the Tester also call
     `run_tests` and `run_build` for real.
-  - **Out of credit** (`isOpenAIOutOfCredit` / `isAnthropicOutOfCredit`) is not a generic failure: the run stops with
+  - **Out of credit** (`isOpenAIOutOfCredit` / `isAnthropicOutOfCredit` / `isOpenRouterOutOfCredit`) is not a generic failure: the run stops with
     `agent_runs.failure = { kind: "out_of_credit", provider }` and the board offers switch-and-retry
-    (`switchProviderAndRetryAction`: moves the agents still on that company). With `workspaces.ai_auto_failover` and the
-    other company's key, `runStageTurn` moves every agent on the broke company (`moveAgentsToProvider`) and returns
+    (`switchProviderAndRetryAction`: moves the agents still on that company to `fallbackProvider`, the first other
+    company with a key). With `workspaces.ai_auto_failover` and another company's key, `runStageTurn` moves every agent on the broke company (`moveAgentsToProvider`) and returns
     `restart` instead: the stage starts over, at most once per stage. After a failover it
     never switches back (`failedOver`): the second company running dry stops the run with `out_of_credit`.
   - **Notifications**: `notify()` at the moments that need the owner (PR ready, merged, merge blocked, needs info, run
@@ -710,7 +720,7 @@ See `.env.example` for the full list with comments. Feature-specific:
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Connecting GitHub on `/workspaces/new`. OAuth App callback: `<NEXT_PUBLIC_APP_URL>/api/github/callback`. |
 | `TOKEN_ENCRYPTION_KEY` | Encrypting GitHub tokens and AI provider keys (`openssl rand -base64 32`). Rotating it forces every user to reconnect GitHub and re-enter their AI keys. |
 | `S3_*` | Workspace logo uploads. Without them the upload button is disabled; icons still work. |
-| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Optional server-wide fallback when neither the owner's account (Settings → AI keys) nor the workspace has a key. |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` | Optional server-wide fallback when neither the owner's account (Settings → AI keys) nor the workspace has a key. |
 | `JOBS_API_URL`, `JOBS_API_KEY` | Cloudhike Jobs: runs SwitchAgent scans in the background. |
 | `PUBLIC_APP_URL` | The app's internet-reachable URL for callbacks (jobs, Switch evaluations); defaults to `NEXT_PUBLIC_APP_URL`. A tunnel in local dev. |
 | `SWITCH_AGENT_AI_API_KEY` | Optional server-wide Switch Trust key (Editor role) for workspaces that connect without their own. |

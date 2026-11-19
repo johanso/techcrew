@@ -438,7 +438,7 @@ shows each card's latest run.
 
 ## agent_run_messages
 
-Conversation history of an agent stage on Anthropic (the Messages API is stateless). OpenAI keeps its conversation
+Conversation history of an agent stage on Anthropic or OpenRouter (stateless APIs). OpenAI keeps its conversation
 server-side and stores nothing here. Kept out of Inngest step output, which would otherwise carry the whole growing
 history on every turn.
 
@@ -448,7 +448,7 @@ history on every turn.
 | `run_id` | integer | no | | → `agent_runs.id`, cascade. |
 | `conversation` | text | no | | `<agent stage>:<rework round>`, e.g. `development:1`, `security:0`. |
 | `seq` | integer | no | | Position in the conversation. **Unique with `run_id`, `conversation`**: a retried turn overwrites its own rows. |
-| `message` | jsonb | no | | The Anthropic message param, verbatim (thinking blocks must go back unchanged). |
+| `message` | jsonb | no | | The provider's message param, verbatim: Anthropic (thinking blocks must go back unchanged) or Chat Completions (OpenRouter; tool calls and `reasoning_details` go back unchanged). |
 | `created_at` | timestamp | no | `now()` | |
 
 ## agent_run_steps

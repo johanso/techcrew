@@ -7,6 +7,7 @@ import {
   AGENT_KEYS,
   AGENT_MODELS,
   AGENT_ROLES,
+  PROVIDER_IDS,
   PROVIDERS,
   BUDGET_MAX_USD,
   BUDGET_MIN_USD,
@@ -768,7 +769,7 @@ export async function updateAgentConfig(workspaceId: number, key: AgentKey, inpu
   return { changed: changes.length > 0 || row.enabled !== input.enabled };
 }
 
-/** The model an agent runs on now (its company follows from it: each agent can be on either one). */
+/** The model an agent runs on now (its company follows from it: each agent can be on any of them). */
 export function activeAgentModel(row: AgentRow) {
   return agentModel(row.key as AgentKey, row.model);
 }
@@ -777,7 +778,7 @@ export function activeAgentModel(row: AgentRow) {
 export async function teamProviders(workspaceId: number): Promise<ProviderStatus> {
   const rows = await db.select().from(agents).where(eq(agents.workspaceId, workspaceId));
   const used = new Set(rows.map((row) => modelInfo(activeAgentModel(row)).provider));
-  return { openai: used.has("openai"), anthropic: used.has("anthropic") };
+  return Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, used.has(provider)])) as ProviderStatus;
 }
 
 /**

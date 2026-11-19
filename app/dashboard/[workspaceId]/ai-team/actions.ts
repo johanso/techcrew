@@ -131,7 +131,7 @@ export async function generateAgentAction(workspaceId: number, key: string, raw:
   const auth = await authorize(workspaceId, key);
   if (!auth) return { ok: false, error: "Agent not found." };
   const ai = await getWorkspaceConfigAI(auth.workspace);
-  if (!ai) return { ok: false, error: "Add an OpenAI or Anthropic API key in Settings → AI providers to generate with AI." };
+  if (!ai) return { ok: false, error: "Add an OpenAI, Anthropic or OpenRouter API key in Settings → AI providers to generate with AI." };
 
   const input = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
   const permissions = Array.isArray(input.permissions) ? [...new Set(input.permissions.filter(isPermissionId))] : [];

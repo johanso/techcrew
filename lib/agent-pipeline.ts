@@ -9,6 +9,7 @@ import {
   AGENT_ROLES,
   PROVIDERS,
   defaultProvider,
+  fallbackProvider,
   isPermissionId,
   modelInfo,
   type AgentKey,
@@ -79,6 +80,7 @@ import {
 } from "@/lib/github";
 import { agentLogHref, notify } from "@/lib/notifications";
 import { isOpenAIOutOfCredit } from "@/lib/openai";
+import { isOpenRouterOutOfCredit } from "@/lib/openrouter";
 import { sandboxAvailable } from "@/lib/sandbox";
 import { skillsPromptBlock } from "@/lib/skill-runtime";
 
@@ -731,8 +733,8 @@ export async function runStageTurn<S extends AgentStage>(input: {
       forceFinish: input.forceFinish,
     });
   } catch (error) {
-    const broke = isOpenAIOutOfCredit(error) ? "openai" : isAnthropicOutOfCredit(error) ? "anthropic" : null;
-    if (broke) return outOfCredit(ctx, key, broke, keyStatus(keys)[otherProvider(broke)], input.failedOver ?? false);
+    const broke = brokeProvider(error);
+    if (broke) return outOfCredit(ctx, key, broke, fallbackProvider(broke, keyStatus(keys)), input.failedOver ?? false);
     rethrowGithub(error);
   }
 
@@ -749,7 +751,13 @@ export async function runStageTurn<S extends AgentStage>(input: {
   return { kind: "done", result };
 }
 
-const otherProvider = (provider: AgentProvider): AgentProvider => (provider === "openai" ? "anthropic" : "openai");
+/** The company that refused for lack of credit, or null for any other error. */
+function brokeProvider(error: unknown): AgentProvider | null {
+  if (isOpenAIOutOfCredit(error)) return "openai";
+  if (isAnthropicOutOfCredit(error)) return "anthropic";
+  if (isOpenRouterOutOfCredit(error)) return "openrouter";
+  return null;
+}
 
 async function activityCost(activityId: number) {
   const [row] = await db.select({ cost: agentActivity.costMicros }).from(agentActivity).where(eq(agentActivity.id, activityId));
@@ -757,8 +765,8 @@ async function activityCost(activityId: number) {
 }
 
 /**
- * The stage's provider refused for lack of credit. With auto failover on (Settings → AI providers) and a key for the
- * other company, every agent on the broke company moves to the other one and the stage starts over there; otherwise
+ * The stage's provider refused for lack of credit. With auto failover on (Settings → AI providers) and a key for
+ * another company (`other`, fallbackProvider), every agent on the broke company moves there and the stage starts over; otherwise
  * the run stops with a failure the board can act on (switch and retry). If this stage's agent already moved to another
  * provider (another stage failed over first), the stage just restarts. After a failover the stage never switches back:
  * the first provider just ran dry, so both are out and the run stops.
@@ -767,21 +775,20 @@ async function outOfCredit(
   ctx: RunContext,
   key: AgentKey,
   broke: AgentProvider,
-  otherHasKey: boolean,
+  other: AgentProvider | null,
   failedOver: boolean
 ): Promise<{ kind: "restart" | "stopped"; reason: string; failure?: RunFailure }> {
-  const other = otherProvider(broke);
   const reason = `${PROVIDERS[broke].label} is out of credit.`;
   const current = await getAgentRow(ctx.workspace.id, key);
   if (current && modelInfo(activeAgentModel(current)).provider !== broke) return { kind: "restart", reason };
   if (failedOver) {
     return {
       kind: "stopped",
-      reason: `${PROVIDERS[broke].label} is out of credit too, right after the switch from ${PROVIDERS[other].label}. Add credit to either one and run the card again.`,
+      reason: `${PROVIDERS[broke].label} is out of credit too, right after a switch. Add credit and run the card again.`,
       failure: { kind: "out_of_credit", provider: broke },
     };
   }
-  if (ctx.workspace.aiAutoFailover && otherHasKey) {
+  if (ctx.workspace.aiAutoFailover && other) {
     await moveAgentsToProvider(ctx.workspace.id, broke, other, `${reason} Switched automatically (Settings → AI providers).`);
     await notify(ctx.workspace.id, {
       kind: "provider_switched",
@@ -794,9 +801,9 @@ async function outOfCredit(
   }
   return {
     kind: "stopped",
-    reason: otherHasKey
+    reason: other
       ? `${reason} Add credit, or move its agents to ${PROVIDERS[other].label} and run it again.`
-      : `${reason} Add credit, or add a ${PROVIDERS[other].label} key in Settings → AI providers.`,
+      : `${reason} Add credit, or add another company's key in Settings → AI providers.`,
     failure: { kind: "out_of_credit", provider: broke },
   };
 }
