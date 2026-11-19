@@ -95,7 +95,8 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
 - **Project skills**: read skills from the linked repository (e.g. `.agents/skills/`, `.claude/skills/`) as a third
   source (`agent_skills.source = 'project'` is reserved), scanned like uploads.
 - ~~**Mixed companies per agent**~~: done early (2026-11-19, `feat/account-settings`): each agent picks its company
-  and model, and AI keys live on the account.
+  and model, and AI keys live on the account. OpenRouter followed as a third company (`feat/openrouter`, PR #15):
+Google, DeepSeek, Z.ai, xAI and Moonshot models with one key.
 
 ### v0.6 — Sandbox
 Agents run the code, not only read it. Sandboxes are throwaway Docker containers under gVisor on a VPS
