@@ -86,6 +86,18 @@ export type SandboxRun = {
   output: string;
 };
 
+/** The port a preview's server listens on inside its container (the preview command gets PORT and HOST). */
+export const PREVIEW_PORT = 4173;
+
+/**
+ * Where a run's preview lives on the sandbox host. The container and its internal network share one name: the
+ * browser joins that network and opens `internalUrl`; Caddy joins it too and serves the public host.
+ */
+export function previewTarget(runId: number) {
+  const name = `techteam-preview-run-${runId}`;
+  return { container: name, network: name, internalUrl: `http://${name}:${PREVIEW_PORT}` };
+}
+
 export function formatDuration(ms: number) {
   return ms < 60_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`;
 }

@@ -81,6 +81,8 @@ export const workspaces = pgTable(
     // are saved with the switch (prefilled from package.json), so a run never guesses them.
     sandboxEnabled: boolean("sandbox_enabled").default(false).notNull(),
     sandboxCommands: jsonb("sandbox_commands").$type<SandboxCommands>(),
+    // Settings → Sandbox → Previews: each agent PR gets a preview on SANDBOX_PREVIEW_DOMAIN that the Tester can browse.
+    sandboxPreview: boolean("sandbox_preview").default(false).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -536,6 +538,8 @@ export const agentRunSteps = pgTable(
     model: text("model"),
     // Only on `result` rows: the stage's model spend in micro-dollars.
     costMicros: integer("cost_micros").notNull().default(0),
+    // S3 key of the screenshot a browse_preview call took; served only to the workspace owner.
+    screenshotKey: text("screenshot_key"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [unique("agent_run_steps_position").on(table.runId, table.stage, table.round, table.turn, table.seq)]
