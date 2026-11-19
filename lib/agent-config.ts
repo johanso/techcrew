@@ -110,9 +110,14 @@ export function isAgentProvider(value: unknown): value is AgentProvider {
   return value === "openai" || value === "anthropic";
 }
 
-/** A workspace's provider (workspaces.ai_provider is plain text in the database). */
-export function workspaceProvider(workspace: { aiProvider: string }): AgentProvider {
-  return isAgentProvider(workspace.aiProvider) ? workspace.aiProvider : "openai";
+/** The model an agent runs on: its saved model, else (a retired id) its role's OpenAI default. Its provider follows. */
+export function agentModel(key: AgentKey, model: string): AgentModelId {
+  return isAgentModelId(model) ? model : AGENT_ROLES[key].defaults.models.openai;
+}
+
+/** The company new agents start on: OpenAI when it has a key, else Anthropic when that has one, else OpenAI. */
+export function defaultProvider(connected: ProviderStatus): AgentProvider {
+  return !connected.openai && connected.anthropic ? "anthropic" : "openai";
 }
 
 export function modelsFor(provider: AgentProvider) {

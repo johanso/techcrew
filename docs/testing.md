@@ -41,9 +41,8 @@ products (see code.claude.com/docs/en/legal-and-compliance). Use simulated mode 
 
 ## Models and providers
 
-A workspace works with **one company at a time** (Settings → AI providers, `workspaces.ai_provider`). Each agent picks
-a model from that company on the AI Team page and remembers one per company (`agents.provider_models`), so switching
-back restores earlier choices.
+Each agent picks its **company and model** on the AI Team page (Configure → Company, Model); a team can mix both
+companies. `agents.provider_models` remembers each agent's model per company for out-of-credit moves.
 
 | Model | Provider | $ / 1M in · out | Notes |
 | --- | --- | --- | --- |
@@ -94,9 +93,9 @@ How each provider runs a stage (`lib/agent-loop.ts`):
 | 12 | Pause / budget mid-run | Pause an agent or lower its budget while it works | Run stops at the next turn with the reason | ✅ simulated (2026-11-18, $0): paused the Developer once its stage had begun (run 41) → "Developer was paused."; dropped its budget to $0 (run 42) → "Developer reached this month's budget."; both stopped at the turn check with one `run_failed` notification, the agent restored afterwards. Both stops landed on the stage's first turn: a stop between later turns uses the same check |
 | 13 | Missing key | Agent on a company without a key, ▶ Run | Refused up front: "Developer: Claude Sonnet 5.5 needs an Anthropic API key…" | ✅ by script |
 | 14 | Save / replace / remove a key | Settings → AI keys (account) and AI provider → Workspace keys | Invalid key rejected by the provider inline; valid key saved masked (`sk-ant-••••abcd`); Remove asks first | ✅ invalid key rejected and remove ✅; valid OpenAI and Anthropic keys saved by the user (2026-11-05, verified with each provider on save) |
-| 15 | Switch company | Settings → AI providers → Switch provider | All agents move to their model for that company; switching back restores earlier picks; logged per agent | ✅ by script and browser |
-| 16 | Model per agent | AI Team → Configure | Picker lists only the workspace's company; server rejects the other company's models | ✅ (UI + script) |
-| 17 | Draft with AI / AI trust scan | AI Team → Configure, with a key | Uses the workspace's company (or the other if only it has a key) | 🟡 Draft with AI ✅ with OpenAI by script (2026-11-18, Tester, 23.7 s, $0.0105, repository-aware; logged as "Drafted instructions with AI", nothing saved). It claimed the Tester "runs tests": the prompt now says what the agent can run (since v0.6 the Developer and the Tester run tests and builds when the sandbox is on; not re-run with a key). AI trust scan with a real key not run |
+| 15 | Switch company | Settings → AI providers → Switch provider | All agents move to their model for that company; switching back restores earlier picks; logged per agent | ✅ by script and browser. Removed 2026-11-19: each agent now picks its own company (row 16) |
+| 16 | Company and model per agent | AI Team → Configure: change Company, then Model; save; Run | Company select (one without a key says *No key*); changing it picks the closest tier; save refuses a company without a key; agents on both companies run in one pipeline | ✅ single-company (UI + script, before 2026-11-19). 🟡 Company select (2026-11-19): `agentModel` / `defaultProvider` unit-tested; not yet checked in the browser, and no mixed-company run yet |
+| 17 | Draft with AI / AI trust scan | AI Team → Configure, with a key | Uses OpenAI, else Anthropic | 🟡 Draft with AI ✅ with OpenAI by script (2026-11-18, Tester, 23.7 s, $0.0105, repository-aware; logged as "Drafted instructions with AI", nothing saved). It claimed the Tester "runs tests": the prompt now says what the agent can run (since v0.6 the Developer and the Tester run tests and builds when the sandbox is on; not re-run with a key). AI trust scan with a real key not run |
 | 18 | Live process follows a run | AI Team page open, ▶ Run a card (simulated is enough) | "Inactive" before; then the card's block: steps go working → done in order with results, Review shows Reviewer + Security working at once, last actions and turn/cost update, the agent cards show "Working on KEY"; no reload needed | ✅ by the user in the browser (2026-11-16, simulated run #32 on AJU-6): live process, working cards, agent log |
 | 19 | Overview and Activity on real data | Overview / Activity with and without cards and runs | Real counts, upcoming cards, AI team status, timeline with cost per step; empty states when there's nothing | ✅ in the browser with test users (2026-11-04) |
 | 20 | Out of credit → switch and retry | A run stopped with `failure: out_of_credit` (seeded), a key for the other company, then **Switch to … and retry** | Notice above the board, card "Out of OpenAI credit"; the button moves the team (models per company) and starts a new run | ✅ in the browser with a seeded run (2026-11-04); the provider actually running dry not tried |

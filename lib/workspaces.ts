@@ -5,7 +5,6 @@ import { notFound } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
 
 import { db, workspaces, type NewWorkspace } from "@/db";
-import type { AgentProvider } from "@/lib/agent-config";
 import type { MergeMode } from "@/lib/agent-run-config";
 import { requireUser } from "@/lib/current-user";
 import type { SandboxCommands } from "@/lib/sandbox/config";
@@ -35,11 +34,6 @@ export async function updateAgentAutomation(workspaceId: number, values: { agent
     .update(workspaces)
     .set({ ...values, updatedAt: new Date() })
     .where(eq(workspaces.id, workspaceId));
-}
-
-/** Settings → AI providers. The caller has already checked ownership and that the provider has a key. */
-export async function updateAIProvider(workspaceId: number, provider: AgentProvider) {
-  await db.update(workspaces).set({ aiProvider: provider, updatedAt: new Date() }).where(eq(workspaces.id, workspaceId));
 }
 
 /** Settings → AI providers: switch to the other company on its own when the current one runs out of credit. */

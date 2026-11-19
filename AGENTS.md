@@ -103,12 +103,12 @@ app/
                           (agent log), syncIssuesAction (also refreshes agent PRs) (auth + validation).
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
       settings/           Your account: profile (#account), AI keys (#keys, every project), spending this month across
-                          projects (#usage). This workspace: workspace (#workspace), AI provider (#ai: provider switch +
+                          projects (#usage). This workspace: workspace (#workspace), AI providers (#ai: automatic switch +
                           optional workspace keys), Switch
                           Trust (#switch), agent automation (#agents), Sandbox (#sandbox) and an Agent skills card (#skills) linking to
                           skills/page.tsx (the library on its own page). actions.ts: automation, saveSandboxAction /
                           checkSandboxAction (Test the sandbox),
-                          provider switch, auto failover toggle, save/remove provider key, connect/disconnect Switch,
+                          auto failover toggle, save/remove provider key, connect/disconnect Switch,
                           inspectSkillAction / installSkillAction (upload, two steps), saveSkillAssignmentsAction,
                           deleteSkillAction.
   globals.css             THE theme: palette, semantic tokens, Tailwind mapping.
@@ -129,7 +129,7 @@ components/
   activity/               activity-timeline (Activity page: events grouped by day, Show older).
   metrics/                metrics-view (Metrics page markup: period tabs, stat tiles, bar lists, recent runs), bar-list
                           (ranked one-hue bars with printed values).
-  settings/               agent-automation-form (task pickup + merge mode), provider-switch-form, auto-failover-toggle,
+  settings/               agent-automation-form (task pickup + merge mode), auto-failover-toggle,
                           provider-key-form
                           (account or workspace scope; masked key + show/hide), account-spend (spending across projects), switch-connection-form (Switch Trust account), switch-weekly-toggle,
                           sandbox-form (Settings → Sandbox: switch, commands, Test the sandbox),
@@ -583,13 +583,15 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   - **Permissions are enforced as tools** (`toolsFor` in `lib/agent-tools.ts`). Adding a capability = a tool gated by a
     permission there, not a prompt instruction. ("Skills" are knowledge, not capabilities: see Agent skills below.) Agents never write `.github/workflows/`, `.env*` (except `.env.example`) or
     `.git/`; manifests need `deps.manage`. Tool output is untrusted data — the stage protocol in `systemPrompt` says so.
-  - **One company per workspace, one model per agent** (Settings → `#ai`, `workspaces.ai_provider`). The configure
-    dialog lists only that provider's models (`modelsFor`), and `saveAgentAction` rejects a model from the other one.
-    `agents.model` is the active model; `agents.provider_models` remembers the agent's model on each provider, so
-    `switchAgentsToProvider` restores earlier choices (first time: `EQUIVALENT_MODEL`, via `agentModelFor`). Read the
-    active model with `activeAgentModel(row, provider)`. Role defaults are per provider (`defaults.models`: Sol/Sonnet,
-    the Lead included; Tester Luna/Haiku). Config AI (drafting, trust reviews) uses the workspace provider, or the other one if only it has
-    a key (`configAI`). Run refuses up front when any agent's model has no key (`pipelineModelProblem`).
+  - **Each agent picks its company and model** (AI Team → Configure: a Company select, then that company's models via
+    `modelsFor`; changing company picks the closest tier, `agentModelFor`). `agents.model` is the model and its
+    `provider` is the agent's company; read it with `activeAgentModel(row)`. Every company with a key is available
+    (Settings → `#ai` has no team-wide switch; `workspaces.ai_provider` is no longer read). `saveAgentAction` refuses a
+    new model whose company has no key. New agents start on `defaultProvider(keys)` (OpenAI first). Role defaults are
+    per provider (`defaults.models`: Sol/Sonnet, the Lead included; Tester Luna/Haiku). `agents.provider_models`
+    remembers each agent's model per company for out-of-credit moves (`moveAgentsToProvider`). Config AI (drafting,
+    trust reviews) runs on OpenAI, else Anthropic (`configAI`). Run refuses up front when any agent's model has no key
+    (`pipelineModelProblem`).
   - **Models and providers**: `AGENT_MODELS` (`lib/agent-config.ts`) lists OpenAI and Claude models with their `provider`
     and prices. The model is pinned per stage in `LoopState` (a change on the AI Team page applies from the next stage).
     Claude's conversation is stored in `agent_run_messages` (append-only, written at fixed positions so a retried step
@@ -617,8 +619,9 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     `run_tests` and `run_build` for real.
   - **Out of credit** (`isOpenAIOutOfCredit` / `isAnthropicOutOfCredit`) is not a generic failure: the run stops with
     `agent_runs.failure = { kind: "out_of_credit", provider }` and the board offers switch-and-retry
-    (`switchProviderAndRetryAction`). With `workspaces.ai_auto_failover` and the other company's key, `runStageTurn`
-    switches the team and returns `restart` instead: the stage starts over, at most once per stage. After a failover it
+    (`switchProviderAndRetryAction`: moves the agents still on that company). With `workspaces.ai_auto_failover` and the
+    other company's key, `runStageTurn` moves every agent on the broke company (`moveAgentsToProvider`) and returns
+    `restart` instead: the stage starts over, at most once per stage. After a failover it
     never switches back (`failedOver`): the second company running dry stops the run with `out_of_credit`.
   - **Notifications**: `notify()` at the moments that need the owner (PR ready, merged, merge blocked, needs info, run
     failed, out of credit, provider switched). A new failure path goes through `stopRun` so it gets logged and notified.

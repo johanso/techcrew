@@ -18,15 +18,17 @@ import {
   isAgentKey,
   isAgentModelId,
   isPermissionId,
+  agentModel,
   agentModelFor,
+  defaultProvider,
   modelInfo,
-  workspaceProvider,
   type Agent,
   type AgentKey,
   type AgentModelId,
   type AgentProvider,
   type AgentTone,
   type PermissionId,
+  type ProviderStatus,
 } from "@/lib/agent-config";
 import {
   ACTIVE_RUN_STATUSES,
@@ -40,6 +42,7 @@ import {
   workingAgents,
 } from "@/lib/agent-run-config";
 import { getEndedStages, getWorkingAgents } from "@/lib/agent-runs";
+import { getAIKeys, keyStatus } from "@/lib/ai-keys";
 import { ensureBuiltinSkills, getEnabledSkillIds, getTrustSkills } from "@/lib/agent-skills";
 import { ISSUE_TYPES, type IssueType } from "@/lib/board-config";
 import { ciForRound } from "@/lib/ci-gate";
@@ -144,8 +147,8 @@ export async function ensureDefaultAgents(workspaceId: number) {
   const existing = await db.select({ key: agents.key }).from(agents).where(eq(agents.workspaceId, workspaceId));
   const missing = AGENT_KEYS.filter((key) => !existing.some((row) => row.key === key));
   if (!missing.length) return ensureBuiltinSkills(workspaceId);
-  const [workspace] = await db.select({ aiProvider: workspaces.aiProvider }).from(workspaces).where(eq(workspaces.id, workspaceId));
-  const provider = workspace ? workspaceProvider(workspace) : "openai";
+  // Each agent can later move to any company on the AI Team page; they start on one that has a key.
+  const provider = defaultProvider(keyStatus(await getAIKeys(workspaceId)));
 
   const now = new Date();
   const inserted = await db
@@ -316,10 +319,9 @@ const ACTIVITY_PER_AGENT = 50;
  * scans by agent row id (getLatestTrustScans), read by the page.
  */
 export async function getAgentTeam(
-  workspace: Pick<Workspace, "id" | "aiProvider">,
+  workspace: Pick<Workspace, "id">,
   scans: Map<number, TrustScanView> = new Map()
 ): Promise<{ agents: AgentView[]; stats: AgentTeamStats }> {
-  const provider = workspaceProvider(workspace);
   await ensureDefaultAgents(workspace.id);
   const { start, end } = monthWindow();
 
@@ -373,7 +375,7 @@ export async function getAgentTeam(
         ...getAgent(key)!,
         description: row.description,
         instructions: row.instructions,
-        model: activeAgentModel(row, provider),
+        model: activeAgentModel(row),
         permissions: row.permissions.filter(isPermissionId),
         skillIds: skillIds.get(key) ?? [],
         monthlyBudgetCents: row.monthlyBudgetCents,
@@ -540,10 +542,9 @@ async function getLiveRuns(workspace: Pick<Workspace, "id" | "name">, rows: Agen
  * Read-only: unlike getAgentTeam it never creates agents, so a role without a row yet shows its defaults (ready,
  * never active).
  */
-export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" | "aiProvider" | "agentMergeMode">) {
+export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" | "agentMergeMode">) {
   const { start } = monthWindow();
   const prefix = taskKeyPrefix(workspace.name);
-  const provider = workspaceProvider(workspace);
 
   const [rows, spendRows, lastRows, runningRows, [latestRun]] = await Promise.all([
     db.select().from(agents).where(eq(agents.workspaceId, workspace.id)),
@@ -577,11 +578,10 @@ export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" |
       .orderBy(desc(agentRuns.updatedAt))
       .limit(1),
   ]);
-  // The team's company is out of credit while the latest run stopped for it (until a run gets going again).
-  const outOfCredit =
-    latestRun?.status === "failed" && latestRun.failure?.kind === "out_of_credit" && latestRun.failure.provider === provider
-      ? provider
-      : null;
+  // A company is out of credit while the latest run stopped for it and some agent still works on it (until a run
+  // gets going again).
+  const broke = latestRun?.status === "failed" && latestRun.failure?.kind === "out_of_credit" ? latestRun.failure.provider : null;
+  const outOfCredit = broke && rows.some((row) => modelInfo(activeAgentModel(row)).provider === broke) ? broke : null;
 
   const [ended, runs] = await Promise.all([getEndedStages(runningRows), getLiveRuns(workspace, rows)]);
   const current = new Map<AgentKey, { label: string; task: NonNullable<TeamMember["task"]>; doing: string | null }>();
@@ -619,7 +619,7 @@ export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" |
       task: working?.task ?? null,
       doing: working?.doing ?? null,
       lastAction: last ? { title: last.title, at: last.at } : null,
-      model: modelInfo(row ? activeAgentModel(row, provider) : AGENT_ROLES[key].defaults.models[provider]).label,
+      model: modelInfo(row ? activeAgentModel(row) : AGENT_ROLES[key].defaults.models.openai).label,
       monthSpendMicros: spent,
       monthlyBudgetCents: budgetCents,
     };
@@ -768,36 +768,45 @@ export async function updateAgentConfig(workspaceId: number, key: AgentKey, inpu
   return { changed: changes.length > 0 || row.enabled !== input.enabled };
 }
 
-/** The model an agent runs on now: its model on the workspace's provider (a legacy cross-provider model maps over). */
-export function activeAgentModel(row: AgentRow, provider: AgentProvider) {
-  return agentModelFor(row.key as AgentKey, provider, row.model, row.providerModels);
+/** The model an agent runs on now (its company follows from it: each agent can be on either one). */
+export function activeAgentModel(row: AgentRow) {
+  return agentModel(row.key as AgentKey, row.model);
+}
+
+/** The companies the workspace's agents run on now. */
+export async function teamProviders(workspaceId: number): Promise<ProviderStatus> {
+  const rows = await db.select().from(agents).where(eq(agents.workspaceId, workspaceId));
+  const used = new Set(rows.map((row) => modelInfo(activeAgentModel(row)).provider));
+  return { openai: used.has("openai"), anthropic: used.has("anthropic") };
 }
 
 /**
- * Settings → AI providers: puts every agent on its model for `provider` — the one picked there before, else the
- * closest equivalent (agentModelFor) — and remembers the model it leaves, so switching back restores it.
- * Running stages keep their model; the next stage uses the new one.
+ * Out of credit on `from`: moves every agent working on it to its model on `to` — the one it had there before, else
+ * the closest equivalent (agentModelFor) — and remembers the model it leaves, so moving back restores it. Agents on
+ * `to` already stay. Running stages keep their model; the next stage uses the new one. Returns how many moved.
  */
-export async function switchAgentsToProvider(workspaceId: number, provider: AgentProvider) {
+export async function moveAgentsToProvider(workspaceId: number, from: AgentProvider, to: AgentProvider, why: string) {
   await ensureDefaultAgents(workspaceId);
   const rows = await db.select().from(agents).where(eq(agents.workspaceId, workspaceId));
-  let switched = 0;
+  let moved = 0;
   for (const row of rows) {
-    const next = activeAgentModel(row, provider);
-    const remembered = { ...row.providerModels, [provider]: next };
-    if (isAgentModelId(row.model) && modelInfo(row.model).provider !== provider) remembered[modelInfo(row.model).provider] = row.model;
-    await db.update(agents).set({ model: next, providerModels: remembered, updatedAt: new Date() }).where(eq(agents.id, row.id));
-    if (row.model === next) continue;
+    const current = activeAgentModel(row);
+    if (modelInfo(current).provider !== from) continue;
+    const next = agentModelFor(row.key as AgentKey, to, current, row.providerModels);
+    await db
+      .update(agents)
+      .set({ model: next, providerModels: { ...row.providerModels, [from]: current, [to]: next }, updatedAt: new Date() })
+      .where(eq(agents.id, row.id));
     await logAgentActivity({
       workspaceId,
       agentId: row.id,
       kind: "configured",
-      title: `Switched to ${PROVIDERS[provider].label}`,
-      detail: `Changed model (${modelLabel(row.model)} → ${modelLabel(next)}) from Settings → AI providers.`,
+      title: `Switched to ${PROVIDERS[to].label}`,
+      detail: `Changed model (${modelLabel(current)} → ${modelLabel(next)}): ${why}`,
     });
-    switched++;
+    moved++;
   }
-  return switched;
+  return moved;
 }
 
 /**

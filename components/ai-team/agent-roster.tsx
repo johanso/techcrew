@@ -6,7 +6,7 @@ import { AgentActivitySheet } from "@/components/ai-team/agent-activity-sheet";
 import { AgentCard } from "@/components/ai-team/agent-card";
 import { AgentConfigDialog } from "@/components/ai-team/agent-config-dialog";
 import { useLiveTeam } from "@/components/ai-team/live-team";
-import type { AgentKey, AgentProvider, ProviderStatus } from "@/lib/agent-config";
+import type { AgentKey, ProviderStatus } from "@/lib/agent-config";
 import type { AgentView } from "@/lib/agents";
 import type { SkillView } from "@/lib/agent-skills-config";
 import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
@@ -21,7 +21,6 @@ export function AgentRoster({
   repoFullName,
   aiEnabled,
   providers,
-  provider,
   switchTrust,
   skills,
 }: {
@@ -30,7 +29,6 @@ export function AgentRoster({
   repoFullName: string;
   aiEnabled: boolean;
   providers: ProviderStatus;
-  provider: AgentProvider;
   switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
@@ -77,7 +75,6 @@ export function AgentRoster({
           repoFullName={repoFullName}
           aiEnabled={aiEnabled}
           providers={providers}
-          provider={provider}
           switchTrust={switchTrust}
           skills={skills}
         />

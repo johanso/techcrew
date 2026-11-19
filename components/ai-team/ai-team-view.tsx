@@ -7,7 +7,7 @@ import { LiveTeamProvider } from "@/components/ai-team/live-team";
 import { TrustScanWatcher } from "@/components/ai-team/trust-scan-watcher";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatTile } from "@/components/dashboard/stat-tile";
-import { MICROS_PER_USD, formatCents, formatMicros, type AgentProvider, type ProviderStatus } from "@/lib/agent-config";
+import { MICROS_PER_USD, formatCents, formatMicros, type ProviderStatus } from "@/lib/agent-config";
 import { trustGrade } from "@/lib/agent-trust";
 import type { AgentTeamStats, AgentView, TeamOverview } from "@/lib/agents";
 import type { SkillView } from "@/lib/agent-skills-config";
@@ -21,7 +21,6 @@ export function AiTeamView({
   stats,
   aiEnabled,
   providers,
-  provider,
   switchTrust,
   skills,
 }: {
@@ -32,7 +31,6 @@ export function AiTeamView({
   stats: AgentTeamStats;
   aiEnabled: boolean;
   providers: ProviderStatus;
-  provider: AgentProvider;
   switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
@@ -120,7 +118,6 @@ export function AiTeamView({
           repoFullName={workspace.githubRepoFullName}
           aiEnabled={aiEnabled}
           providers={providers}
-          provider={provider}
           switchTrust={switchTrust}
           skills={skills}
         />

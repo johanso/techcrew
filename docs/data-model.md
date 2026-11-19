@@ -208,8 +208,8 @@ A workspace is bound to **exactly one** GitHub repository, chosen at creation. O
 | `github_issues_synced_at` | timestamp | yes | Last successful issue sync, **minus 60 s** of overlap; passed to GitHub as `since`. `null` = never synced (the next sync imports all open issues). |
 | `agent_auto_pickup` | boolean | no | Default `false`. Settings → Agents: the analyst takes never-run Todo cards on its own. |
 | `agent_merge_mode` | text | no | Default `manual`. Settings → Agents → Merging (`MERGE_MODES`): `manual`, `auto_low_risk` (merge on their own only when the Lead's final risk is low) or `auto` (merge once approval, tests and CI pass). Backfilled from v0.1's `agent_auto_merge` (true → `auto`) by migration 0005; that column was dropped in 0007. Unknown values read as `manual`. |
-| `ai_provider` | text | no | Default `openai`. Settings → AI providers: `openai` or `anthropic`; drives AI drafting/trust reviews and the last provider switch. |
-| `ai_auto_failover` | boolean | no | Default `false`. Settings → AI providers: when the provider runs out of credit mid-run and the other has a key, switch the team and restart the stage. |
+| `ai_provider` | text | no | Default `openai`. **No longer read** (2026-11-19): each agent's model sets its company. Kept while the dev database is shared with older branches; a later migration drops it. |
+| `ai_auto_failover` | boolean | no | Default `false`. Settings → AI providers: when a company runs out of credit mid-run and the other has a key, move the agents on it there and restart the stage. |
 | `sandbox_enabled` | boolean | no | Default `false`. Settings → Sandbox: agents with `tests.run` get the sandbox tools (migration 0009). |
 | `sandbox_commands` | jsonb | yes | `{ install, test, build }` (each a command or null), saved with the switch, prefilled from `package.json`. See [sandbox.md](sandbox.md). |
 | `created_at`, `updated_at` | timestamp | no | |
@@ -294,7 +294,7 @@ One row per agent role per workspace. The six roles (`analyst`, `developer`, `re
 | `key` | text | no | | Role key. **Unique with `workspace_id`.** Also what `tasks.assignee_agent_id` stores. |
 | `description` | text | no | | One sentence, ≤ 280 chars. |
 | `instructions` | text | no | | The agent's operating instructions (system prompt), 50–8,000 chars. |
-| `model` | text | no | | Active model id from `AGENT_MODELS`, always on the workspace's provider (`workspaces.ai_provider`). |
+| `model` | text | no | | Model id from `AGENT_MODELS`, on either company: its provider is the agent's company (AI Team → Configure). |
 | `provider_models` | jsonb | no | `{}` | The agent's model per provider (`{ openai, anthropic }`), so a provider switch and back restores it. |
 | `skills` | text[] | no | `{}` | **Permission** ids from `PERMISSIONS` (`permissions` in Drizzle). Kept its v0.1 name; "skills" now means the knowledge packs in `agent_skills`. |
 | `monthly_budget_cents` | integer | no | | $1–$10,000. |

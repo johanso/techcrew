@@ -10,14 +10,12 @@ import { AccountSpendCard } from "@/components/settings/account-spend";
 import { AgentAutomationForm } from "@/components/settings/agent-automation-form";
 import { AutoFailoverToggle } from "@/components/settings/auto-failover-toggle";
 import { ProviderKeyForm } from "@/components/settings/provider-key-form";
-import { ProviderSwitchForm } from "@/components/settings/provider-switch-form";
 import { SandboxFormSkeleton, SandboxSettings } from "@/components/settings/sandbox-form";
 import { SwitchConnectionForm } from "@/components/settings/switch-connection-form";
 import { SwitchWeeklyToggle } from "@/components/settings/switch-weekly-toggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { WorkspaceAvatar, workspaceLogoSrc } from "@/components/workspace/workspace-avatar";
-import { workspaceProvider } from "@/lib/agent-config";
 import { parseMergeMode } from "@/lib/agent-run-config";
 import { getSkillLibrary } from "@/lib/agent-skills";
 import { ensureDefaultAgents, getAccountSpend } from "@/lib/agents";
@@ -40,7 +38,6 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
     getAccountSpend(user.id),
     listWorkspaces(user.id),
   ]);
-  const provider = workspaceProvider(workspace);
   // Reads package.json on GitHub: streamed in so the rest of the page doesn't wait for it.
   const detectedCommands = detectRepoCommands(workspace).catch(() => null);
 
@@ -140,23 +137,16 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
               <KeyRoundIcon />
             </span>
           }
-          title="AI provider"
-          description="The company this workspace's agents run on, and an optional key just for this workspace."
+          title="AI providers"
+          description="Every company with a key is available: each agent picks its company and model on the AI Team page."
           actions={<span className="eyebrow text-muted-foreground">AI</span>}
         />
         <div className="flex flex-col gap-6 border-t border-border/70 p-6">
-          <ProviderSwitchForm
+          <AutoFailoverToggle
             workspaceId={workspace.id}
-            provider={provider}
-            connected={{ openai: keys.openai.inUse !== null, anthropic: keys.anthropic.inUse !== null }}
+            enabled={workspace.aiAutoFailover}
+            bothConnected={keys.openai.inUse !== null && keys.anthropic.inUse !== null}
           />
-          <div className="border-t border-border/70 pt-6">
-            <AutoFailoverToggle
-              workspaceId={workspace.id}
-              enabled={workspace.aiAutoFailover}
-              bothConnected={keys.openai.inUse !== null && keys.anthropic.inUse !== null}
-            />
-          </div>
           <div className="flex flex-col gap-6 border-t border-border/70 pt-6">
             <div className="flex flex-col gap-1">
               <h3 className="text-sm font-bold">Workspace keys (optional)</h3>

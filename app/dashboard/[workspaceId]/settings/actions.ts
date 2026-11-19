@@ -2,12 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 
-import { PROVIDERS, isAgentKey, isAgentProvider } from "@/lib/agent-config";
+import { isAgentKey, isAgentProvider } from "@/lib/agent-config";
 import { isMergeMode } from "@/lib/agent-run-config";
 import { UPLOAD_MAX_BYTES, formatBytes } from "@/lib/agent-skills-config";
 import { getOwnedSkill } from "@/lib/agent-skills";
-import { getAIKeys, keyStatus, removeProviderKey, saveProviderKey, verifyProviderKey } from "@/lib/ai-keys";
-import { switchAgentsToProvider } from "@/lib/agents";
+import { removeProviderKey, saveProviderKey, verifyProviderKey } from "@/lib/ai-keys";
 import { requireUser } from "@/lib/current-user";
 import {
   connectSwitch,
@@ -21,7 +20,7 @@ import { deleteUploadedSkill, inspectSkillUpload, installSkillUpload, setSkillAs
 import { normalizeInstanceUrl } from "@/lib/switch-trust-config";
 import { checkSandbox, sandboxAvailable } from "@/lib/sandbox";
 import { SANDBOX_COMMAND_KINDS, parseSandboxCommand, sandboxReport, type SandboxCommandKind, type SandboxCommands } from "@/lib/sandbox/config";
-import { getOwnedWorkspace, updateAgentAutomation, updateAIProvider, updateAutoFailover, updateSandbox } from "@/lib/workspaces";
+import { getOwnedWorkspace, updateAgentAutomation, updateAutoFailover, updateSandbox } from "@/lib/workspaces";
 
 export type AutomationFormState = { ok?: boolean; message?: string; savedAt?: number };
 
@@ -118,29 +117,6 @@ export async function saveAutoFailoverAction(workspaceId: number, enabled: unkno
   await updateAutoFailover(workspace.id, enabled);
   revalidatePath(`/dashboard/${workspaceId}/settings`);
   return { ok: true };
-}
-
-export type ProviderSwitchState = { ok?: boolean; message?: string; switched?: number };
-
-/** Settings → AI providers: the provider the team works on. Moves every agent to the equivalent model there. */
-export async function switchProviderAction(workspaceId: number, _prev: ProviderSwitchState, formData: FormData): Promise<ProviderSwitchState> {
-  const workspace = await authorize(workspaceId);
-  if (!workspace) return { message: "Workspace not found." };
-  const provider = formData.get("provider");
-  if (!isAgentProvider(provider)) return { message: "Choose a provider." };
-  if (!keyStatus(await getAIKeys(workspace.id))[provider]) {
-    return { message: `Add an ${PROVIDERS[provider].label} API key below first.` };
-  }
-
-  try {
-    await updateAIProvider(workspace.id, provider);
-    const switched = await switchAgentsToProvider(workspace.id, provider);
-    refresh(workspaceId);
-    return { ok: true, switched };
-  } catch (error) {
-    console.error("[settings] provider switch failed", error);
-    return { message: "We couldn't switch the provider. Please try again." };
-  }
 }
 
 export type ProviderKeyState = { ok?: boolean; errors?: { apiKey?: string }; message?: string; savedAt?: number; scansQueued?: number };

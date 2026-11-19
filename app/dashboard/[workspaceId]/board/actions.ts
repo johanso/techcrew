@@ -1,7 +1,7 @@
 "use server";
 
 import { answerAnalyst, pipelineModelProblem } from "@/lib/agent-pipeline";
-import { PROVIDERS, workspaceProvider } from "@/lib/agent-config";
+import { PROVIDERS } from "@/lib/agent-config";
 import { parseAnswer } from "@/lib/agent-run-config";
 import { getAIKeys, keyStatus } from "@/lib/ai-keys";
 import {
@@ -15,7 +15,7 @@ import {
   replaceWaitingRuns,
   type RunLog,
 } from "@/lib/agent-runs";
-import { checkAgentCanRun, getAgent, logAgentActivity, RUN_AGENT_ID, switchAgentsToProvider } from "@/lib/agents";
+import { checkAgentCanRun, getAgent, logAgentActivity, moveAgentsToProvider, RUN_AGENT_ID, teamProviders } from "@/lib/agents";
 import {
   createTask,
   getBoardCard,
@@ -34,7 +34,7 @@ import { inngest } from "@/lib/inngest/client";
 import { AGENT_TASK_CANCEL, AGENT_TASK_RUN, type AgentTaskRunData } from "@/lib/inngest/agent-run";
 import { logCardEdited, logCardRemoved, logCardsMoved, taskSnapshots } from "@/lib/task-events";
 import { adoptPullRequest, getRerunPullRequest, getTaskOpenPullRequest, mergeManually, refreshOpenPullRequests } from "@/lib/pull-requests";
-import { getOwnedWorkspace, updateAIProvider } from "@/lib/workspaces";
+import { getOwnedWorkspace } from "@/lib/workspaces";
 
 export type CardActionResult = { ok: true; card: BoardCard } | { ok: false; error: string };
 
@@ -266,8 +266,8 @@ export async function getBoardAction(workspaceId: number): Promise<BoardData | n
 }
 
 /**
- * A card whose run stopped because its provider ran out of credit: moves the team to the other company (if it's
- * still on the broke one; needs that company's key) and runs the card again. A rerun continues on its open PR.
+ * A card whose run stopped because its provider ran out of credit: moves the agents still on the broke company to the
+ * other one (needs that company's key) and runs the card again. A rerun continues on its open PR.
  */
 export async function switchProviderAndRetryAction(workspaceId: number, cardId: string): Promise<CardActionResult> {
   const auth = await authorize(workspaceId);
@@ -277,13 +277,12 @@ export async function switchProviderAndRetryAction(workspaceId: number, cardId: 
   const failure = (await getLatestRuns(auth.workspace.id)).get(taskId)?.failure;
   if (failure?.kind !== "out_of_credit") return { ok: false, error: "This card didn't stop for lack of credit." };
 
-  if (workspaceProvider(auth.workspace) === failure.provider) {
+  if ((await teamProviders(auth.workspace.id))[failure.provider]) {
     const other = failure.provider === "openai" ? "anthropic" : "openai";
     if (!keyStatus(await getAIKeys(auth.workspace.id))[other]) {
-      return { ok: false, error: `Add an ${PROVIDERS[other].label} API key in Settings → AI providers first.` };
+      return { ok: false, error: `Add an ${PROVIDERS[other].label} API key in Settings first.` };
     }
-    await updateAIProvider(auth.workspace.id, other);
-    await switchAgentsToProvider(auth.workspace.id, other);
+    await moveAgentsToProvider(auth.workspace.id, failure.provider, other, `${PROVIDERS[failure.provider].label} was out of credit (Switch and retry on the board).`);
   }
   return runCardAction(workspaceId, cardId);
 }

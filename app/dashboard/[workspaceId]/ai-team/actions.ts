@@ -2,9 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 
-import { PROVIDERS, isAgentKey, isPermissionId, modelInfo, workspaceProvider, type AgentKey } from "@/lib/agent-config";
+import { PROVIDERS, isAgentKey, isPermissionId, modelInfo, type AgentKey } from "@/lib/agent-config";
 import { configAIErrorMessage, generateAgentConfig, getWorkspaceConfigAI, scanAgentWithAI } from "@/lib/agent-ai";
 import { getTrustSkills } from "@/lib/agent-skills";
+import { getAIKeys, keyStatus } from "@/lib/ai-keys";
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
 import {
   getAgentRow,
@@ -40,11 +41,12 @@ export async function saveAgentAction(workspaceId: number, key: string, raw: unk
   if (!auth) return { ok: false, error: "Agent not found." };
   const input = parseAgentConfigInput(raw);
   if (!input.ok) return input;
-  // The team works with one company at a time (Settings → AI providers); each agent picks a model from it.
-  const provider = workspaceProvider(auth.workspace);
-  if (modelInfo(input.value.model).provider !== provider) {
+  // Each agent picks any company's model, as long as that company has a key: an agent that can't run would only
+  // fail its next card. Keeping the model it already has is always allowed.
+  const provider = modelInfo(input.value.model).provider;
+  if (input.value.model !== auth.agent.model && !keyStatus(await getAIKeys(auth.workspace.id))[provider]) {
     const label = PROVIDERS[provider].label;
-    return { ok: false, error: "Check the highlighted fields.", errors: { model: `Pick an ${label} model, or switch company in Settings → AI providers.` } };
+    return { ok: false, error: "Check the highlighted fields.", errors: { model: `Add an ${label} API key in Settings first.` } };
   }
   try {
     await updateAgentConfig(auth.workspace.id, auth.key, input.value);

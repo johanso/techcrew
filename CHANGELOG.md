@@ -12,6 +12,9 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 - **AI keys on your account** (Settings → Your account → AI keys): save an OpenAI or Anthropic key once and every
   project you own uses it. A workspace can still have its own key, used only for a company the account has no key
   for; the account's key always wins. Existing workspace keys moved to their owner's account.
+- **Company and model per agent**: in AI Team → Configure, pick the agent's company (OpenAI or Anthropic), then a model
+  from it. A team can mix both: a cheap model for one agent, a strong one for another. Every company with a key is
+  available.
 - **Spending this month** across every project (Settings → Your account): the total, by project and by agent. Each
   project keeps its own spend on its AI Team page.
 - **Agent sandbox** (v0.6 milestone 1): with Settings → Sandbox on, the Developer and the Tester run the repository's
@@ -25,8 +28,9 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 - `.gitattributes` keeps LF line endings in the repository, so scripts committed from Windows still run on the VPS.
 
 ### Changed
-- Settings is split into **Your account** (every project) and **This workspace**. The workspace's AI section is now
-  **AI provider**: the company its agents run on plus optional workspace keys.
+- Settings is split into **Your account** (every project) and **This workspace**. Settings → AI providers no longer
+  switches the whole team between companies: it keeps the automatic switch and optional workspace keys.
+- Out of credit, the board's retry and the automatic switch move only the agents on the company that ran dry.
 - The stage protocol follows what an agent can do: with the sandbox tools the Developer runs the tests and the build
   and fixes what broke before handing off, and the Tester runs them itself and fails the card when they fail. The
   Reviewer and the Lead are told they can't run code.

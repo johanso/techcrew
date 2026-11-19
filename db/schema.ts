@@ -71,10 +71,11 @@ export const workspaces = pgTable(
     // agent pull requests merge on their own (always, or only when the Lead rated them low risk).
     agentAutoPickup: boolean("agent_auto_pickup").default(false).notNull(),
     agentMergeMode: text("agent_merge_mode").default("manual").notNull(),
-    // Settings → AI providers: the provider the team works on ("openai" | "anthropic"). Also used by AI drafting/scans.
+    // No longer read: each agent's model sets its company (AI Team → Configure). Kept while the dev database is
+    // shared with older branches; a later migration drops it.
     aiProvider: text("ai_provider").default("openai").notNull(),
-    // When the provider runs out of credit mid-run and the other one has a key, switch the team to it and restart
-    // the stage instead of stopping (Settings → AI providers). Off by default: switching changes every agent's model.
+    // When a company runs out of credit mid-run and the other one has a key, move the agents on it there and restart
+    // the stage instead of stopping (Settings → AI providers). Off by default: moving changes those agents' models.
     aiAutoFailover: boolean("ai_auto_failover").default(false).notNull(),
     // Settings → Sandbox: agents with "Run tests in a sandbox" get run_tests / run_build / run_command. The commands
     // are saved with the switch (prefilled from package.json), so a run never guesses them.
@@ -197,9 +198,9 @@ export const agents = pgTable(
     key: text("key").notNull(),
     description: text("description").notNull(),
     instructions: text("instructions").notNull(),
-    // Active model id from AGENT_MODELS, always on the workspace's provider (workspaces.ai_provider).
+    // Model id from AGENT_MODELS, on either company: its provider is the agent's company (each agent picks its own).
     model: text("model").notNull(),
-    // The model this agent uses on each provider, so switching provider and back restores the user's choice.
+    // The model this agent last used on each company, so an out-of-credit move there and back restores the choice.
     providerModels: jsonb("provider_models").$type<Partial<Record<AgentProvider, AgentModelId>>>().notNull().default({}),
     // Permission ids from PERMISSIONS (lib/agent-config.ts). The column kept its v0.1 name "skills"; "skills" now
     // means the installable knowledge packs in agent_skills.

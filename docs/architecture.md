@@ -174,7 +174,7 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `app/dashboard/[workspaceId]/board/actions.ts` | `createCardAction`, `updateCardAction`, `moveCardsAction`, `removeCardAction`, `runCardAction`, `answerCardAction`, `stopCardAction`, `mergeCardAction`, `switchProviderAndRetryAction`, `getRunLogAction`, `syncIssuesAction`, `getBoardAction` |
 | `app/dashboard/[workspaceId]/ai-team/actions.ts` | `saveAgentAction`, `scanAgentAction`, `switchScanAgentAction`, `generateAgentAction`, `setAgentSkillAction` |
 | `app/dashboard/[workspaceId]/pull-requests/actions.ts` | `mergePullRequestAction` |
-| `app/dashboard/[workspaceId]/settings/actions.ts` | `saveAutomationAction`, `saveSandboxAction`, `checkSandboxAction`, `saveAutoFailoverAction`, `switchProviderAction`, `saveProviderKeyAction`, `removeProviderKeyAction`, `connectSwitchAction`, `disconnectSwitchAction`, `saveSwitchWeeklyAction`, `inspectSkillAction`, `installSkillAction`, `saveSkillAssignmentsAction`, `deleteSkillAction` |
+| `app/dashboard/[workspaceId]/settings/actions.ts` | `saveAutomationAction`, `saveSandboxAction`, `checkSandboxAction`, `saveAutoFailoverAction`, `saveProviderKeyAction`, `removeProviderKeyAction`, `connectSwitchAction`, `disconnectSwitchAction`, `saveSwitchWeeklyAction`, `inspectSkillAction`, `installSkillAction`, `saveSkillAssignmentsAction`, `deleteSkillAction` |
 
 Server Actions are POST endpoints. Each one re-checks the session and ownership itself; never assume the page that
 rendered the form already did.

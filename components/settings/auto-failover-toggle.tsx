@@ -7,7 +7,7 @@ import { saveAutoFailoverAction } from "@/app/dashboard/[workspaceId]/settings/a
 import { FormMessage } from "@/components/auth/form-parts";
 import { Switch } from "@/components/ui/switch";
 
-/** Settings → AI providers: switch company on its own when the current one runs out of credit mid-run. */
+/** Settings → AI providers: move agents to the other company on their own when theirs runs out of credit mid-run. */
 export function AutoFailoverToggle({ workspaceId, enabled, bothConnected }: { workspaceId: number; enabled: boolean; bothConnected: boolean }) {
   const [optimistic, setOptimistic] = useOptimistic(enabled);
   const [pending, startTransition] = useTransition();
@@ -30,8 +30,8 @@ export function AutoFailoverToggle({ workspaceId, enabled, bothConnected }: { wo
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="text-sm font-semibold">Switch automatically when out of credit</span>
           <span className="text-xs text-muted-foreground">
-            If the current company runs out of credit while agents work, the team moves to the other one and the stage
-            starts over there, instead of stopping. You get a notification either way.
+            If a company runs out of credit while agents work, the agents on it move to the other one (closest model)
+            and the stage starts over there, instead of stopping. You get a notification either way.
             {!bothConnected && " Needs an API key for both companies."}
           </span>
         </span>
