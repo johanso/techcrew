@@ -201,6 +201,10 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           parseSandboxCommand, sandboxReport, outputTail). docker.ts: runInSandbox (prepare with network,
                           command without, gVisor + limits), removeSandbox, hourly sweep. index.ts: sandboxAvailable,
                           detectRepoCommands, runRepoCommand (one volume per run), removeRunSandbox, checkSandbox.
+                          preview.ts: PR previews (startRunPreview / pollRunPreview / stopRunPreview /
+                          stopPullRequestPreviews / sweepPreviews, getRunPreviewEndpoint; state in agent_runs.preview).
+                          browser.ts: browsePreview (the Tester's headless Chromium on the preview's network);
+                          browser-config.ts: pure (parseBrowseArgs, browseReport, PREVIEW_STAGES).
   jobs.ts                 Cloudhike Jobs: enqueueJob, getJobRun, publicAppUrl (null for local addresses).
   agent-ai.ts             Config AI (OpenAI if configured, else Anthropic, else OpenRouter): generateAgentConfig() (repo-aware, sandbox-aware instructions),
                           scanAgentWithAI(), reviewSkillWithAI() (upload review + type/load/roles), isConfigAIAvailable().
@@ -254,6 +258,7 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           model turn; stages, rework rounds and merge.
   inngest/agent-pickup.ts agentAutoPickup: cron every 2 min, starts runs on never-run Todo cards (auto pickup on).
   inngest/switch-weekly.ts switchWeeklyScans: Mondays 06:00 UTC, queues SwitchAgent scans (Scan every week on).
+  inngest/preview-sweep.ts previewSweep: every 10 min, stops previews older than 2 h and removes leftovers.
   task-events.ts          People's card moves/edits/removals for Activity: taskSnapshots (before a change),
                           logCardEdited / logCardsMoved / logCardRemoved (never throw), describeCardChanges.
   github-issues.ts        syncWorkspaceIssues(): pulls the repo's GitHub issues onto the board (see "GitHub issues").
@@ -271,7 +276,8 @@ agent-skills/             Built-in agent skills, vendored: sources.json (repo, p
 public/                   agents/<key>.webp: one face per agent role (256×256, round with transparent corners).
 scripts/                  db-baseline.mjs (mark migrations applied on a pushed DB), sync-agent-skills.mjs (skills:sync).
 deploy/                   setup.sh: prepares a fresh Ubuntu 24.04 VPS (firewall, swap, Docker, gVisor for agent sandboxes,
-                          `techteam` user; `--lock-ssh` = keys only). Idempotent, so the next VPS runs the same script.
+                          `techteam` user, Caddy for previews, no host services for containers; `--lock-ssh` = keys
+                          only). Idempotent, so the next VPS runs the same script. browser/: the Tester's browser image.
 proxy.ts                  Optimistic cookie guard for /dashboard and /workspaces.
 ```
 
@@ -584,6 +590,15 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     goes in as a tarball (never a token); install has network, the command never does; one volume per run, removed in
     `finishRun`. Log the command and the outcome line only (`toolStep`), never the output. The stage protocol says
     "you can't run code" only to agents without the tools.
+  - **Previews** (Settings → Sandbox → Previews, `SANDBOX_PREVIEW_DOMAIN`): after the CI gate passes, a
+    `preview-<round>-start` step and `-poll-<n>` steps run beside the reviews (the Lead waits for them, up to 8 min).
+    A preview never fails the run; it logs one `preview` row. Stopped on merge/close (`completeMerge`,
+    `closeWithoutMerge`), cancel or replace, and after 2 h (`preview-sweep`). Container, network and volume are all
+    `previewTarget(runId).container`; the network is `--internal`.
+  - **Browser** (`browse_preview`): offered in `PREVIEW_STAGES` (testing) with `tests.run` and previews on. One
+    container per call on the preview's network (`--add-host`: Docker's DNS doesn't work under gVisor). The agent log
+    keeps the path and the first line (`browseReport`, never page text) plus the screenshot key; the client only gets
+    `RunLogStep.screenshot: boolean`. Tool call sites use `callTool` (output + log step).
   - **Permissions are enforced as tools** (`toolsFor` in `lib/agent-tools.ts`). Adding a capability = a tool gated by a
     permission there, not a prompt instruction. ("Skills" are knowledge, not capabilities: see Agent skills below.) Agents never write `.github/workflows/`, `.env*` (except `.env.example`) or
     `.git/`; manifests need `deps.manage`. Tool output is untrusted data — the stage protocol in `systemPrompt` says so.
@@ -626,7 +641,7 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     or errors (`toolStep`). The log sheet shows parallel stages as separate blocks, both live at once.
   - **Simulated mode** (`AGENTS_SIMULATED=true`) scripts every stage, including Security (pass) and the Lead (approve,
     low risk), so the whole flow runs without a model. With the sandbox on, the Developer and the Tester also call
-    `run_tests` and `run_build` for real.
+    `run_tests` and `run_build` for real, and with previews on the Tester browses `/`.
   - **Out of credit** (`isOpenAIOutOfCredit` / `isAnthropicOutOfCredit` / `isOpenRouterOutOfCredit`) is not a generic failure: the run stops with
     `agent_runs.failure = { kind: "out_of_credit", provider }` and the board offers switch-and-retry
     (`switchProviderAndRetryAction`: moves the agents still on that company to `fallbackProvider`, the first other
@@ -725,4 +740,5 @@ See `.env.example` for the full list with comments. Feature-specific:
 | `PUBLIC_APP_URL` | The app's internet-reachable URL for callbacks (jobs, Switch evaluations); defaults to `NEXT_PUBLIC_APP_URL`. A tunnel in local dev. |
 | `SWITCH_AGENT_AI_API_KEY` | Optional server-wide Switch Trust key (Editor role) for workspaces that connect without their own. |
 | `SANDBOX_DOCKER_HOST`, `SANDBOX_IMAGE` | Agent sandboxes: the Docker host (`ssh://…` to a VPS set up with `deploy/setup.sh`, or the local socket on it). Unset: Settings → Sandbox can't be switched on. |
+| `SANDBOX_PREVIEW_DOMAIN`, `SANDBOX_BROWSER_IMAGE` | PR previews at `pr-<n>-<random>.<domain>` (wildcard DNS to the sandbox host) and the Tester's browser image. Unset domain: previews can't be switched on. |
 | `AGENTS_SIMULATED` | Local testing: `true` runs the pipeline with scripted agents (`lib/agent-simulated.ts`) — no model calls or spend, but real GitHub work (branch, `agent-simulations/<branch>.md`, PR). |

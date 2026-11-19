@@ -9,6 +9,14 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 ## [Unreleased]
 
 ### Added
+- **Live previews of agent pull requests** (v0.6 milestone 2): with Settings → Sandbox → Previews on, each agent PR
+  gets its app running at `https://pr-<n>-<random>.<SANDBOX_PREVIEW_DOMAIN>` once CI passes, served with HTTPS by Caddy
+  on the sandbox host. The preview has no internet and stops when the PR is merged or closed, the run is stopped or
+  replaced, or after 2 hours. **View preview** on the card's ⋯ menu and on the Pull Requests page. The preview command
+  is detected from `package.json` (Vite, Next.js or a `start` script) and editable.
+- **The Tester tries the preview in a browser** (`browse_preview`): a headless Chromium on the preview's private
+  network opens pages, clicks, fills forms and waits for results, on desktop or mobile, and reports the status,
+  console and page errors, failed requests and an outline of the page. Each call's screenshot shows in the agent log.
 - **OpenRouter as a third company** (Settings → AI providers): one key and one credit balance for models from Google
   (Gemini 4 Argon, Gemini 4 Hydrogen, Gemini 3.8 Flash), DeepSeek (V4 Pro, V4.1 Flash), Z.ai (GLM 5.3, GLM 5.3 Flash),
   xAI (Grok 4.7, Grok Build 0.1) and Moonshot (Kimi K3.1 Pro). Pick them per agent in AI Team → Configure, grouped by
@@ -30,6 +38,8 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 - **VPS setup script** (`deploy/setup.sh`): prepares a fresh Ubuntu 24.04 server for agent sandboxes (updates,
   firewall, swap, Docker with ports bound to localhost by default, gVisor, a `techteam` user). Idempotent;
   `--lock-ssh` turns off password and root logins.
+- `deploy/setup.sh` also runs Caddy for previews and refuses traffic from Docker bridges to the host itself, so no
+  container (preview, browser or install) can reach the host's SSH. `deploy/browser/` is the browser image.
 - `.gitattributes` keeps LF line endings in the repository, so scripts committed from Windows still run on the VPS.
 
 ### Changed
@@ -49,6 +59,10 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   sandbox*, sandbox on); otherwise it still says the agent can't run code.
 
 ### Database
+- Migration `0012_agent_run_preview`: `agent_runs.preview` (jsonb: the run's preview host, status, round, commit and
+  times; additive).
+- Migration `0011_sandbox_preview`: `workspaces.sandbox_preview` (boolean, default false) and
+  `agent_run_steps.screenshot_key` (text, the S3 key of a browser screenshot; additive).
 - Migration `0010_account_ai_keys`: `user_ai_keys` (one encrypted key per user and provider); moves every workspace
   key to its owner's account (the newest per provider) and deletes the workspace copies.
 - Migration `0009_sandbox`: `workspaces.sandbox_enabled` (boolean, default false) and `workspaces.sandbox_commands`

@@ -45,6 +45,7 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | AI keys on the account, company and model per agent | ✅ Real (one account key serves every project; agents can mix OpenAI, Anthropic and OpenRouter; mixed run 50 with OpenAI + OpenRouter, Anthropic not in a mix yet) | `lib/ai-keys.ts`, `components/ai-team/agent-config-dialog.tsx` |
 | OpenRouter (Google, DeepSeek, Z.ai, xAI, Moonshot models) | ✅ Real: all 10 models answer a strict tool call; live mixed run 50 (Developer DeepSeek V4 Pro, Tester DeepSeek V4.1 Flash, the rest OpenAI; $0.091, PR ready). Out of credit not tried live | `lib/openrouter.ts`, `lib/agent-loop.ts` |
 | Agent sandbox (run tests, build, commands) | ✅ Real, verified live (run 49 on techteam-sandbox-demo, $0.17) | `lib/sandbox/`, `deploy/setup.sh`, [sandbox.md](sandbox.md) |
+| PR previews and the Tester's browser (v0.6 milestone 2) | 🟡 Built and verified by script on the VPS (HTTPS preview, browser with screenshots); no pipeline run yet; the firewall rule isn't applied on the VPS yet | `lib/sandbox/preview.ts`, `lib/sandbox/browser.ts`, `deploy/browser/` |
 | Landing page `/` | ➖ None: redirects to the dashboard or sign-in | `app/page.tsx` |
 
 ## Dummy data and placeholders
@@ -107,6 +108,7 @@ and a Designer agent, deploy and hardening (v0.5), and a shared project memory (
 
 | Commit | Change |
 | --- | --- |
+| `feat/sandbox-preview` | v0.6 milestone 2: PR previews over HTTPS on the sandbox host (Caddy, migrations 0011–0012), the Tester's headless browser (`browse_preview`) with screenshots in the agent log, a ufw rule keeping containers off the host's services. Built by two parallel agents on one shared contract. |
 | `feat/openrouter` | OpenRouter as a third AI company (Google, DeepSeek, Z.ai, xAI, Moonshot; 10 models, routed only to hosts that keep no data), model tiers so a company move keeps the tier, failover to the first other company with a key; live run 50 ($0.091). |
 | `feat/account-settings` | AI keys on the account (migration 0010) with optional workspace keys, spending this month across projects, company and model per agent (no team-wide provider switch), Settings regrouped into Your account / This workspace, one Settings item in the account menu. |
 | `feat/sandbox` | v0.6 milestone 1: agent sandbox (`run_tests`, `run_build`, `run_command` in gVisor containers on a VPS, migration 0009), Settings → Sandbox, `deploy/setup.sh`; first live run (run 49, $0.17). |

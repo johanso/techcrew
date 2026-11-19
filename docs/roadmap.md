@@ -115,9 +115,10 @@ CI).
    - Simulated mode scripts a sandbox call ✅; one live run on the test repository ✅ (run 49, $0.17). Still unseen:
      the Developer fixing a failure it found (everything passed first time).
 2. **Preview and a browser for the Tester**
-   - A preview of each agent PR on `pr-<n>.preview.<domain>` (needs a domain with wildcard DNS), stopped when the PR
-     closes or after a time limit.
-   - The Tester drives it in headless Chromium (Playwright): steps, console errors, screenshots in the agent log.
+   - A preview of each agent PR on `pr-<n>-<random>.preview.lugarescolombia.com`, HTTPS by Caddy, stopped when the PR
+     closes, the run ends or after 2 hours ✅ (by script on the VPS; `feat/sandbox-preview`).
+   - The Tester drives it in headless Chromium (Playwright): steps, console errors, screenshots in the agent log ✅
+     (by script on the VPS). Still to do: a live run, and the firewall rule applied on the VPS.
 3. **Designer agent** (seventh role, a reviewer first)
    - Reviews in parallel with the Reviewer and Security: screenshots of the changed pages at 375 / 768 / 1280 px in
      light and dark, read by a vision model; findings go to the Lead.
