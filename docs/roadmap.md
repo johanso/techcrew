@@ -94,8 +94,8 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
   only sets that limit globally.
 - **Project skills**: read skills from the linked repository (e.g. `.agents/skills/`, `.claude/skills/`) as a third
   source (`agent_skills.source = 'project'` is reserved), scanned like uploads.
-- **Mixed companies per agent**: an agent may use OpenAI or Anthropic when both keys exist, so reviewers don't share
-  one model's blind spots.
+- ~~**Mixed companies per agent**~~: done early (2026-11-19, `feat/account-settings`): each agent picks its company
+  and model, and AI keys live on the account.
 
 ### v0.6 — Sandbox
 Agents run the code, not only read it. Sandboxes are throwaway Docker containers under gVisor on a VPS
@@ -106,12 +106,13 @@ CI).
 1. **Run code**
    - VPS ready: Docker, gVisor, firewall, keys-only SSH ✅. Test repository with tests, build and CI ✅.
    - `lib/sandbox/`: one interface, a Docker-over-SSH implementation. CPU, memory, process and time limits; output
-     clipped; egress only to package registries.
-   - Settings → Sandbox: on/off, install / test / build commands detected from `package.json`, editable.
+     clipped; no network for the code (install only) ✅.
+   - Settings → Sandbox: on/off, install / test / build commands detected from `package.json`, editable ✅.
    - Tools behind the existing `tests.run` permission: `run_tests`, `run_build`, `run_command` for the Developer
      (fix what fails before review) and the Tester (runs the tests itself, not only CI). The agent log records each
-     command, its exit code and duration, never its output.
-   - Simulated mode scripts a sandbox call; one live run on the test repository.
+     command, its exit code and duration, never its output ✅.
+   - Simulated mode scripts a sandbox call ✅; one live run on the test repository ✅ (run 49, $0.17). Still unseen:
+     the Developer fixing a failure it found (everything passed first time).
 2. **Preview and a browser for the Tester**
    - A preview of each agent PR on `pr-<n>.preview.<domain>` (needs a domain with wildcard DNS), stopped when the PR
      closes or after a time limit.
