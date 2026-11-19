@@ -105,6 +105,13 @@ The pipeline acts on the repository with the workspace owner's token, so its gua
 - **Merging** is never an agent tool: it happens only through `mergeAgentPullRequest` (manual button or the workspace's
   auto-merge setting), and only when GitHub reports the PR mergeable with every check green.
 - **Spend** is bounded per stage by max turns and per month by each agent's budget, both re-checked every turn.
+- **Running code** happens only in the sandbox ([sandbox.md](sandbox.md)): throwaway gVisor containers on a separate
+  Docker host, never in the app. The repository goes in as a tarball (the GitHub token stays in the app, the `docker`
+  CLI gets only `PATH`, `HOME` and `DOCKER_HOST`), tests and builds run with `--network=none`, as user `node`, without
+  capabilities, on a read-only root filesystem, with CPU, memory, process and time limits. Only the Developer and the
+  Tester get the tools (`tests.run`, Settings → Sandbox on); the agent log keeps the command and its outcome line,
+  never the output. The host itself is set up by `deploy/setup.sh`: firewall (SSH, 80, 443), keys-only SSH without
+  root (`--lock-ssh`), Docker publishing ports on localhost by default, fail2ban and unattended upgrades.
 
 ## Agent skills
 
@@ -159,6 +166,7 @@ Skills are text that reaches agent prompts, so they're treated like any other un
 | No rate limiting on Server Actions or route handlers. | Brute-force or abuse of create/sync endpoints. | Add per-user limits (e.g. Upstash Ratelimit) on sync, create and run. |
 | Workspaces have no members or roles. | Not a risk today, but anything shared later needs an access model. | Add memberships before any sharing feature. |
 | Disconnecting GitHub doesn't revoke the token on GitHub. | The (encrypted, deleted) token stays valid on GitHub's side until the user revokes it. | Call GitHub's "delete an app token" endpoint on disconnect. |
+| The sandbox's install step has network, and packages' install scripts run there. | A malicious dependency can reach the internet during install. It still runs under gVisor and the limits, with no secrets inside, and the command step has no network. | Allow-list registries through a proxy; per-volume disk quotas. |
 | Content Security Policy is not configured. | Defense-in-depth only. | Add CSP headers in `next.config.ts` or `proxy.ts`. |
 | The repository a workspace links to is fixed at creation. | If access is lost, the board can't sync (it says so). | Add a "change repository" setting with the same re-check as creation. |
 

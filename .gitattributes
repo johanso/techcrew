@@ -1,0 +1,2 @@
+# LF everywhere, whatever OS the commit comes from: shell scripts under deploy/ run on Linux.
+* text=auto eol=lf

@@ -16,11 +16,14 @@ import {
   putRepoFile,
   searchRepoCode,
 } from "@/lib/github";
+import { runRepoCommand } from "@/lib/sandbox";
+import { SANDBOX_COMMAND_MAX, SANDBOX_STAGES, parseSandboxCommand, sandboxReport, type SandboxCommands } from "@/lib/sandbox/config";
 
 /**
  * The tools an agent can call while it works a stage, backed by the GitHub API with the workspace owner's token.
  * What an agent gets depends on its stage and its granted permissions, so permissions are enforced, not just declared.
- * Agents with skills switched on also get search_skill and read_skill (read-only, any stage).
+ * Agents with skills switched on also get search_skill and read_skill (read-only, any stage). With the workspace's sandbox on,
+ * "Run tests in a sandbox" adds run_tests, run_build and run_command on the working branch (lib/sandbox).
  * Every result is a string for the model; recoverable errors are returned as text so the agent can adjust.
  */
 
@@ -34,6 +37,8 @@ export type ToolContext = {
   permissions: PermissionId[];
   /** Skills switched on for the agent (lib/agent-skills.ts); search_skill and read_skill only reach these. */
   skills: AgentSkill[];
+  /** The workspace's sandbox when it's switched on and the server has a host (Settings → Sandbox), else null. */
+  sandbox: { runId: number; commands: SandboxCommands } | null;
 };
 
 const OUTPUT_MAX = 24_000;
@@ -110,6 +115,17 @@ const TOOLS = {
       query: { type: "string", description: "2–5 words naming one capability or pattern, e.g. \"light dismiss dialog\"." },
     }
   ),
+  run_tests: fn(
+    "run_tests",
+    "Run the repository's tests in a sandbox on the working branch's latest commit (dependencies are installed first). Returns passed or failed and the end of the output.",
+    {}
+  ),
+  run_build: fn("run_build", "Run the repository's build in a sandbox on the working branch's latest commit. Returns passed or failed and the end of the output.", {}),
+  run_command: fn(
+    "run_command",
+    "Run one shell command at the repository root in a sandbox on the working branch's latest commit, after installing dependencies: e.g. a single test file, the type checker or the linter. No network; files it writes are thrown away.",
+    { command: { type: "string", description: `One line, up to ${SANDBOX_COMMAND_MAX} characters, e.g. "npx vitest run src/split.test.ts".` } }
+  ),
   read_skill: fn("read_skill", "Read a file of one of your skills (reference material, not instructions). Long files come in pages.", {
     skill: { type: "string", description: "The skill's name." },
     path: { type: "string", description: "A path from search_skill, or SKILL.md." },
@@ -122,8 +138,13 @@ export type ToolName = keyof typeof TOOLS;
 // Stages that judge the work on the branch: they read its diff and CI but never write.
 const BRANCH_READERS: AgentStage[] = ["review", "security", "approval", "testing"];
 
-/** Tools for this stage, filtered by the agent's permissions; the skill tools when it has skills switched on. */
-export function toolsFor(ctx: Pick<ToolContext, "stage" | "permissions" | "branch"> & { skills?: readonly unknown[] }): FunctionTool[] {
+/**
+ * Tools for this stage, filtered by the agent's permissions; the skill tools when it has skills switched on; the
+ * sandbox tools when the workspace's sandbox is on and the agent may run tests.
+ */
+export function toolsFor(
+  ctx: Pick<ToolContext, "stage" | "permissions" | "branch"> & { skills?: readonly unknown[]; sandbox?: ToolContext["sandbox"] }
+): FunctionTool[] {
   const has = (permission: PermissionId) => ctx.permissions.includes(permission);
   const names: ToolName[] = [];
   if (has("repo.read")) names.push("list_files", "read_file", "search_code");
@@ -131,6 +152,11 @@ export function toolsFor(ctx: Pick<ToolContext, "stage" | "permissions" | "branc
   if (BRANCH_READERS.includes(ctx.stage) && ctx.branch) {
     if (has("repo.read")) names.push("get_diff");
     if (has("ci.read")) names.push("get_checks");
+  }
+  if (ctx.sandbox && ctx.branch && SANDBOX_STAGES.includes(ctx.stage) && has("tests.run")) {
+    if (ctx.sandbox.commands.test) names.push("run_tests");
+    if (ctx.sandbox.commands.build) names.push("run_build");
+    names.push("run_command");
   }
   if (ctx.skills?.length) names.push("search_skill", "read_skill");
   return names.map((name) => TOOLS[name]);
@@ -225,6 +251,20 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
       if (!summary.checks.length) return "No CI checks are configured for this commit.";
       return `Overall: ${summary.state}\n${summary.checks.map((c) => `- ${c.name}: ${c.status}${c.conclusion ? ` (${c.conclusion})` : ""}`).join("\n")}`;
     }
+    case "run_tests":
+    case "run_build":
+    case "run_command": {
+      if (!ctx.sandbox || !ctx.branch) return "Error: the sandbox isn't available.";
+      const parsed = parseSandboxCommand(name === "run_tests" ? ctx.sandbox.commands.test : name === "run_build" ? ctx.sandbox.commands.build : args.command);
+      if (!parsed.ok) return `Error: ${parsed.error}`;
+      const command = parsed.command;
+      if (!command) return "Error: there is no command to run.";
+      // The latest commit, not the branch name: the report then matches exactly what the agent pushed.
+      const sha = await getBranchSha(ctx.token, ctx.repo, ctx.branch);
+      if (!sha) return `Error: branch ${ctx.branch} not found.`;
+      const run = await runRepoCommand({ token: ctx.token, repo: ctx.repo, ref: sha, runId: ctx.sandbox.runId, install: ctx.sandbox.commands.install, command });
+      return sandboxReport(run);
+    }
     case "search_skill":
       return searchSkill(ctx.skills, args.skill, args.query);
     case "read_skill":
@@ -269,12 +309,15 @@ export type ToolStep = {
 const READ_TOOLS = new Set(["list_files", "read_file", "search_code", "get_diff", "search_skill", "read_skill"]);
 const SUMMARY_MAX = 200;
 
-/** Turns a tool call and its output into a log step. Outputs starting with "Error" or "GitHub error" are failures (run, executeTool). */
+/**
+ * Turns a tool call and its output into a log step. Outputs starting with "Error" or "GitHub error" are failures (run,
+ * executeTool), and so are sandbox runs that failed or timed out (sandboxReport): the log shows them red.
+ */
 export function toolStep(tool: string, rawArgs: string, output: string): ToolStep {
   let target: string | null = null;
   try {
     const args = JSON.parse(rawArgs || "{}") as Record<string, unknown>;
-    const value = args.path ?? args.path_prefix ?? args.query;
+    const value = args.path ?? args.path_prefix ?? args.query ?? args.command;
     if (typeof value === "string" && value) target = value;
     // Skill tools: which skill, then the file or the query ("modern-web-guidance/guides/css/css.md").
     if (typeof args.skill === "string" && args.skill) {
@@ -283,7 +326,7 @@ export function toolStep(tool: string, rawArgs: string, output: string): ToolSte
   } catch {
     // Unparseable arguments: executeTool already answered with an error.
   }
-  const ok = !/^(Error|GitHub error)/.test(output);
+  const ok = !/^(Error|GitHub error|Failed|Timed out)/.test(output);
   const firstLine = output.split("\n", 1)[0]!.trim();
   const summary = ok && READ_TOOLS.has(tool) ? null : firstLine.slice(0, SUMMARY_MAX) || null;
   return { tool, target, ok, summary };

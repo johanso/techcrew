@@ -291,6 +291,29 @@ export async function listRepoFiles(token: string, fullName: string, ref: string
   };
 }
 
+/** Names of the files at the repository root at `ref` (one request, unlike the recursive tree). */
+export async function listRootFiles(token: string, fullName: string, ref: string) {
+  const entries = await githubRequest<{ name: string; type: string }[]>(token, `/repos/${fullName}/contents?ref=${encodeURIComponent(ref)}`);
+  return entries.filter((entry) => entry.type === "file").map((entry) => entry.name);
+}
+
+/**
+ * The repository at `ref` as a gzipped tarball stream (one top-level folder), or null when the ref doesn't exist.
+ * GitHub answers with a redirect to a short-lived download URL; following it by hand keeps the token off that host.
+ */
+export async function getRepoTarball(token: string, fullName: string, ref: string): Promise<ReadableStream<Uint8Array> | null> {
+  const res = await fetch(`${API}/repos/${fullName}/tarball/${encodeURIComponent(ref)}`, {
+    headers: { authorization: `Bearer ${token}`, "x-github-api-version": "2022-11-28" },
+    redirect: "manual",
+    cache: "no-store",
+  });
+  if (res.status === 401) throw new GithubError("GitHub rejected the token.", 401);
+  const location = res.headers.get("location");
+  if (res.status < 300 || res.status >= 400 || !location) return null;
+  const archive = await fetch(location, { cache: "no-store" });
+  return archive.ok ? archive.body : null;
+}
+
 /** A text file at `ref`, or null if it doesn't exist. `sha` is the blob sha, needed to update or delete it. */
 export async function getRepoFile(token: string, fullName: string, path: string, ref: string) {
   try {

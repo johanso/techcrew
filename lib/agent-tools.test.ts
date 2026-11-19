@@ -51,6 +51,36 @@ describe("toolsFor", () => {
   });
 });
 
+describe("sandbox tools", () => {
+  const sandbox = { runId: 1, commands: { install: "npm ci", test: "npm test", build: null } };
+  const names = (stage: Parameters<typeof toolsFor>[0]["stage"], permissions: Parameters<typeof toolsFor>[0]["permissions"], sb: typeof sandbox | null = sandbox) =>
+    toolsFor({ stage, permissions, branch: "agent/acm-1-x", sandbox: sb }).map((tool) => tool.name);
+
+  it("go to the developer and the tester with the permission, only for the commands the workspace has", () => {
+    for (const stage of ["development", "testing"] as const) {
+      expect(names(stage, ["repo.read", "tests.run"])).toEqual(expect.arrayContaining(["run_tests", "run_command"]));
+      expect(names(stage, ["repo.read", "tests.run"])).not.toContain("run_build");
+    }
+  });
+
+  it("need the permission, the sandbox and a stage that runs code", () => {
+    expect(names("development", ["repo.read"])).not.toContain("run_command");
+    expect(names("development", ["repo.read", "tests.run"], null)).not.toContain("run_command");
+    for (const stage of ["analysis", "review", "security", "approval"] as const) expect(names(stage, ["repo.read", "tests.run"])).not.toContain("run_command");
+  });
+
+  it("log the command and the outcome line, never the output; failed runs show as failures", () => {
+    expect(toolStep("run_command", JSON.stringify({ command: "npx tsc --noEmit" }), "Passed: npx tsc --noEmit (exit 0, 3.0 s)\n\nOutput (the end):\nsecret")).toEqual({
+      tool: "run_command",
+      target: "npx tsc --noEmit",
+      ok: true,
+      summary: "Passed: npx tsc --noEmit (exit 0, 3.0 s)",
+    });
+    expect(toolStep("run_tests", "{}", "Failed: npm test (exit 1, 9.0 s)\n\n…")).toMatchObject({ ok: false, target: null });
+    expect(toolStep("run_build", "{}", "Timed out after 5 min 0 s: npm run build")).toMatchObject({ ok: false });
+  });
+});
+
 describe("skill tools", () => {
   it("are offered in every stage only when the agent has skills", () => {
     for (const stage of ["analysis", "development", "review", "security", "approval", "testing"] as const) {

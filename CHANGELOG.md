@@ -8,6 +8,28 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+### Added
+- **Agent sandbox** (v0.6 milestone 1): with Settings → Sandbox on, the Developer and the Tester run the repository's
+  tests, build or one command (`run_tests`, `run_build`, `run_command`) on the branch's latest commit, in throwaway gVisor
+  containers on a Docker host. Dependencies install with network; the code runs without. The Developer fixes what fails
+  before review; the Tester runs the tests itself. Commands are detected from `package.json` and editable; **Test the
+  sandbox** checks the setup. The agent log shows each command and its outcome. See `docs/sandbox.md`.
+- **VPS setup script** (`deploy/setup.sh`): prepares a fresh Ubuntu 24.04 server for agent sandboxes (updates,
+  firewall, swap, Docker with ports bound to localhost by default, gVisor, a `techteam` user). Idempotent;
+  `--lock-ssh` turns off password and root logins.
+- `.gitattributes` keeps LF line endings in the repository, so scripts committed from Windows still run on the VPS.
+
+### Changed
+- The stage protocol follows what an agent can do: with the sandbox tools the Developer runs the tests and the build
+  and fixes what broke before handing off, and the Tester runs them itself and fails the card when they fail. The
+  Reviewer and the Lead are told they can't run code.
+- **Draft with AI** says an agent runs tests and builds only when it really can (Developer or Tester, *Run tests in a
+  sandbox*, sandbox on); otherwise it still says the agent can't run code.
+
+### Database
+- Migration `0009_sandbox`: `workspaces.sandbox_enabled` (boolean, default false) and `workspaces.sandbox_commands`
+  (jsonb: install, test and build commands; additive).
+
 ## [0.4.0] — 2026-11-18
 
 CI in the loop and a Metrics page.

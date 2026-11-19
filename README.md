@@ -84,6 +84,7 @@ Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 | [docs/features.md](docs/features.md) | See how each feature behaves, screen by screen. |
 | [docs/github-integration.md](docs/github-integration.md) | Understand the GitHub OAuth connection, repository linking and issue sync rules. |
 | [docs/background-jobs.md](docs/background-jobs.md) | Work with Inngest: the agent job, local dev server, production keys. |
+| [docs/sandbox.md](docs/sandbox.md) | The agent sandbox: how run_tests / run_build / run_command run in gVisor containers, Settings → Sandbox, setting up a host with `deploy/setup.sh`. |
 | [docs/switch-trust.md](docs/switch-trust.md) | Connect Switch Trust and run SwitchAgent scans (one evaluation per agent, in the background on Cloudhike jobs). |
 | [docs/security.md](docs/security.md) | Know how sessions, authorization, secrets and uploads are protected — and the known gaps. |
 | [docs/status.md](docs/status.md) | See what's real, dummy or placeholder, known limitations, and suggested next steps. |

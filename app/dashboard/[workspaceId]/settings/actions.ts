@@ -19,7 +19,9 @@ import {
 } from "@/lib/switch-trust";
 import { deleteUploadedSkill, inspectSkillUpload, installSkillUpload, setSkillAssignments, type InspectResult } from "@/lib/skill-install";
 import { normalizeInstanceUrl } from "@/lib/switch-trust-config";
-import { getOwnedWorkspace, updateAgentAutomation, updateAIProvider, updateAutoFailover } from "@/lib/workspaces";
+import { checkSandbox, sandboxAvailable } from "@/lib/sandbox";
+import { SANDBOX_COMMAND_KINDS, parseSandboxCommand, sandboxReport, type SandboxCommandKind, type SandboxCommands } from "@/lib/sandbox/config";
+import { getOwnedWorkspace, updateAgentAutomation, updateAIProvider, updateAutoFailover, updateSandbox } from "@/lib/workspaces";
 
 export type AutomationFormState = { ok?: boolean; message?: string; savedAt?: number };
 
@@ -50,6 +52,57 @@ export async function saveAutomationAction(workspaceId: number, _prev: Automatio
   await updateAgentAutomation(workspace.id, { agentAutoPickup: pickup === "auto", agentMergeMode: merge });
   revalidatePath(`/dashboard/${workspaceId}/settings`);
   return { ok: true, savedAt: Date.now() };
+}
+
+export type SandboxFormState = {
+  ok?: boolean;
+  message?: string;
+  errors?: Partial<Record<SandboxCommandKind, string>>;
+  savedAt?: number;
+};
+
+/** Settings → Sandbox: whether agents may run code, and the install / test / build commands they run. */
+export async function saveSandboxAction(workspaceId: number, _prev: SandboxFormState, formData: FormData): Promise<SandboxFormState> {
+  const workspace = await authorize(workspaceId);
+  if (!workspace) return { message: "Workspace not found." };
+
+  const enabled = formData.get("enabled") === "on";
+  const commands: SandboxCommands = { install: null, test: null, build: null };
+  const errors: SandboxFormState["errors"] = {};
+  for (const kind of SANDBOX_COMMAND_KINDS) {
+    const parsed = parseSandboxCommand(formData.get(kind));
+    if (parsed.ok) commands[kind] = parsed.command;
+    else errors[kind] = parsed.error;
+  }
+  if (Object.keys(errors).length) return { errors };
+  if (enabled && !sandboxAvailable()) return { message: "This server has no sandbox host. Set SANDBOX_DOCKER_HOST." };
+  if (enabled && !commands.test && !commands.build) return { message: "Add a test or a build command for the agents to run." };
+
+  await updateSandbox(workspace.id, { sandboxEnabled: enabled, sandboxCommands: commands });
+  revalidatePath(`/dashboard/${workspaceId}/settings`);
+  revalidatePath(`/dashboard/${workspaceId}/ai-team`);
+  return { ok: true, savedAt: Date.now() };
+}
+
+export type SandboxCheckResult = { ok: true; passed: boolean; headline: string; output: string } | { ok: false; error: string };
+
+/**
+ * Settings → Sandbox → Test the sandbox: installs and runs the saved test (else build) command on the default branch.
+ * The output goes back to the owner only; it is never stored.
+ */
+export async function checkSandboxAction(workspaceId: number): Promise<SandboxCheckResult> {
+  const workspace = await authorize(workspaceId);
+  if (!workspace) return { ok: false, error: "Workspace not found." };
+  if (!sandboxAvailable()) return { ok: false, error: "This server has no sandbox host. Set SANDBOX_DOCKER_HOST." };
+  if (!workspace.sandboxCommands) return { ok: false, error: "Save the commands first." };
+
+  try {
+    const run = await checkSandbox(workspace, workspace.sandboxCommands);
+    return { ok: true, passed: run.failedStep === null && !run.timedOut, headline: sandboxReport({ ...run, output: "" }), output: run.output };
+  } catch (error) {
+    console.error("Sandbox check failed", error);
+    return { ok: false, error: "The sandbox couldn't run. Check that the sandbox host is reachable and try again." };
+  }
 }
 
 /** Settings → AI providers: switch provider automatically when the current one runs out of credit mid-run. */

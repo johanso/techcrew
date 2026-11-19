@@ -79,6 +79,8 @@ erDiagram
         text agent_merge_mode "manual | auto_low_risk | auto"
         text ai_provider
         boolean ai_auto_failover
+        boolean sandbox_enabled
+        jsonb sandbox_commands
     }
     tasks {
         serial id PK
@@ -206,6 +208,8 @@ A workspace is bound to **exactly one** GitHub repository, chosen at creation. O
 | `agent_merge_mode` | text | no | Default `manual`. Settings → Agents → Merging (`MERGE_MODES`): `manual`, `auto_low_risk` (merge on their own only when the Lead's final risk is low) or `auto` (merge once approval, tests and CI pass). Backfilled from v0.1's `agent_auto_merge` (true → `auto`) by migration 0005; that column was dropped in 0007. Unknown values read as `manual`. |
 | `ai_provider` | text | no | Default `openai`. Settings → AI providers: `openai` or `anthropic`; drives AI drafting/trust reviews and the last provider switch. |
 | `ai_auto_failover` | boolean | no | Default `false`. Settings → AI providers: when the provider runs out of credit mid-run and the other has a key, switch the team and restart the stage. |
+| `sandbox_enabled` | boolean | no | Default `false`. Settings → Sandbox: agents with `tests.run` get the sandbox tools (migration 0009). |
+| `sandbox_commands` | jsonb | yes | `{ install, test, build }` (each a command or null), saved with the switch, prefilled from `package.json`. See [sandbox.md](sandbox.md). |
 | `created_at`, `updated_at` | timestamp | no | |
 
 The repository metadata is captured once. If the repo is renamed or its default branch changes on GitHub, these

@@ -1,7 +1,8 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { format } from "date-fns";
-import { ArrowRightIcon, BadgeCheckIcon, BotIcon, ExternalLinkIcon, KeyRoundIcon, LibraryBigIcon, ShieldCheckIcon } from "lucide-react";
+import { ArrowRightIcon, BadgeCheckIcon, BotIcon, ContainerIcon, ExternalLinkIcon, KeyRoundIcon, LibraryBigIcon, ShieldCheckIcon } from "lucide-react";
 
 import { dashboardHref } from "@/components/dashboard/nav";
 import { DetailGrid, PageHeader, SurfaceHeader } from "@/components/dashboard/page-header";
@@ -9,6 +10,7 @@ import { AgentAutomationForm } from "@/components/settings/agent-automation-form
 import { AutoFailoverToggle } from "@/components/settings/auto-failover-toggle";
 import { ProviderKeyForm } from "@/components/settings/provider-key-form";
 import { ProviderSwitchForm } from "@/components/settings/provider-switch-form";
+import { SandboxFormSkeleton, SandboxSettings } from "@/components/settings/sandbox-form";
 import { SwitchConnectionForm } from "@/components/settings/switch-connection-form";
 import { SwitchWeeklyToggle } from "@/components/settings/switch-weekly-toggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -19,6 +21,7 @@ import { parseMergeMode } from "@/lib/agent-run-config";
 import { getSkillLibrary } from "@/lib/agent-skills";
 import { ensureDefaultAgents } from "@/lib/agents";
 import { getProviderKeyViews } from "@/lib/ai-keys";
+import { detectRepoCommands, sandboxAvailable } from "@/lib/sandbox";
 import { getSwitchConnectionView } from "@/lib/switch-trust";
 import { initials } from "@/lib/utils";
 import { getDashboardContext } from "@/lib/workspaces";
@@ -35,6 +38,8 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
     getSkillLibrary(workspace.id),
   ]);
   const provider = workspaceProvider(workspace);
+  // Reads package.json on GitHub: streamed in so the rest of the page doesn't wait for it.
+  const detectedCommands = detectRepoCommands(workspace).catch(() => null);
 
   return (
     <>
@@ -162,6 +167,28 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
           actions={<span className="eyebrow text-muted-foreground">Agents</span>}
         />
         <AgentAutomationForm workspaceId={workspace.id} autoPickup={workspace.agentAutoPickup} mergeMode={parseMergeMode(workspace.agentMergeMode)} />
+      </section>
+
+      <section id="sandbox" className="surface scroll-mt-24">
+        <SurfaceHeader
+          icon={
+            <span className="icon-tile text-brand-emphasis">
+              <ContainerIcon />
+            </span>
+          }
+          title="Sandbox"
+          description="Agents with “Run tests in a sandbox” install, test and build your repository in an isolated container before review."
+          actions={<span className="eyebrow text-muted-foreground">Execution</span>}
+        />
+        <Suspense fallback={<SandboxFormSkeleton />}>
+          <SandboxSettings
+            workspaceId={workspace.id}
+            available={sandboxAvailable()}
+            enabled={workspace.sandboxEnabled}
+            saved={workspace.sandboxCommands}
+            detected={detectedCommands}
+          />
+        </Suspense>
       </section>
 
       {/* The library has its own page (it can grow to many skills); #skills stays as an anchor for old links. */}
