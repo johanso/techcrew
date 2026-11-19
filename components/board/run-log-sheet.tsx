@@ -15,6 +15,7 @@ import {
   FileXIcon,
   FlaskConicalIcon,
   FolderTreeIcon,
+  GlobeIcon,
   HammerIcon,
   ListChecksIcon,
   LoaderCircleIcon,
@@ -68,10 +69,15 @@ const TOOL_ICON: Record<string, LucideIcon> = {
   run_tests: FlaskConicalIcon,
   run_build: HammerIcon,
   run_command: SquareTerminalIcon,
+  browse_preview: GlobeIcon,
 };
 
-function Step({ step }: { step: RunLogStep }) {
+// Tools whose outcome line is worth reading even when it went well ("Opened /: 200, 0 console errors …").
+const SHOW_SUMMARY = new Set(["browse_preview"]);
+
+function Step({ step, runId }: { step: RunLogStep; runId: number }) {
   const meta = { label: TOOL_LABEL[step.tool] ?? step.tool, icon: TOOL_ICON[step.tool] ?? WrenchIcon };
+  const screenshot = `/api/runs/${runId}/steps/${step.id}/screenshot`;
   return (
     <li className="flex min-w-0 gap-2.5 py-1.5">
       <meta.icon aria-hidden className={cn("mt-0.5 size-3.5 shrink-0", step.ok ? "text-muted-foreground" : "text-error")} />
@@ -83,6 +89,24 @@ function Step({ step }: { step: RunLogStep }) {
         </p>
         {/* Errors matter to the user; confirmations of writes are noise next to the file name. */}
         {!step.ok && step.summary && <p className="line-clamp-2 text-xs text-error">{step.summary}</p>}
+        {step.ok && step.summary && SHOW_SUMMARY.has(step.tool) && <p className="line-clamp-2 text-xs text-muted-foreground">{step.summary}</p>}
+        {step.screenshot && (
+          <a
+            href={screenshot}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-1 block w-44 max-w-full overflow-hidden rounded-lg bg-muted ring-1 ring-border/70 transition-colors outline-none hover:ring-brand/40 focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- auth-gated route; next/image can't optimize it */}
+            <img
+              src={screenshot}
+              alt={`Screenshot of the preview at ${step.target ?? "/"}`}
+              loading="lazy"
+              className="aspect-8/5 w-full object-cover object-top"
+            />
+            <span className="sr-only"> (opens the full screenshot in a new tab)</span>
+          </a>
+        )}
       </div>
       <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums" title={`Turn ${step.turn}`}>
         T{step.turn}
@@ -91,7 +115,7 @@ function Step({ step }: { step: RunLogStep }) {
   );
 }
 
-function StageBlock({ stage, live }: { stage: RunLogStage; live: boolean }) {
+function StageBlock({ stage, live, runId }: { stage: RunLogStage; live: boolean; runId: number }) {
   const role = AGENT_ROLES[stage.agent];
   const model = AGENT_MODELS.find((m) => m.id === stage.model);
   const end = stage.end ? STAGE_END[stage.end.kind] : null;
@@ -152,7 +176,7 @@ function StageBlock({ stage, live }: { stage: RunLogStage; live: boolean }) {
           </summary>
           <ol className="mt-1 flex flex-col">
             {stage.steps.map((step) => (
-              <Step key={step.id} step={step} />
+              <Step key={step.id} step={step} runId={runId} />
             ))}
           </ol>
         </details>
@@ -328,6 +352,7 @@ export function RunLogSheet({
                 <Fragment key={`${stage.stage}-${stage.round}`}>
                   <StageBlock
                     stage={stage}
+                    runId={data.run.id}
                     // Two blocks can be live at once: Reviewer and Security work the review phase in parallel.
                     live={
                       isActiveRun(data.run.status) &&

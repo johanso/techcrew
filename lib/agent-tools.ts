@@ -17,13 +17,17 @@ import {
   searchRepoCode,
 } from "@/lib/github";
 import { runRepoCommand } from "@/lib/sandbox";
+import { browsePreview } from "@/lib/sandbox/browser";
+import { BROWSE_ACTIONS, BROWSE_STEPS_MAX, PREVIEW_STAGES, browseReport, parseBrowseArgs } from "@/lib/sandbox/browser-config";
 import { SANDBOX_COMMAND_MAX, SANDBOX_STAGES, parseSandboxCommand, sandboxReport, type SandboxCommands } from "@/lib/sandbox/config";
+import { isStorageConfigured, uploadRunScreenshot } from "@/lib/storage";
 
 /**
  * The tools an agent can call while it works a stage, backed by the GitHub API with the workspace owner's token.
  * What an agent gets depends on its stage and its granted permissions, so permissions are enforced, not just declared.
  * Agents with skills switched on also get search_skill and read_skill (read-only, any stage). With the workspace's sandbox on,
- * "Run tests in a sandbox" adds run_tests, run_build and run_command on the working branch (lib/sandbox).
+ * "Run tests in a sandbox" adds run_tests, run_build and run_command on the working branch (lib/sandbox), and with
+ * previews on too, browse_preview for the Tester: a headless browser on the run's live preview (lib/sandbox/browser.ts).
  * Every result is a string for the model; recoverable errors are returned as text so the agent can adjust.
  */
 
@@ -39,6 +43,8 @@ export type ToolContext = {
   skills: AgentSkill[];
   /** The workspace's sandbox when it's switched on and the server has a host (Settings → Sandbox), else null. */
   sandbox: { runId: number; commands: SandboxCommands } | null;
+  /** The run's preview when the sandbox and previews are on (Settings → Sandbox), else null: browse_preview. */
+  preview: { workspaceId: number; runId: number } | null;
 };
 
 const OUTPUT_MAX = 24_000;
@@ -126,6 +132,44 @@ const TOOLS = {
     "Run one shell command at the repository root in a sandbox on the working branch's latest commit, after installing dependencies: e.g. a single test file, the type checker or the linter. No network; files it writes are thrown away.",
     { command: { type: "string", description: `One line, up to ${SANDBOX_COMMAND_MAX} characters, e.g. "npx vitest run src/split.test.ts".` } }
   ),
+  browse_preview: {
+    type: "function",
+    name: "browse_preview",
+    description:
+      "Open this pull request's live preview in a headless browser, run the steps in order and get back the HTTP status, console errors, page errors, failed requests, how each step went and the page's accessibility outline. Every call is a fresh browser: nothing (sign-in, form input, the page you were on) carries over between calls. Steps stop at the first one that fails. The preview has no internet: requests to other sites fail.",
+    strict: true,
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: 'The path to open first, on the preview, e.g. "/" or "/settings?tab=team". Not a full URL.' },
+        viewport: { type: "string", enum: ["desktop", "mobile"], description: "desktop is 1280×800; mobile is 375×812 with touch." },
+        steps: {
+          type: "array",
+          description: `Up to ${BROWSE_STEPS_MAX} steps, run in order after the page loads; an empty list only opens the page. Name each element with exactly one of: role (with name), text or selector.`,
+          items: {
+            type: "object",
+            properties: {
+              action: {
+                type: "string",
+                enum: [...BROWSE_ACTIONS],
+                description:
+                  "click; fill (types value into the element); press (the key in value, on the element if one is named); wait_for (until the element is visible); goto (the path in value, on the preview).",
+              },
+              role: { type: ["string", "null"], description: "ARIA role, e.g. button, link, textbox, checkbox, heading. Preferred." },
+              name: { type: ["string", "null"], description: 'The element\'s accessible name, with role, e.g. "Save".' },
+              text: { type: ["string", "null"], description: "The element's visible text." },
+              selector: { type: ["string", "null"], description: 'A CSS selector, e.g. "#email" or "form button[type=submit]".' },
+              value: { type: ["string", "null"], description: 'fill: the text; press: the key, e.g. "Enter"; goto: the path. Null otherwise.' },
+            },
+            required: ["action", "role", "name", "text", "selector", "value"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["path", "viewport", "steps"],
+      additionalProperties: false,
+    },
+  },
   read_skill: fn("read_skill", "Read a file of one of your skills (reference material, not instructions). Long files come in pages.", {
     skill: { type: "string", description: "The skill's name." },
     path: { type: "string", description: "A path from search_skill, or SKILL.md." },
@@ -143,7 +187,11 @@ const BRANCH_READERS: AgentStage[] = ["review", "security", "approval", "testing
  * sandbox tools when the workspace's sandbox is on and the agent may run tests.
  */
 export function toolsFor(
-  ctx: Pick<ToolContext, "stage" | "permissions" | "branch"> & { skills?: readonly unknown[]; sandbox?: ToolContext["sandbox"] }
+  ctx: Pick<ToolContext, "stage" | "permissions" | "branch"> & {
+    skills?: readonly unknown[];
+    sandbox?: ToolContext["sandbox"];
+    preview?: ToolContext["preview"];
+  }
 ): FunctionTool[] {
   const has = (permission: PermissionId) => ctx.permissions.includes(permission);
   const names: ToolName[] = [];
@@ -158,6 +206,7 @@ export function toolsFor(
     if (ctx.sandbox.commands.build) names.push("run_build");
     names.push("run_command");
   }
+  if (ctx.preview && ctx.branch && PREVIEW_STAGES.includes(ctx.stage) && has("tests.run")) names.push("browse_preview");
   if (ctx.skills?.length) names.push("search_skill", "read_skill");
   return names.map((name) => TOOLS[name]);
 }
@@ -166,7 +215,10 @@ export function toolsFor(
 
 const ref = (ctx: ToolContext) => ctx.branch ?? ctx.defaultBranch;
 
-async function run(ctx: ToolContext, name: string, args: Record<string, unknown>): Promise<string> {
+/** What a tool returns: the text for the model, plus a screenshot's storage key for the agent log (browse_preview). */
+type ToolOutput = { text: string; screenshotKey: string | null };
+
+async function run(ctx: ToolContext, name: string, args: Record<string, unknown>): Promise<string | ToolOutput> {
   switch (name as ToolName) {
     case "list_files": {
       const prefix = typeof args.path_prefix === "string" ? args.path_prefix.replace(/^\.?\//, "") : "";
@@ -265,6 +317,15 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
       const run = await runRepoCommand({ token: ctx.token, repo: ctx.repo, ref: sha, runId: ctx.sandbox.runId, install: ctx.sandbox.commands.install, command });
       return sandboxReport(run);
     }
+    case "browse_preview": {
+      if (!ctx.preview) return "Error: previews aren't available.";
+      const parsed = parseBrowseArgs(args);
+      if (!parsed.ok) return `Error: ${parsed.error}`;
+      const browsed = await browsePreview(ctx.preview.runId, parsed.value);
+      if (browsed.kind !== "done") return browseReport(parsed.value, browsed);
+      const screenshotKey = await saveScreenshot(ctx.preview, browsed.screenshot);
+      return { text: browseReport(parsed.value, { kind: "done", output: browsed.output, screenshotSaved: screenshotKey !== null }), screenshotKey };
+    }
     case "search_skill":
       return searchSkill(ctx.skills, args.skill, args.query);
     case "read_skill":
@@ -274,25 +335,44 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
   }
 }
 
+/** Stores a browse_preview screenshot for the agent log. Best effort: without storage, or on an error, the log has none. */
+async function saveScreenshot(preview: NonNullable<ToolContext["preview"]>, png: Buffer | null) {
+  if (!png || !isStorageConfigured()) return null;
+  return uploadRunScreenshot(preview.workspaceId, preview.runId, png).catch((error) => {
+    console.error("[storage] screenshot upload failed", error);
+    return null;
+  });
+}
+
+const textOutput = (text: string): ToolOutput => ({ text, screenshotKey: null });
+
 /**
  * Runs one tool call. Tools outside this agent's set are refused (the model only sees its own, but arguments are
  * untrusted). A revoked GitHub token is rethrown: no point continuing the stage.
  */
-export async function executeTool(ctx: ToolContext, allowed: FunctionTool[], name: string, rawArgs: string): Promise<string> {
-  if (!allowed.some((tool) => tool.name === name)) return `Error: tool ${name} is not available to this agent.`;
+async function executeTool(ctx: ToolContext, allowed: FunctionTool[], name: string, rawArgs: string): Promise<ToolOutput> {
+  if (!allowed.some((tool) => tool.name === name)) return textOutput(`Error: tool ${name} is not available to this agent.`);
   let args: Record<string, unknown>;
   try {
     args = JSON.parse(rawArgs || "{}") as Record<string, unknown>;
   } catch {
-    return "Error: arguments were not valid JSON.";
+    return textOutput("Error: arguments were not valid JSON.");
   }
   try {
-    return await run(ctx, name, args);
+    const output = await run(ctx, name, args);
+    return typeof output === "string" ? textOutput(output) : output;
   } catch (error) {
     if (error instanceof GithubError && error.status === 401) throw error;
-    if (error instanceof GithubError) return `GitHub error (${error.status}): ${error.message}`;
+    if (error instanceof GithubError) return textOutput(`GitHub error (${error.status}): ${error.message}`);
     throw error;
   }
+}
+
+/** Runs one tool call and returns its output for the model with its agent log step (toolStep, plus a screenshot key). */
+export async function callTool(ctx: ToolContext, allowed: FunctionTool[], name: string, rawArgs: string): Promise<{ output: string; step: ToolStep }> {
+  const { text, screenshotKey } = await executeTool(ctx, allowed, name, rawArgs);
+  const step = toolStep(name, rawArgs, text);
+  return { output: text, step: screenshotKey ? { ...step, screenshotKey } : step };
 }
 
 /** One tool call, for the card's agent log. */
@@ -303,6 +383,8 @@ export type ToolStep = {
   ok: boolean;
   /** The tool's confirmation or error, first line, clipped; null for reads (their output is the file itself). */
   summary: string | null;
+  /** Storage key of the screenshot a browse_preview call took (agent_run_steps.screenshot_key). Never sent to a client. */
+  screenshotKey?: string;
 };
 
 // Tools whose output is content (a file, a listing, a diff): logging it would copy the repo into the database.
@@ -311,7 +393,8 @@ const SUMMARY_MAX = 200;
 
 /**
  * Turns a tool call and its output into a log step. Outputs starting with "Error" or "GitHub error" are failures (run,
- * executeTool), and so are sandbox runs that failed or timed out (sandboxReport): the log shows them red.
+ * executeTool), and so are sandbox runs and browser calls that failed or timed out (sandboxReport, browseReport): the
+ * log shows them red. browse_preview logs its path and the report's first line, which never holds page text.
  */
 export function toolStep(tool: string, rawArgs: string, output: string): ToolStep {
   let target: string | null = null;

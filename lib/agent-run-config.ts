@@ -74,6 +74,7 @@ export const TOOL_LABEL: Record<string, string> = {
   run_tests: "Ran the tests",
   run_build: "Ran the build",
   run_command: "Ran",
+  browse_preview: "Opened the preview",
 };
 
 export const RUN_STATUSES = [

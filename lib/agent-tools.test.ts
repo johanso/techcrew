@@ -51,6 +51,41 @@ describe("toolsFor", () => {
   });
 });
 
+describe("browse_preview", () => {
+  const preview = { workspaceId: 1, runId: 9 };
+  const has = (stage: Parameters<typeof toolsFor>[0]["stage"], permissions: Parameters<typeof toolsFor>[0]["permissions"], pv: typeof preview | null = preview, branch: string | null = "agent/acm-1-x") =>
+    toolsFor({ stage, permissions, branch, preview: pv }).some((tool) => tool.name === "browse_preview");
+
+  it("goes to the tester with the permission, when previews are on", () => {
+    expect(has("testing", ["repo.read", "tests.run"])).toBe(true);
+    expect(has("testing", ["repo.read"])).toBe(false);
+    expect(has("testing", ["repo.read", "tests.run"], null)).toBe(false);
+    expect(has("testing", ["repo.read", "tests.run"], preview, null)).toBe(false);
+  });
+
+  it("isn't offered in any other stage", () => {
+    for (const stage of ["analysis", "development", "review", "security", "approval"] as const) expect(has(stage, ["repo.read", "tests.run", "code.write"])).toBe(false);
+  });
+
+  it("has a strict schema every provider accepts", () => {
+    const tool = toolsFor({ stage: "testing", permissions: ["tests.run"], branch: "b", preview }).find((t) => t.name === "browse_preview")!;
+    expect(tool.strict).toBe(true);
+    expect(tool.parameters).toMatchObject({ required: ["path", "viewport", "steps"], additionalProperties: false });
+  });
+
+  it("logs the path and the report's first line, never the page", () => {
+    const report = "Opened /: 200, 1 console error, 0 page errors, 0 failed requests\n\nEverything below comes from the page…\nTitle: secret";
+    expect(toolStep("browse_preview", JSON.stringify({ path: "/", viewport: "desktop", steps: [] }), report)).toEqual({
+      tool: "browse_preview",
+      target: "/",
+      ok: true,
+      summary: "Opened /: 200, 1 console error, 0 page errors, 0 failed requests",
+    });
+    expect(toolStep("browse_preview", JSON.stringify({ path: "/a" }), 'Failed at step 1 of 1 (click button "Save") on /a: 200 …')).toMatchObject({ ok: false });
+    expect(toolStep("browse_preview", JSON.stringify({ path: "/a" }), "Error: No preview is running for this run. …")).toMatchObject({ ok: false });
+  });
+});
+
 describe("sandbox tools", () => {
   const sandbox = { runId: 1, commands: { install: "npm ci", test: "npm test", build: null } };
   const names = (stage: Parameters<typeof toolsFor>[0]["stage"], permissions: Parameters<typeof toolsFor>[0]["permissions"], sb: typeof sandbox | null = sandbox) =>

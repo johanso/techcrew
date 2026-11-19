@@ -15,7 +15,7 @@ import type { FunctionTool, ResponseInput } from "openai/resources/responses/res
 import { agentRunMessages, db } from "@/db";
 import { PROVIDERS, modelInfo, type AgentModelId, type ProviderStatus } from "@/lib/agent-config";
 import { isSimulatedAgents, simulatedTurn } from "@/lib/agent-simulated";
-import { executeTool, toolStep, type ToolContext, type ToolStep } from "@/lib/agent-tools";
+import { callTool, type ToolContext, type ToolStep } from "@/lib/agent-tools";
 import { anthropicClient, messageCostMicros, toClaudeSchema } from "@/lib/anthropic";
 import { openAIClient, responseCostMicros } from "@/lib/openai";
 import { OPENROUTER_ROUTING, completionCostMicros, openRouterClient, parseFinishArguments } from "@/lib/openrouter";
@@ -145,9 +145,9 @@ async function openAITurn<T>(input: TurnInput, state: Extract<LoopState, { provi
   const pending: ResponseInput = [];
   const steps: ToolStep[] = [];
   for (const call of calls) {
-    const output = await executeTool(input.toolContext, input.tools, call.name, call.arguments);
+    const { output, step } = await callTool(input.toolContext, input.tools, call.name, call.arguments);
     pending.push({ type: "function_call_output", call_id: call.call_id, output });
-    steps.push(toolStep(call.name, call.arguments, output));
+    steps.push(step);
   }
   return { state: next(pending), costMicros, steps, result: null };
 }
@@ -241,9 +241,9 @@ async function claudeTurn<T>(input: TurnInput, state: Extract<LoopState, { provi
       results.push({ type: "tool_result", tool_use_id: block.id, is_error: true, content: "Your output was cut off before this call was complete. Send it again, in smaller pieces if needed." });
       continue;
     }
-    const output = await executeTool(input.toolContext, input.tools, block.name, args);
+    const { output, step } = await callTool(input.toolContext, input.tools, block.name, args);
     results.push({ type: "tool_result", tool_use_id: block.id, content: output });
-    steps.push(toolStep(block.name, args, output));
+    steps.push(step);
   }
   const reply: BetaMessageParam = results.length ? { role: "user", content: results } : { role: "user", content: NUDGE };
 
@@ -322,8 +322,9 @@ async function openRouterTurn<T>(input: TurnInput, state: Extract<LoopState, { p
     if (truncated) output = "Your output was cut off before this call was complete. Send it again, in smaller pieces if needed.";
     else if (call === finish && parsed && !parsed.ok) output = parsed.error;
     else {
-      output = await executeTool(input.toolContext, input.tools, name, args);
-      steps.push(toolStep(name, args, output));
+      const called = await callTool(input.toolContext, input.tools, name, args);
+      output = called.output;
+      steps.push(called.step);
     }
     replies.push({ role: "tool", tool_call_id: call.id, content: output });
   }

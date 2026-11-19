@@ -3,7 +3,7 @@ import "server-only";
 import type { FunctionTool } from "openai/resources/responses/responses";
 
 import type { LoopState, TurnOutcome } from "@/lib/agent-loop";
-import { executeTool, toolStep, type ToolContext, type ToolStep } from "@/lib/agent-tools";
+import { callTool, type ToolContext, type ToolStep } from "@/lib/agent-tools";
 
 /**
  * Simulated agents (AGENTS_SIMULATED=true): a scripted stand-in for the model, for trying the pipeline locally
@@ -12,7 +12,7 @@ import { executeTool, toolStep, type ToolContext, type ToolStep } from "@/lib/ag
  * Reviewer and Security approve with no findings and the Lead approves at low risk (the risk floor still applies).
  * An agent with skills switched on also searches its first skill and reads the top match in that first turn, so the
  * skill tools run for free too. With the sandbox on, the Developer (after its commit) and the Tester also run the tests
- * and the build for real.
+ * and the build for real, and with previews on the Tester opens the preview's home page in the browser.
  */
 
 export function isSimulatedAgents() {
@@ -111,20 +111,27 @@ async function skillCalls(input: { finish: FunctionTool; toolContext: ToolContex
   const skill = input.toolContext.skills[0];
   if (!skill || !input.tools.some((tool) => tool.name === "search_skill")) return [];
   const searchArgs = JSON.stringify({ skill: skill.slug, query: SKILL_QUERY[input.finish.name] ?? "best practices" });
-  const found = await executeTool(input.toolContext, input.tools, "search_skill", searchArgs);
-  const path = /^- (\S+) — /m.exec(found)?.[1] ?? "SKILL.md";
+  const found = await callTool(input.toolContext, input.tools, "search_skill", searchArgs);
+  const path = /^- (\S+) — /m.exec(found.output)?.[1] ?? "SKILL.md";
   const readArgs = JSON.stringify({ skill: skill.slug, path, offset: null });
-  const read = await executeTool(input.toolContext, input.tools, "read_skill", readArgs);
-  return [toolStep("search_skill", searchArgs, found), toolStep("read_skill", readArgs, read)];
+  const read = await callTool(input.toolContext, input.tools, "read_skill", readArgs);
+  return [found.step, read.step];
 }
 
-/** run_tests then run_build, each when the agent has it (lib/sandbox: real containers, no model). */
+/**
+ * run_tests then run_build, each when the agent has it (lib/sandbox: real containers, no model); then browse_preview
+ * on the preview's home page when the agent has it (the Tester with previews on: a real browser).
+ */
 async function sandboxCalls(input: { toolContext: ToolContext; tools: FunctionTool[] }): Promise<ToolStep[]> {
   const steps: ToolStep[] = [];
-  for (const name of ["run_tests", "run_build"]) {
+  const calls: [string, string][] = [
+    ["run_tests", "{}"],
+    ["run_build", "{}"],
+    ["browse_preview", JSON.stringify({ path: "/", viewport: "desktop", steps: [] })],
+  ];
+  for (const [name, args] of calls) {
     if (!input.tools.some((tool) => tool.name === name)) continue;
-    const output = await executeTool(input.toolContext, input.tools, name, "{}");
-    steps.push(toolStep(name, "{}", output));
+    steps.push((await callTool(input.toolContext, input.tools, name, args)).step);
   }
   return steps;
 }
@@ -147,11 +154,11 @@ export async function simulatedTurn<T>(input: {
   }
   const skillSteps = await skillCalls(input);
   const args = JSON.stringify(call.args);
-  const output = await executeTool(input.toolContext, input.tools, call.name, args);
+  const { output, step } = await callTool(input.toolContext, input.tools, call.name, args);
   // A failed write must not pass as success: surface it the way a model's stage would fail.
   if (call.name === "write_file" && !output.startsWith("Created") && !output.startsWith("Updated")) {
     throw new Error(`Simulated developer couldn't write its file: ${output}`);
   }
   const sandboxSteps = input.finish.name === "submit_work" || input.finish.name === "submit_test_report" ? await sandboxCalls(input) : [];
-  return { state: next, costMicros: 0, steps: [...skillSteps, toolStep(call.name, args, output), ...sandboxSteps], result: null };
+  return { state: next, costMicros: 0, steps: [...skillSteps, step, ...sandboxSteps], result: null };
 }
