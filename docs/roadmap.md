@@ -116,9 +116,9 @@ CI).
      the Developer fixing a failure it found (everything passed first time).
 2. **Preview and a browser for the Tester**
    - A preview of each agent PR on `pr-<n>-<random>.preview.lugarescolombia.com`, HTTPS by Caddy, stopped when the PR
-     closes, the run ends or after 2 hours ✅ (by script on the VPS; `feat/sandbox-preview`).
+     closes, the run ends or after 2 hours ✅ (live run 51; `feat/sandbox-preview`).
    - The Tester drives it in headless Chromium (Playwright): steps, console errors, screenshots in the agent log ✅
-     (by script on the VPS). Still to do: a live run, and the firewall rule applied on the VPS.
+     (live run 51: 6 browser calls on desktop and mobile, screenshots in the agent log).
 3. **Designer agent** (seventh role, a reviewer first)
    - Reviews in parallel with the Reviewer and Security: screenshots of the changed pages at 375 / 768 / 1280 px in
      light and dark, read by a vision model; findings go to the Lead.

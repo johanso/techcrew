@@ -45,7 +45,7 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | AI keys on the account, company and model per agent | ✅ Real (one account key serves every project; agents can mix OpenAI, Anthropic and OpenRouter; mixed run 50 with OpenAI + OpenRouter, Anthropic not in a mix yet) | `lib/ai-keys.ts`, `components/ai-team/agent-config-dialog.tsx` |
 | OpenRouter (Google, DeepSeek, Z.ai, xAI, Moonshot models) | ✅ Real: all 10 models answer a strict tool call; live mixed run 50 (Developer DeepSeek V4 Pro, Tester DeepSeek V4.1 Flash, the rest OpenAI; $0.091, PR ready). Out of credit not tried live | `lib/openrouter.ts`, `lib/agent-loop.ts` |
 | Agent sandbox (run tests, build, commands) | ✅ Real, verified live (run 49 on techteam-sandbox-demo, $0.17) | `lib/sandbox/`, `deploy/setup.sh`, [sandbox.md](sandbox.md) |
-| PR previews and the Tester's browser (v0.6 milestone 2) | 🟡 Built and verified by script on the VPS (HTTPS preview, browser with screenshots); no pipeline run yet; the firewall rule isn't applied on the VPS yet | `lib/sandbox/preview.ts`, `lib/sandbox/browser.ts`, `deploy/browser/` |
+| PR previews and the Tester's browser (v0.6 milestone 2) | ✅ Real: live run 51 (SAN-3, $0.185): preview over HTTPS after CI, the Tester browsed it on desktop and mobile with screenshots; firewall rule applied on the VPS | `lib/sandbox/preview.ts`, `lib/sandbox/browser.ts`, `deploy/browser/` |
 | Landing page `/` | ➖ None: redirects to the dashboard or sign-in | `app/page.tsx` |
 
 ## Dummy data and placeholders
