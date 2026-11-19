@@ -28,8 +28,10 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 - `.gitattributes` keeps LF line endings in the repository, so scripts committed from Windows still run on the VPS.
 
 ### Changed
-- Settings is split into **Your account** (every project) and **This workspace**. Settings → AI providers no longer
-  switches the whole team between companies: it keeps the automatic switch and optional workspace keys.
+- Settings is split into **Your account** (profile, **AI providers**, spending) and **This workspace** (details,
+  automation, sandbox, Switch Trust, skills). **AI providers** holds your keys plus, under "This workspace only", the
+  automatic switch and optional workspace keys; it no longer switches the whole team between companies.
+- The account menu has one **Settings** item instead of three links into the same page.
 - Out of credit, the board's retry and the automatic switch move only the agents on the company that ran dry.
 - The stage protocol follows what an agent can do: with the sandbox tools the Developer runs the tests and the build
   and fixes what broke before handing off, and the Tester runs them itself and fails the card when they fail. The

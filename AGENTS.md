@@ -102,10 +102,10 @@ app/
                           answerCardAction (answer the analyst + run again), stopCardAction, mergeCardAction, switchProviderAndRetryAction (out of credit), getRunLogAction
                           (agent log), syncIssuesAction (also refreshes agent PRs) (auth + validation).
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
-      settings/           Your account: profile (#account), AI keys (#keys, every project), spending this month across
-                          projects (#usage). This workspace: workspace (#workspace), AI providers (#ai: automatic switch +
-                          optional workspace keys), Switch
-                          Trust (#switch), agent automation (#agents), Sandbox (#sandbox) and an Agent skills card (#skills) linking to
+      settings/           Your account: profile (#account), AI providers (#ai: account keys for every project, then "This
+                          workspace only": automatic switch + optional workspace keys), spending this month across
+                          projects (#usage). This workspace: workspace (#workspace), agent automation (#agents), Sandbox
+                          (#sandbox), Switch Trust (#switch) and an Agent skills card (#skills) linking to
                           skills/page.tsx (the library on its own page). actions.ts: automation, saveSandboxAction /
                           checkSandboxAction (Test the sandbox),
                           auto failover toggle, save/remove provider key, connect/disconnect Switch,
@@ -676,7 +676,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   `<main className="mx-auto max-w-2xl px-6 py-10">`, content in `surface` cards.
 - **Header actions:** round bordered icon buttons (`size-9 rounded-full border bg-card`), hover tints the border. The
   GitHub button widens into a pill with the repository name from `sm` up. The account menu lives only in the header
-  avatar (`HeaderUserMenu`); the sidebar has no footer menu.
+  avatar (`HeaderUserMenu`: Settings, Agent skills, Theme, Sign out — one item per page, no anchors into Settings); the
+  sidebar has no footer menu.
 - **Menus:** `DropdownMenu*` from `components/ui/dropdown-menu` (Base UI). Navigation items use
   `<DropdownMenuItem render={<Link href=… />}>`; `DropdownMenuLabel` must sit inside a `DropdownMenuGroup`.
   Triggers styled as other components use `render` (`<DropdownMenuTrigger render={<SidebarMenuButton />}>`).

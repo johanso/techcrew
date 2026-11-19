@@ -148,7 +148,7 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `/dashboard/[workspaceId]/ai-team` | owner | AI Team: agents, configure dialog, trust score, spending, activity. |
 | `/dashboard/[workspaceId]/pull-requests` | owner | Agent pull requests (refreshed from GitHub on load), review/test verdicts, **Merge**. |
 | `/dashboard/[workspaceId]/activity` | owner | Workspace activity timeline (`?show=` for older events). |
-| `/dashboard/[workspaceId]/settings` | owner | Your account: profile (`#account`), AI keys (`#keys`), spending across projects (`#usage`). This workspace: details (`#workspace`), AI provider (`#ai`), Switch Trust (`#switch`), agent automation (`#agents`), Sandbox (`#sandbox`), Agent skills summary (`#skills`). |
+| `/dashboard/[workspaceId]/settings` | owner | Your account: profile (`#account`), AI providers (`#ai`: account keys, then this workspace's automatic switch and optional keys), spending across projects (`#usage`). This workspace: details (`#workspace`), automation (`#agents`), Sandbox (`#sandbox`), Switch Trust (`#switch`), Agent skills summary (`#skills`). |
 
 "owner" = signed in **and** owner of that workspace; anything else is a 404.
 

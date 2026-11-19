@@ -51,7 +51,6 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
 
       <GroupLabel title="Your account" description="Applies to every project you own." />
 
-      {/* scroll-mt clears the sticky header when opened from the user menu (#account / #workspace). */}
       <section id="account" className="surface scroll-mt-24">
         <SurfaceHeader
           icon={
@@ -82,20 +81,42 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
         />
       </section>
 
-      <section id="keys" className="surface scroll-mt-24">
+      <section id="ai" className="surface scroll-mt-24">
         <SurfaceHeader
           icon={
             <span className="icon-tile text-brand-emphasis">
               <KeyRoundIcon />
             </span>
           }
-          title="AI keys"
-          description="Saved once, used by every project. Encrypted and never shown again."
+          title="AI providers"
+          description="Your keys pay for every project. Each agent picks its company and model on the AI Team page."
           actions={<span className="eyebrow text-muted-foreground">AI</span>}
         />
         <div className="flex flex-col gap-6 p-6">
           <ProviderKeyForm workspaceId={workspace.id} provider="openai" scope="account" view={keys.openai} />
           <ProviderKeyForm workspaceId={workspace.id} provider="anthropic" scope="account" view={keys.anthropic} />
+        </div>
+        {/* Workspace-only settings live here too, so everything about AI companies is in one place. */}
+        <div className="flex flex-col gap-6 border-t border-border/70 p-6">
+          <div className="flex min-w-0 flex-col gap-1">
+            <p className="eyebrow text-muted-foreground">This workspace only</p>
+            <p className="truncate text-xs text-muted-foreground">{workspace.name}</p>
+          </div>
+          <AutoFailoverToggle
+            workspaceId={workspace.id}
+            enabled={workspace.aiAutoFailover}
+            bothConnected={keys.openai.inUse !== null && keys.anthropic.inUse !== null}
+          />
+          <div className="flex flex-col gap-6 border-t border-border/70 pt-6">
+            <div className="flex flex-col gap-1">
+              <h3 className="text-sm font-bold">Workspace keys (optional)</h3>
+              <p className="text-xs text-muted-foreground">
+                Only used for a company your account has no key for. Your account&apos;s key always wins.
+              </p>
+            </div>
+            <ProviderKeyForm workspaceId={workspace.id} provider="openai" scope="workspace" view={keys.openai} />
+            <ProviderKeyForm workspaceId={workspace.id} provider="anthropic" scope="workspace" view={keys.anthropic} />
+          </div>
         </div>
       </section>
 
@@ -128,57 +149,6 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
             { label: "Created", value: format(workspace.createdAt, "MMMM d, yyyy") },
           ]}
         />
-      </section>
-
-      <section id="ai" className="surface scroll-mt-24">
-        <SurfaceHeader
-          icon={
-            <span className="icon-tile text-brand-emphasis">
-              <KeyRoundIcon />
-            </span>
-          }
-          title="AI providers"
-          description="Every company with a key is available: each agent picks its company and model on the AI Team page."
-          actions={<span className="eyebrow text-muted-foreground">AI</span>}
-        />
-        <div className="flex flex-col gap-6 border-t border-border/70 p-6">
-          <AutoFailoverToggle
-            workspaceId={workspace.id}
-            enabled={workspace.aiAutoFailover}
-            bothConnected={keys.openai.inUse !== null && keys.anthropic.inUse !== null}
-          />
-          <div className="flex flex-col gap-6 border-t border-border/70 pt-6">
-            <div className="flex flex-col gap-1">
-              <h3 className="text-sm font-bold">Workspace keys (optional)</h3>
-              <p className="text-xs text-muted-foreground">
-                Only used for a company your account has no key for. Your account&apos;s key always wins.
-              </p>
-            </div>
-            <ProviderKeyForm workspaceId={workspace.id} provider="openai" scope="workspace" view={keys.openai} />
-            <ProviderKeyForm workspaceId={workspace.id} provider="anthropic" scope="workspace" view={keys.anthropic} />
-          </div>
-        </div>
-      </section>
-
-      <section id="switch" className="surface scroll-mt-24">
-        <SurfaceHeader
-          icon={
-            <span className="icon-tile text-brand-emphasis">
-              <ShieldCheckIcon />
-            </span>
-          }
-          title="Switch Trust"
-          description="Connect your Switch account: your agents are registered there and SwitchAgent scans score them with one evaluation each."
-          actions={<span className="eyebrow text-muted-foreground">Trust</span>}
-        />
-        <div className="flex flex-col gap-6 border-t border-border/70 p-6">
-          <SwitchConnectionForm workspaceId={workspace.id} view={switchView} />
-          {switchView.connected && (
-            <div className="border-t border-border/70 pt-6">
-              <SwitchWeeklyToggle workspaceId={workspace.id} enabled={switchView.weeklyScans} />
-            </div>
-          )}
-        </div>
       </section>
 
       <section id="agents" className="surface scroll-mt-24">
@@ -215,6 +185,27 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
             detected={detectedCommands}
           />
         </Suspense>
+      </section>
+
+      <section id="switch" className="surface scroll-mt-24">
+        <SurfaceHeader
+          icon={
+            <span className="icon-tile text-brand-emphasis">
+              <ShieldCheckIcon />
+            </span>
+          }
+          title="Switch Trust"
+          description="Connect your Switch account: your agents are registered there and SwitchAgent scans score them with one evaluation each."
+          actions={<span className="eyebrow text-muted-foreground">Trust</span>}
+        />
+        <div className="flex flex-col gap-6 border-t border-border/70 p-6">
+          <SwitchConnectionForm workspaceId={workspace.id} view={switchView} />
+          {switchView.connected && (
+            <div className="border-t border-border/70 pt-6">
+              <SwitchWeeklyToggle workspaceId={workspace.id} enabled={switchView.weeklyScans} />
+            </div>
+          )}
+        </div>
       </section>
 
       {/* The library has its own page (it can grow to many skills); #skills stays as an anchor for old links. */}

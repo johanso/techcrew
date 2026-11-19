@@ -283,7 +283,7 @@ function ConfigForm({
                 ) : (
                   <>
                     No {PROVIDERS[provider].label} key yet:{" "}
-                    <Link href={`/dashboard/${workspaceId}/settings#keys`} className="font-medium text-brand-emphasis hover:underline">
+                    <Link href={`/dashboard/${workspaceId}/settings#ai`} className="font-medium text-brand-emphasis hover:underline">
                       add one in Settings
                     </Link>{" "}
                     to run this agent.
