@@ -8,8 +8,13 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-19
+
+Agents run the code: a sandbox for tests and builds, a live preview of each pull request that the Tester tries in a
+browser, AI keys on your account and OpenRouter as a third company.
+
 ### Added
-- **Live previews of agent pull requests** (v0.6 milestone 2): with Settings → Sandbox → Previews on, each agent PR
+- **Live previews of agent pull requests**: with Settings → Sandbox → Previews on, each agent PR
   gets its app running at `https://pr-<n>-<random>.<SANDBOX_PREVIEW_DOMAIN>` once CI passes, served with HTTPS by Caddy
   on the sandbox host. The preview has no internet and stops when the PR is merged or closed, the run is stopped or
   replaced, or after 2 hours. **View preview** on the card's ⋯ menu and on the Pull Requests page. The preview command
@@ -30,7 +35,7 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   available.
 - **Spending this month** across every project (Settings → Your account): the total, by project and by agent. Each
   project keeps its own spend on its AI Team page.
-- **Agent sandbox** (v0.6 milestone 1): with Settings → Sandbox on, the Developer and the Tester run the repository's
+- **Agent sandbox**: with Settings → Sandbox on, the Developer and the Tester run the repository's
   tests, build or one command (`run_tests`, `run_build`, `run_command`) on the branch's latest commit, in throwaway gVisor
   containers on a Docker host. Dependencies install with network; the code runs without. The Developer fixes what fails
   before review; the Tester runs the tests itself. Commands are detected from `package.json` and editable; **Test the
@@ -239,7 +244,8 @@ takes a card from analysis to a merged pull request, with cost, trust and human 
   budget mid-run, Draft with AI with a real key, automatic provider switch.
 - Switch shows caps but not spend until usage is reported through the Switch SDK.
 
-[Unreleased]: https://github.com/jricardomillion/techcrew/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/jricardomillion/techcrew/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.5.0
 [0.4.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.4.0
 [0.3.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.3.0
 [0.2.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.2.0

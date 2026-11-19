@@ -1,7 +1,7 @@
 # Project status
 
 Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-19**
-(release **v0.4.0** on `main`, plus the sandbox (PR #12), account settings (PRs #13, #14) and OpenRouter (PR #15), towards v0.6). For what has been tested and how to test the agents, see [testing.md](testing.md).
+(release **v0.5.0**: sandbox, PR previews with the Tester's browser, account keys, OpenRouter). For what has been tested and how to test the agents, see [testing.md](testing.md).
 
 - [Feature status](#feature-status)
 - [Dummy data and placeholders](#dummy-data-and-placeholders)
@@ -45,7 +45,7 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | AI keys on the account, company and model per agent | ✅ Real (one account key serves every project; agents can mix OpenAI, Anthropic and OpenRouter; mixed run 50 with OpenAI + OpenRouter, Anthropic not in a mix yet) | `lib/ai-keys.ts`, `components/ai-team/agent-config-dialog.tsx` |
 | OpenRouter (Google, DeepSeek, Z.ai, xAI, Moonshot models) | ✅ Real: all 10 models answer a strict tool call; live mixed run 50 (Developer DeepSeek V4 Pro, Tester DeepSeek V4.1 Flash, the rest OpenAI; $0.091, PR ready). Out of credit not tried live | `lib/openrouter.ts`, `lib/agent-loop.ts` |
 | Agent sandbox (run tests, build, commands) | ✅ Real, verified live (run 49 on techteam-sandbox-demo, $0.17) | `lib/sandbox/`, `deploy/setup.sh`, [sandbox.md](sandbox.md) |
-| PR previews and the Tester's browser (v0.6 milestone 2) | ✅ Real: live run 51 (SAN-3, $0.185): preview over HTTPS after CI, the Tester browsed it on desktop and mobile with screenshots; firewall rule applied on the VPS | `lib/sandbox/preview.ts`, `lib/sandbox/browser.ts`, `deploy/browser/` |
+| PR previews and the Tester's browser | ✅ Real: live run 51 (SAN-3, $0.185): preview over HTTPS after CI, the Tester browsed it on desktop and mobile with screenshots; firewall rule applied on the VPS | `lib/sandbox/preview.ts`, `lib/sandbox/browser.ts`, `deploy/browser/` |
 | Landing page `/` | ➖ None: redirects to the dashboard or sign-in | `app/page.tsx` |
 
 ## Dummy data and placeholders
@@ -67,7 +67,7 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 - **No undo** for Remove task (the row is kept, but there's no UI to restore it).
 - **Agents run code only with the sandbox on** (Settings → Sandbox, a Docker host from `deploy/setup.sh`): then the
   Developer and the Tester run the tests, the build and one-line commands. Without it they verify statically and
-  rely on CI. Node images only, and no browser yet (previews and UI checks are milestone 2). The Developer still
+  rely on CI. Node images only. With previews on, the Tester also tries the PR's preview in a headless browser; real devices, email and payments stay manual checks. The Developer still
   edits through the GitHub API.
 - **One commit per file edit** on agent branches (contents API); merges are squashed, so `main` gets one commit.
 - **Reviews are posted as comments**, not approvals: GitHub doesn't let the token's own account approve its own PR.
@@ -100,18 +100,19 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 ## Suggested next steps
 
 The plan lives in [roadmap.md](roadmap.md): smarter gates and the live process are done (v0.2), agent skills (v0.3), and
-CI in the loop with a Metrics page (v0.4). Mixed model companies per agent, account-level keys and OpenRouter as a
-third company landed early (2026-11-19), and the sandbox's first milestone (run code) is done. Next: v0.6 previews with a browser for the Tester
-and a Designer agent, deploy and hardening (v0.5), and a shared project memory (v0.7).
+CI in the loop with a Metrics page (v0.4), and the sandbox with PR previews, the Tester's browser, account keys and
+OpenRouter (v0.5). Next: v0.7, the Designer agent and the sandbox's loose ends (the owner's pick for the next session);
+v0.6, deploying TechTeam itself on the VPS so nothing runs on a laptop; then v0.8, a shared project memory.
 
 ## History
 
 | Commit | Change |
 | --- | --- |
-| `feat/sandbox-preview` | v0.6 milestone 2: PR previews over HTTPS on the sandbox host (Caddy, migrations 0011–0012), the Tester's headless browser (`browse_preview`) with screenshots in the agent log, a ufw rule keeping containers off the host's services. Built by two parallel agents on one shared contract. |
+| `v0.5.0` | **Fifth release**: the sandbox (PR #12), account keys and a company per agent (#13, #14), OpenRouter (#15, #16) and previews with the Tester's browser. Next: v0.7 Designer agent and sandbox polish, or v0.6 deploy. |
+| `feat/sandbox-preview` | Sandbox milestone 2: PR previews over HTTPS on the sandbox host (Caddy, migrations 0011–0012), the Tester's headless browser (`browse_preview`) with screenshots in the agent log, a ufw rule keeping containers off the host's services. Built by two parallel agents on one shared contract. |
 | `feat/openrouter` | OpenRouter as a third AI company (Google, DeepSeek, Z.ai, xAI, Moonshot; 10 models, routed only to hosts that keep no data), model tiers so a company move keeps the tier, failover to the first other company with a key; live run 50 ($0.091). |
 | `feat/account-settings` | AI keys on the account (migration 0010) with optional workspace keys, spending this month across projects, company and model per agent (no team-wide provider switch), Settings regrouped into Your account / This workspace, one Settings item in the account menu. |
-| `feat/sandbox` | v0.6 milestone 1: agent sandbox (`run_tests`, `run_build`, `run_command` in gVisor containers on a VPS, migration 0009), Settings → Sandbox, `deploy/setup.sh`; first live run (run 49, $0.17). |
+| `feat/sandbox` | Sandbox milestone 1: agent sandbox (`run_tests`, `run_build`, `run_command` in gVisor containers on a VPS, migration 0009), Settings → Sandbox, `deploy/setup.sh`; first live run (run 49, $0.17). |
 | `8d05f34` | Auth (email + social), workspace onboarding with GitHub repo linking, theme tokens, AGENTS.md. |
 | `7bcf7a6` | Dashboard shell with collapsible sidebar and workspace-scoped routes. |
 | `2457df6` | Visual redesign: flat, tinted surfaces, Plus Jakarta Sans. |
