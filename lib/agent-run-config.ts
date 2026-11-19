@@ -74,6 +74,8 @@ export const TOOL_LABEL: Record<string, string> = {
   run_tests: "Ran the tests",
   run_build: "Ran the build",
   run_command: "Ran",
+  // Not an agent's call: the pipeline starts the PR's preview after the CI gate (lib/sandbox/preview.ts).
+  preview: "Preview",
 };
 
 export const RUN_STATUSES = [
@@ -187,6 +189,8 @@ export type BoardCardRun = {
   pullRequest: { number: number; url: string } | null;
   /** CI on the current round's push ("waiting" while the gate holds the card in development); null before the PR. */
   ci: CiState | null;
+  /** The public URL of the run's preview while it's running (Settings → Sandbox → Previews), else null. */
+  preview: string | null;
 };
 
 // ── Risk and merging ───────────────────────────────────────────────────────────

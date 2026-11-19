@@ -8,15 +8,21 @@ import type { AgentStage } from "@/lib/agent-run-config";
 /** Stages that get the sandbox tools (with `tests.run`): the Developer's and the Tester's. */
 export const SANDBOX_STAGES: readonly AgentStage[] = ["development", "testing"];
 
-export const SANDBOX_COMMAND_KINDS = ["install", "test", "build"] as const;
+export const SANDBOX_COMMAND_KINDS = ["install", "test", "build", "preview"] as const;
 export type SandboxCommandKind = (typeof SANDBOX_COMMAND_KINDS)[number];
-/** Shell commands run at the repository root. Null: the repository has nothing to run for that step. */
+/**
+ * Shell commands run at the repository root. Null: the repository has nothing to run for that step. `preview` builds
+ * and serves the app on PREVIEW_PORT (it gets PORT and HOST) for a pull request's preview.
+ */
 export type SandboxCommands = Record<SandboxCommandKind, string | null>;
+/** What workspaces.sandbox_commands holds: rows saved before previews have no `preview`. */
+export type StoredSandboxCommands = Omit<SandboxCommands, "preview"> & { preview?: string | null };
 
 export const SANDBOX_COMMAND_LABEL: Record<SandboxCommandKind, string> = {
   install: "Install dependencies",
   test: "Run the tests",
   build: "Build",
+  preview: "Serve a preview",
 };
 
 export const SANDBOX_COMMAND_MAX = 300;
@@ -25,10 +31,27 @@ export const SANDBOX_TIMEOUT_SECONDS = 300;
 /** Characters of output an agent gets back: the end, where test runners and compilers print their failures. */
 export const SANDBOX_OUTPUT_MAX = 12_000;
 
-const NO_COMMANDS: SandboxCommands = { install: null, test: null, build: null };
+const NO_COMMANDS: SandboxCommands = { install: null, test: null, build: null, preview: null };
 
 // `npm init` writes this test script; it only ever fails.
 const NPM_PLACEHOLDER_TEST = /no test specified/i;
+
+const recordOf = (value: unknown): Record<string, unknown> => (value && typeof value === "object" ? (value as Record<string, unknown>) : {});
+
+/**
+ * How to serve a preview on PREVIEW_PORT, from what the package depends on: Next.js (`next start`) or Vite
+ * (`vite preview`) after the build, else the start script (it gets PORT and HOST), built first when there's a build.
+ * Binaries come from node_modules (`npx --no` never downloads): a preview has no network.
+ */
+function detectPreview(scripts: Record<string, unknown>, dependencies: Record<string, unknown>) {
+  const build = typeof scripts.build === "string";
+  if ("next" in dependencies) return `${build ? "npm run build" : "npx --no next build"} && npx --no next start -H 0.0.0.0 -p ${PREVIEW_PORT}`;
+  if ("vite" in dependencies) {
+    return `${build ? "npm run build" : "npx --no vite build"} && npx --no vite preview --host 0.0.0.0 --port ${PREVIEW_PORT} --strictPort`;
+  }
+  if (typeof scripts.start === "string") return build ? "npm run build && npm start" : "npm start";
+  return null;
+}
 
 /**
  * Commands for a Node repository, from its root package.json and the lockfiles at the root. Tests and builds go
@@ -37,11 +60,11 @@ const NPM_PLACEHOLDER_TEST = /no test specified/i;
 export function detectCommands(packageJson: string | null, rootFiles: readonly string[]): SandboxCommands {
   if (packageJson === null) return NO_COMMANDS;
   let scripts: Record<string, unknown> = {};
+  let dependencies: Record<string, unknown> = {};
   try {
-    const parsed: unknown = JSON.parse(packageJson);
-    if (parsed && typeof parsed === "object" && "scripts" in parsed && parsed.scripts && typeof parsed.scripts === "object") {
-      scripts = parsed.scripts as Record<string, unknown>;
-    }
+    const parsed = recordOf(JSON.parse(packageJson));
+    scripts = recordOf(parsed.scripts);
+    dependencies = { ...recordOf(parsed.devDependencies), ...recordOf(parsed.dependencies) };
   } catch {
     // Unparseable package.json: npm would fail the same way, so still offer the install.
   }
@@ -55,15 +78,24 @@ export function detectCommands(packageJson: string | null, rootFiles: readonly s
         : "npm install";
   const test = typeof scripts.test === "string" && !NPM_PLACEHOLDER_TEST.test(scripts.test) ? "npm test" : null;
   const build = typeof scripts.build === "string" ? "npm run build" : null;
-  return { install, test, build };
+  return { install, test, build, preview: detectPreview(scripts, dependencies) };
+}
+
+/** Saved commands, with `preview` null on rows saved before previews. Null when nothing valid is saved. */
+export function sandboxCommandsOf(value: unknown): SandboxCommands | null {
+  if (!value || typeof value !== "object") return null;
+  const saved = value as Record<string, unknown>;
+  const commands: SandboxCommands = { ...NO_COMMANDS };
+  for (const kind of SANDBOX_COMMAND_KINDS) {
+    const command = saved[kind] ?? null;
+    if (command !== null && typeof command !== "string") return null;
+    commands[kind] = command;
+  }
+  return commands;
 }
 
 export function isSandboxCommands(value: unknown): value is SandboxCommands {
-  if (!value || typeof value !== "object") return false;
-  return SANDBOX_COMMAND_KINDS.every((kind) => {
-    const command = (value as Record<string, unknown>)[kind];
-    return command === null || typeof command === "string";
-  });
+  return sandboxCommandsOf(value) !== null;
 }
 
 /** One command from a form: trimmed, a single line, within the limit. Empty means "nothing to run". */
@@ -96,6 +128,85 @@ export const PREVIEW_PORT = 4173;
 export function previewTarget(runId: number) {
   const name = `techteam-preview-run-${runId}`;
   return { container: name, network: name, internalUrl: `http://${name}:${PREVIEW_PORT}` };
+}
+
+/** A preview is stopped this long after it started (or restarted on a rework round). */
+export const PREVIEW_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+/** From launch until the server answers: installing, building and starting. Past it the preview has failed. */
+export const PREVIEW_READY_TIMEOUT_MS = 8 * 60 * 1000;
+
+export const PREVIEW_STATUSES = ["starting", "running", "failed", "stopped"] as const;
+export type PreviewStatus = (typeof PREVIEW_STATUSES)[number];
+
+/**
+ * agent_runs.preview: the run's preview, one per run. A rework round restarts it on the new commit under the same
+ * host; a new run on the same pull request gets a new host and stops the old one.
+ */
+export type RunPreview = {
+  status: PreviewStatus;
+  /** The public host, `pr-<n>-<6 random [a-z0-9]>.<SANDBOX_PREVIEW_DOMAIN>`: unguessable, never reused by another run. */
+  host: string;
+  prNumber: number;
+  /** The development round and the commit it serves. */
+  round: number;
+  sha: string;
+  startedAt: string;
+  readyAt: string | null;
+  endedAt: string | null;
+  /** Why it failed or stopped, in the app's words (never the repository's output). */
+  reason: string | null;
+};
+
+const PREVIEW_SLUG = /^[a-z0-9]{6}$/;
+const DOMAIN = /^(?=.{1,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
+export function isPreviewDomain(value: string) {
+  return DOMAIN.test(value);
+}
+
+/** `pr-12-k3x9ab.preview.example.com`. The slug is 6 random [a-z0-9] (lib/sandbox/preview.ts draws it). */
+export function previewHost(prNumber: number, slug: string, domain: string) {
+  if (!Number.isSafeInteger(prNumber) || prNumber < 1) throw new Error("A preview needs a pull request number.");
+  if (!PREVIEW_SLUG.test(slug)) throw new Error("A preview slug is 6 characters of [a-z0-9].");
+  if (!isPreviewDomain(domain)) throw new Error("SANDBOX_PREVIEW_DOMAIN isn't a domain name.");
+  return `pr-${prNumber}-${slug}.${domain}`;
+}
+
+export const previewUrl = (preview: Pick<RunPreview, "host">) => `https://${preview.host}`;
+
+/** A preview the app still holds resources for (container, network, volume). */
+export const isPreviewLive = (preview: Pick<RunPreview, "status">) => preview.status === "starting" || preview.status === "running";
+
+/** Live past PREVIEW_MAX_AGE_MS: the sweep stops it. */
+export function isPreviewExpired(preview: Pick<RunPreview, "status" | "startedAt">, now = Date.now()) {
+  return isPreviewLive(preview) && now - new Date(preview.startedAt).getTime() > PREVIEW_MAX_AGE_MS;
+}
+
+export function parseRunPreview(value: unknown): RunPreview | null {
+  if (!value || typeof value !== "object") return null;
+  const p = value as Record<string, unknown>;
+  const optionalText = (v: unknown) => v === null || typeof v === "string";
+  return (PREVIEW_STATUSES as readonly unknown[]).includes(p.status) &&
+    typeof p.host === "string" &&
+    typeof p.prNumber === "number" &&
+    typeof p.round === "number" &&
+    typeof p.sha === "string" &&
+    typeof p.startedAt === "string" &&
+    optionalText(p.readyAt) &&
+    optionalText(p.endedAt) &&
+    optionalText(p.reason)
+    ? (p as RunPreview)
+    : null;
+}
+
+/** The agent log's line for a preview: where it runs and how long it took, or why it failed. */
+export function previewLogSummary(preview: RunPreview) {
+  if (preview.status === "running") {
+    const took = preview.readyAt ? ` in ${formatDuration(new Date(preview.readyAt).getTime() - new Date(preview.startedAt).getTime())}` : "";
+    return `Running at ${previewUrl(preview)} (ready${took}, commit ${preview.sha.slice(0, 7)})`;
+  }
+  if (preview.status === "starting") return `Starting on commit ${preview.sha.slice(0, 7)}`;
+  return `${preview.status === "failed" ? "Failed" : "Stopped"}: ${preview.reason ?? "no reason given"}`;
 }
 
 export function formatDuration(ms: number) {

@@ -21,6 +21,8 @@ import type { ToolStep } from "@/lib/agent-tools";
 import type { BoardColumnId } from "@/lib/board-config";
 import { ciForRound, type CiResult } from "@/lib/ci-gate";
 import { removeRunSandbox } from "@/lib/sandbox";
+import { parseRunPreview, previewUrl } from "@/lib/sandbox/config";
+import { stopRunPreview } from "@/lib/sandbox/preview";
 
 /**
  * Agent runs: one pass of a card through the pipeline (lib/inngest/agent-run.ts). Callers authorize the workspace;
@@ -57,10 +59,13 @@ export async function updateRun(runId: number, patch: Partial<Omit<AgentRunRow, 
 
 /** A rerun replaces the card's earlier runs still waiting on a merge: their pull request now belongs to the new run. */
 export async function replaceWaitingRuns(taskId: number, newRunId: number) {
-  await db
+  const replaced = await db
     .update(agentRuns)
     .set({ status: "cancelled", error: "Replaced by a new run on the same pull request.", finishedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(agentRuns.taskId, taskId), eq(agentRuns.status, "awaiting_merge"), ne(agentRuns.id, newRunId)));
+    .where(and(eq(agentRuns.taskId, taskId), eq(agentRuns.status, "awaiting_merge"), ne(agentRuns.id, newRunId)))
+    .returning({ id: agentRuns.id });
+  // The new run starts its own preview after its CI gate; the old one goes now, in the background.
+  for (const { id } of replaced) void stopRunPreview(id, "Replaced by a new run on the same pull request.");
 }
 
 /**
@@ -85,6 +90,11 @@ export async function finishRun(runId: number, status: RunStatus, error: string 
   await updateRun(runId, { status, error, failure, ...(terminal ? { finishedAt: new Date() } : {}) });
   // No agent works on the run any more (a merge needs no sandbox): free its checkout in the background.
   void removeRunSandbox(runId);
+  // The preview outlives the run while its pull request waits (awaiting_merge) or stays open after a failure, until
+  // it's merged or closed or two hours pass; a stopped or merged run leaves nothing to look at.
+  if (status === "cancelled" || status === "completed") {
+    void stopRunPreview(runId, status === "cancelled" ? "The run was stopped." : "The pull request was merged.");
+  }
 }
 
 export async function addRunCost(runId: number, costMicros: number) {
@@ -105,6 +115,12 @@ export async function getActiveRun(workspaceId: number, taskId: number) {
   return row ?? null;
 }
 
+/** The public URL of a run's preview while it's running, else null. */
+export function runningPreviewUrl(value: unknown) {
+  const preview = parseRunPreview(value);
+  return preview?.status === "running" ? previewUrl(preview) : null;
+}
+
 /** Latest run of every task in the workspace, with its pull request, keyed by task id. */
 export async function getLatestRuns(workspaceId: number) {
   const rows = await db
@@ -117,6 +133,7 @@ export async function getLatestRuns(workspaceId: number) {
       failure: agentRuns.failure,
       ci: agentRuns.ci,
       reworkRounds: agentRuns.reworkRounds,
+      preview: agentRuns.preview,
       prNumber: pullRequests.number,
       prUrl: pullRequests.url,
     })
@@ -136,6 +153,7 @@ export async function getLatestRuns(workspaceId: number) {
       failure: row.failure ?? null,
       pullRequest: row.prNumber !== null && row.prUrl ? { number: row.prNumber, url: row.prUrl } : null,
       ci: ciForRound(row.ci, row.reworkRounds)?.state ?? null,
+      preview: runningPreviewUrl(row.preview),
     });
   }
   return byTask;
@@ -265,6 +283,18 @@ async function upsertSteps(rows: (typeof agentRunSteps.$inferInsert)[]) {
 /** One turn's tool calls, at fixed positions (seq 0, 1 …) so a retried Inngest step rewrites instead of duplicating. */
 export async function saveRunSteps(runId: number, at: StepPosition, steps: ToolStep[]) {
   await upsertSteps(steps.map((step, seq) => ({ runId, ...at, seq, ...step })));
+}
+
+/**
+ * The run's preview in the agent log: one row per development round, after that round's development stage (tool
+ * `preview`, the public host as target, a one-line summary; never the preview's output).
+ */
+export async function savePreviewStep(runId: number, round: number, step: ToolStep) {
+  const [last] = await db
+    .select({ turn: max(agentRunSteps.turn) })
+    .from(agentRunSteps)
+    .where(and(eq(agentRunSteps.runId, runId), eq(agentRunSteps.stage, "development"), eq(agentRunSteps.round, round)));
+  await upsertSteps([{ runId, stage: "development", round, turn: last?.turn ?? 1, seq: END_SEQ + 1, model: null, ...step }]);
 }
 
 /** How a stage ended: its result (ok) or why it stopped, with the stage's model spend. */

@@ -19,7 +19,15 @@ import {
 import { deleteUploadedSkill, inspectSkillUpload, installSkillUpload, setSkillAssignments, type InspectResult } from "@/lib/skill-install";
 import { normalizeInstanceUrl } from "@/lib/switch-trust-config";
 import { checkSandbox, sandboxAvailable } from "@/lib/sandbox";
-import { SANDBOX_COMMAND_KINDS, parseSandboxCommand, sandboxReport, type SandboxCommandKind, type SandboxCommands } from "@/lib/sandbox/config";
+import {
+  SANDBOX_COMMAND_KINDS,
+  parseSandboxCommand,
+  sandboxCommandsOf,
+  sandboxReport,
+  type SandboxCommandKind,
+  type SandboxCommands,
+} from "@/lib/sandbox/config";
+import { previewsAvailable } from "@/lib/sandbox/preview";
 import { getOwnedWorkspace, updateAgentAutomation, updateAutoFailover, updateSandbox } from "@/lib/workspaces";
 
 export type AutomationFormState = { ok?: boolean; message?: string; savedAt?: number };
@@ -65,13 +73,14 @@ export type SandboxFormState = {
   savedAt?: number;
 };
 
-/** Settings → Sandbox: whether agents may run code, and the install / test / build commands they run. */
+/** Settings → Sandbox: whether agents may run code, the commands they run, and whether pull requests get previews. */
 export async function saveSandboxAction(workspaceId: number, _prev: SandboxFormState, formData: FormData): Promise<SandboxFormState> {
   const workspace = await authorize(workspaceId);
   if (!workspace) return { message: "Workspace not found." };
 
   const enabled = formData.get("enabled") === "on";
-  const commands: SandboxCommands = { install: null, test: null, build: null };
+  const preview = formData.get("preview_enabled") === "on";
+  const commands: SandboxCommands = { install: null, test: null, build: null, preview: null };
   const errors: SandboxFormState["errors"] = {};
   for (const kind of SANDBOX_COMMAND_KINDS) {
     const parsed = parseSandboxCommand(formData.get(kind));
@@ -81,8 +90,13 @@ export async function saveSandboxAction(workspaceId: number, _prev: SandboxFormS
   if (Object.keys(errors).length) return { errors };
   if (enabled && !sandboxAvailable()) return { message: "This server has no sandbox host. Set SANDBOX_DOCKER_HOST." };
   if (enabled && !commands.test && !commands.build) return { message: "Add a test or a build command for the agents to run." };
+  if (preview) {
+    if (!previewsAvailable()) return { message: "This server can't serve previews. Set SANDBOX_DOCKER_HOST and SANDBOX_PREVIEW_DOMAIN." };
+    if (!enabled) return { message: "Previews run in the sandbox: switch it on too, or switch previews off." };
+    if (!commands.preview) return { errors: { preview: "Add the command that serves your app, or switch previews off." } };
+  }
 
-  await updateSandbox(workspace.id, { sandboxEnabled: enabled, sandboxCommands: commands });
+  await updateSandbox(workspace.id, { sandboxEnabled: enabled, sandboxCommands: commands, sandboxPreview: preview });
   revalidatePath(`/dashboard/${workspaceId}/settings`);
   revalidatePath(`/dashboard/${workspaceId}/ai-team`);
   return { ok: true, savedAt: Date.now() };
@@ -98,10 +112,11 @@ export async function checkSandboxAction(workspaceId: number): Promise<SandboxCh
   const workspace = await authorize(workspaceId);
   if (!workspace) return { ok: false, error: "Workspace not found." };
   if (!sandboxAvailable()) return { ok: false, error: "This server has no sandbox host. Set SANDBOX_DOCKER_HOST." };
-  if (!workspace.sandboxCommands) return { ok: false, error: "Save the commands first." };
+  const commands = sandboxCommandsOf(workspace.sandboxCommands);
+  if (!commands) return { ok: false, error: "Save the commands first." };
 
   try {
-    const run = await checkSandbox(workspace, workspace.sandboxCommands);
+    const run = await checkSandbox(workspace, commands);
     return { ok: true, passed: run.failedStep === null && !run.timedOut, headline: sandboxReport({ ...run, output: "" }), output: run.output };
   } catch (error) {
     console.error("Sandbox check failed", error);

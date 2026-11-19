@@ -4,11 +4,12 @@ import { and, desc, eq } from "drizzle-orm";
 
 import { agentRuns, db, pullRequests, tasks, workspaces, type PullRequestRow, type Workspace } from "@/db";
 import { RISK_LEVELS, isActiveRun, type RiskLevel, type RunStatus } from "@/lib/agent-run-config";
-import { finishRun, placeTask } from "@/lib/agent-runs";
+import { finishRun, placeTask, runningPreviewUrl } from "@/lib/agent-runs";
 import { getAgentRow, logAgentActivity, taskKeyPrefix } from "@/lib/agents";
 import { createAgentTask } from "@/lib/board";
 import { GithubError, createIssue, getCommitChecks, getGithubToken, getPullRequest, mergePullRequest } from "@/lib/github";
 import { notify } from "@/lib/notifications";
+import { stopPullRequestPreviews } from "@/lib/sandbox/preview";
 
 /**
  * Agent pull requests: merging (automatically after review + tests, or from the Pull Requests page), the tester's
@@ -85,6 +86,7 @@ async function completeMerge(workspace: PrWorkspace, pr: PullRequestRow) {
     .update(pullRequests)
     .set({ state: "merged", mergedAt: now, mergeError: null, updatedAt: now })
     .where(eq(pullRequests.id, pr.id));
+  await stopPullRequestPreviews(workspace.id, pr.number, "The pull request was merged.");
   if (pr.taskId) await placeTask(workspace.id, pr.taskId, "done", null);
   if (pr.runId) await finishRun(pr.runId, "completed");
   const tester = await getAgentRow(workspace.id, "tester");
@@ -102,6 +104,7 @@ async function completeMerge(workspace: PrWorkspace, pr: PullRequestRow) {
 
 async function closeWithoutMerge(pr: PullRequestRow) {
   await db.update(pullRequests).set({ state: "closed", updatedAt: new Date() }).where(eq(pullRequests.id, pr.id));
+  await stopPullRequestPreviews(pr.workspaceId, pr.number, "The pull request was closed.");
   if (pr.runId) {
     const [run] = await db.select({ status: agentRuns.status }).from(agentRuns).where(eq(agentRuns.id, pr.runId));
     if (run && (run.status === "awaiting_merge" || isActiveRun(run.status as RunStatus))) {
@@ -304,13 +307,15 @@ export type PullRequestView = {
   canMerge: boolean;
   task: { key: string; title: string } | null;
   runStatus: RunStatus | null;
+  /** The public URL of the run's preview while it's running, else null. */
+  previewUrl: string | null;
   createdAt: string;
   mergedAt: string | null;
 };
 
 export async function listPullRequests(workspace: Pick<Workspace, "id" | "name">): Promise<PullRequestView[]> {
   const rows = await db
-    .select({ pr: pullRequests, taskNumber: tasks.number, taskTitle: tasks.title, runStatus: agentRuns.status })
+    .select({ pr: pullRequests, taskNumber: tasks.number, taskTitle: tasks.title, runStatus: agentRuns.status, preview: agentRuns.preview })
     .from(pullRequests)
     .leftJoin(tasks, eq(tasks.id, pullRequests.taskId))
     .leftJoin(agentRuns, eq(agentRuns.id, pullRequests.runId))
@@ -318,7 +323,7 @@ export async function listPullRequests(workspace: Pick<Workspace, "id" | "name">
     .orderBy(desc(pullRequests.createdAt))
     .limit(100);
   const prefix = taskKeyPrefix(workspace.name);
-  return rows.map(({ pr, taskNumber, taskTitle, runStatus }) => ({
+  return rows.map(({ pr, taskNumber, taskTitle, runStatus, preview }) => ({
     id: pr.id,
     number: pr.number,
     url: pr.url,
@@ -333,6 +338,7 @@ export async function listPullRequests(workspace: Pick<Workspace, "id" | "name">
     canMerge: pr.state === "open" && pr.reviewStatus === "approved" && pr.testStatus === "passed",
     task: taskNumber !== null && taskTitle !== null ? { key: `${prefix}-${taskNumber}`, title: taskTitle } : null,
     runStatus: (runStatus as RunStatus | null) ?? null,
+    previewUrl: pr.state === "open" ? runningPreviewUrl(preview) : null,
     createdAt: pr.createdAt.toISOString(),
     mergedAt: pr.mergedAt?.toISOString() ?? null,
   }));

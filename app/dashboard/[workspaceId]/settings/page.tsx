@@ -22,6 +22,7 @@ import { getSkillLibrary } from "@/lib/agent-skills";
 import { ensureDefaultAgents, getAccountSpend } from "@/lib/agents";
 import { getProviderKeyViews } from "@/lib/ai-keys";
 import { detectRepoCommands, sandboxAvailable } from "@/lib/sandbox";
+import { previewsAvailable } from "@/lib/sandbox/preview";
 import { getSwitchConnectionView } from "@/lib/switch-trust";
 import { initials } from "@/lib/utils";
 import { getDashboardContext, listWorkspaces } from "@/lib/workspaces";
@@ -185,6 +186,8 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
             available={sandboxAvailable()}
             enabled={workspace.sandboxEnabled}
             saved={workspace.sandboxCommands}
+            previewsAvailable={previewsAvailable()}
+            previewEnabled={workspace.sandboxPreview}
             detected={detectedCommands}
           />
         </Suspense>
