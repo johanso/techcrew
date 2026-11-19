@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, use, useActionState, useState, useTransition } from "react";
-import { CheckIcon, CircleCheckIcon, CircleXIcon, PlayIcon, ServerOffIcon, TerminalIcon } from "lucide-react";
+import { AppWindowIcon, CheckIcon, CircleCheckIcon, CircleXIcon, PlayIcon, ServerOffIcon, TerminalIcon } from "lucide-react";
 
 import {
   checkSandboxAction,
@@ -17,22 +17,38 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { useFieldErrors } from "@/hooks/use-field-errors";
-import { SANDBOX_COMMAND_KINDS, SANDBOX_COMMAND_LABEL, type SandboxCommandKind, type SandboxCommands } from "@/lib/sandbox/config";
+import {
+  PREVIEW_PORT,
+  SANDBOX_COMMAND_KINDS,
+  SANDBOX_COMMAND_LABEL,
+  type SandboxCommandKind,
+  type SandboxCommands,
+  type StoredSandboxCommands,
+} from "@/lib/sandbox/config";
 
 type Values = Record<SandboxCommandKind, string>;
 
-const toValues = (commands: SandboxCommands | null): Values => ({
-  install: commands?.install ?? "",
-  test: commands?.test ?? "",
-  build: commands?.build ?? "",
-});
+/** The form's values: what's saved, else what package.json suggests (also for `preview` on rows saved before it). */
+const toValues = (saved: StoredSandboxCommands | null, detected: SandboxCommands | null = null): Values => {
+  const values = {} as Values;
+  for (const kind of SANDBOX_COMMAND_KINDS) {
+    values[kind] = (saved && kind in saved ? saved[kind] : detected?.[kind]) ?? "";
+  }
+  return values;
+};
+
+// The commands agents run; `preview` sits under the Previews switch.
+const AGENT_COMMAND_KINDS = SANDBOX_COMMAND_KINDS.filter((kind) => kind !== "preview");
 
 type SandboxFormProps = {
   workspaceId: number;
   /** The server has a sandbox host (SANDBOX_DOCKER_HOST). */
   available: boolean;
   enabled: boolean;
-  saved: SandboxCommands | null;
+  saved: StoredSandboxCommands | null;
+  /** The server can serve previews (a sandbox host and SANDBOX_PREVIEW_DOMAIN). */
+  previewsAvailable: boolean;
+  previewEnabled: boolean;
 };
 
 /** Settings → Sandbox, once the commands detected from package.json have loaded (null: package.json couldn't be read). */
@@ -64,17 +80,63 @@ export function SandboxFormSkeleton() {
   );
 }
 
-function SandboxForm({ workspaceId, available, enabled, saved, detected }: SandboxFormProps & { detected: SandboxCommands | null }) {
+function SandboxForm({
+  workspaceId,
+  available,
+  enabled,
+  saved,
+  detected,
+  previewsAvailable,
+  previewEnabled,
+}: SandboxFormProps & { detected: SandboxCommands | null }) {
   const [state, formAction, pending] = useActionState<SandboxFormState, FormData>(saveSandboxAction.bind(null, workspaceId), {});
   const { errorFor, onChange } = useFieldErrors(state);
   const [on, setOn] = useState(enabled);
-  const [values, setValues] = useState<Values>(() => toValues(saved ?? detected));
+  const [previewOn, setPreviewOn] = useState(previewEnabled);
+  const [values, setValues] = useState<Values>(() => toValues(saved, detected));
   const [checking, startCheck] = useTransition();
   const [check, setCheck] = useState<SandboxCheckResult | null>(null);
+  // Previews run in the sandbox: switching it off (or a server without previews) switches them off too.
+  const previews = on && previewOn && previewsAvailable;
 
   // Compared with what the server rendered, so "Saved" shows only until the next edit. Nothing saved yet: always savable.
   const savedValues = toValues(saved);
-  const dirty = !saved || on !== enabled || SANDBOX_COMMAND_KINDS.some((kind) => values[kind].trim() !== savedValues[kind]);
+  const dirty =
+    !saved || on !== enabled || previews !== previewEnabled || SANDBOX_COMMAND_KINDS.some((kind) => values[kind].trim() !== savedValues[kind]);
+
+  const commandField = (kind: SandboxCommandKind, hint?: React.ReactNode) => {
+    const error = errorFor(kind);
+    const found = detected?.[kind];
+    return (
+      <Field key={kind} data-invalid={!!error}>
+        <FieldLabel htmlFor={`sandbox-${kind}`}>{SANDBOX_COMMAND_LABEL[kind]}</FieldLabel>
+        <Input
+          id={`sandbox-${kind}`}
+          name={kind}
+          className="h-10 font-mono text-sm"
+          value={values[kind]}
+          onChange={(event) => setValues((current) => ({ ...current, [kind]: event.target.value }))}
+          placeholder={found ?? "Nothing to run"}
+          autoComplete="off"
+          spellCheck={false}
+          aria-invalid={!!error}
+        />
+        <FieldError>{error}</FieldError>
+        <FieldDescription>
+          {detected === null ? (
+            "Couldn't read package.json on the default branch."
+          ) : found ? (
+            <>
+              Detected from package.json: <code className="font-mono">{found}</code>
+            </>
+          ) : (
+            "Nothing detected. Leave it empty to skip this step."
+          )}
+          {hint}
+        </FieldDescription>
+      </Field>
+    );
+  };
 
   const runCheck = () =>
     startCheck(async () => {
@@ -89,6 +151,7 @@ function SandboxForm({ workspaceId, available, enabled, saved, detected }: Sandb
         event.preventDefault();
         const data = new FormData(event.currentTarget);
         data.set("enabled", on ? "on" : "off");
+        data.set("preview_enabled", previews ? "on" : "off");
         startTransition(() => formAction(data));
       }}
       onChange={onChange}
@@ -115,39 +178,45 @@ function SandboxForm({ workspaceId, available, enabled, saved, detected }: Sandb
         </p>
       )}
 
-      <div className="flex flex-col gap-4">
-        {SANDBOX_COMMAND_KINDS.map((kind) => {
-          const error = errorFor(kind);
-          const found = detected?.[kind];
-          return (
-            <Field key={kind} data-invalid={!!error}>
-              <FieldLabel htmlFor={`sandbox-${kind}`}>{SANDBOX_COMMAND_LABEL[kind]}</FieldLabel>
-              <Input
-                id={`sandbox-${kind}`}
-                name={kind}
-                className="h-10 font-mono text-sm"
-                value={values[kind]}
-                onChange={(event) => setValues((current) => ({ ...current, [kind]: event.target.value }))}
-                placeholder={found ?? "Nothing to run"}
-                autoComplete="off"
-                spellCheck={false}
-                aria-invalid={!!error}
-              />
-              <FieldError>{error}</FieldError>
-              <FieldDescription>
-                {detected === null ? (
-                  "Couldn't read package.json on the default branch."
-                ) : found ? (
-                  <>
-                    Detected from package.json: <code className="font-mono">{found}</code>
-                  </>
-                ) : (
-                  "Nothing detected. Leave it empty to skip this step."
-                )}
-              </FieldDescription>
-            </Field>
-          );
-        })}
+      <div className="flex flex-col gap-4">{AGENT_COMMAND_KINDS.map((kind) => commandField(kind))}</div>
+
+      <div className="flex flex-col gap-4 border-t border-border/70 pt-6">
+        <label className="flex cursor-pointer items-start gap-3">
+          <span className="icon-tile size-9 text-brand-emphasis [&_svg]:size-4">
+            <AppWindowIcon />
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="text-sm font-semibold">Previews of pull requests</span>
+            <span className="text-xs text-muted-foreground">
+              Once CI passes, each agent pull request gets a live preview at a private https address for two hours, so
+              the Tester and you can try the change. The preview has no network access and stops when the pull request
+              is merged or closed.
+            </span>
+          </span>
+          <Switch
+            checked={previews}
+            onCheckedChange={setPreviewOn}
+            disabled={!previewsAvailable || !on || pending}
+            aria-label="Previews of pull requests"
+            className="mt-1"
+          />
+        </label>
+        {!previewsAvailable ? (
+          <p className="flex items-start gap-2 text-xs text-muted-foreground">
+            <ServerOffIcon className="mt-0.5 size-3.5 shrink-0" />
+            This server has no preview domain (SANDBOX_PREVIEW_DOMAIN) or sandbox host, so previews can&apos;t be switched on.
+          </p>
+        ) : (
+          !on && <p className="text-xs text-muted-foreground">Previews run in the sandbox: switch it on first.</p>
+        )}
+        {commandField(
+          "preview",
+          <>
+            {" "}
+            It gets <code className="font-mono">PORT={PREVIEW_PORT}</code> and <code className="font-mono">HOST=0.0.0.0</code> and must
+            serve there.
+          </>
+        )}
       </div>
 
       <FormMessage message={state.message} />

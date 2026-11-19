@@ -44,7 +44,17 @@ import {
   type TestCheck,
   type TestReport,
 } from "@/lib/agent-run-config";
-import { addRunCost, finishRun, getRun, markStageRunning, placeTask, saveRunSteps, saveStageEnd, updateRun } from "@/lib/agent-runs";
+import {
+  addRunCost,
+  finishRun,
+  getRun,
+  markStageRunning,
+  placeTask,
+  savePreviewStep,
+  saveRunSteps,
+  saveStageEnd,
+  updateRun,
+} from "@/lib/agent-runs";
 import { getAgentSkills, promptSkills } from "@/lib/agent-skills";
 import { toolsFor, type ToolContext } from "@/lib/agent-tools";
 import {
@@ -82,6 +92,8 @@ import { agentLogHref, notify } from "@/lib/notifications";
 import { isOpenAIOutOfCredit } from "@/lib/openai";
 import { isOpenRouterOutOfCredit } from "@/lib/openrouter";
 import { sandboxAvailable } from "@/lib/sandbox";
+import { previewLogSummary, sandboxCommandsOf, type RunPreview } from "@/lib/sandbox/config";
+import { pollRunPreview, startRunPreview } from "@/lib/sandbox/preview";
 import { skillsPromptBlock } from "@/lib/skill-runtime";
 
 /**
@@ -697,7 +709,7 @@ export async function runStageTurn<S extends AgentStage>(input: {
     permissions,
     skills,
     // Read every turn too: switching the sandbox off in Settings applies from the next turn.
-    sandbox: ctx.workspace.sandboxEnabled && ctx.workspace.sandboxCommands && sandboxAvailable() ? { runId: input.runId, commands: ctx.workspace.sandboxCommands } : null,
+    sandbox: sandboxFor(ctx, input.runId),
   };
   const tools = toolsFor(toolContext);
   const model: AgentModelId = input.state?.model ?? activeAgentModel(row);
@@ -1298,6 +1310,52 @@ export async function recordTestReport(runId: number, report: TestReport, work: 
     );
   }
   return final;
+}
+
+function sandboxFor(ctx: RunContext, runId: number): ToolContext["sandbox"] {
+  const commands = sandboxCommandsOf(ctx.workspace.sandboxCommands);
+  return ctx.workspace.sandboxEnabled && commands && sandboxAvailable() ? { runId, commands } : null;
+}
+
+// ── Preview ────────────────────────────────────────────────────────────────────
+
+async function logPreview(preview: RunPreview & { status: "running" | "failed" }, runId: number) {
+  await savePreviewStep(runId, preview.round, {
+    tool: "preview",
+    target: preview.host,
+    ok: preview.status === "running",
+    summary: previewLogSummary(preview),
+  });
+}
+
+const isSettled = (preview: RunPreview | null): preview is RunPreview & { status: "running" | "failed" } =>
+  preview?.status === "running" || preview?.status === "failed";
+
+/**
+ * After the CI gate passed: starts the pull request's preview when the workspace has previews on (Settings → Sandbox).
+ * `polling` while it builds and starts. Never throws: a preview that can't start is logged, and the run goes on.
+ */
+export async function startPreview(runId: number): Promise<{ polling: boolean }> {
+  try {
+    const started = await startRunPreview(runId);
+    if (started.kind === "failed" && isSettled(started.preview)) await logPreview(started.preview, runId);
+    return { polling: started.kind === "starting" };
+  } catch (error) {
+    console.error("[preview] start failed", error);
+    return { polling: false };
+  }
+}
+
+/** One readiness check of the preview; true once it's running or failed (logged in the agent log either way). */
+export async function pollPreview(runId: number): Promise<boolean> {
+  try {
+    const { done, preview } = await pollRunPreview(runId);
+    if (done && isSettled(preview)) await logPreview(preview, runId);
+    return done;
+  } catch (error) {
+    console.error("[preview] poll failed", error);
+    return false;
+  }
 }
 
 // ── Merge hand-off ─────────────────────────────────────────────────────────────
