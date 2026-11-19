@@ -102,7 +102,9 @@ app/
                           answerCardAction (answer the analyst + run again), stopCardAction, mergeCardAction, switchProviderAndRetryAction (out of credit), getRunLogAction
                           (agent log), syncIssuesAction (also refreshes agent PRs) (auth + validation).
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
-      settings/           Account (#account), workspace (#workspace), AI providers (#ai: keys + provider switch), Switch
+      settings/           Your account: profile (#account), AI keys (#keys, every project), spending this month across
+                          projects (#usage). This workspace: workspace (#workspace), AI provider (#ai: provider switch +
+                          optional workspace keys), Switch
                           Trust (#switch), agent automation (#agents), Sandbox (#sandbox) and an Agent skills card (#skills) linking to
                           skills/page.tsx (the library on its own page). actions.ts: automation, saveSandboxAction /
                           checkSandboxAction (Test the sandbox),
@@ -129,7 +131,7 @@ components/
                           (ranked one-hue bars with printed values).
   settings/               agent-automation-form (task pickup + merge mode), provider-switch-form, auto-failover-toggle,
                           provider-key-form
-                          (masked key + show/hide), switch-connection-form (Switch Trust account), switch-weekly-toggle,
+                          (account or workspace scope; masked key + show/hide), account-spend (spending across projects), switch-connection-form (Switch Trust account), switch-weekly-toggle,
                           sandbox-form (Settings → Sandbox: switch, commands, Test the sandbox),
                           option-cards (radio
                           cards shared by the settings forms).
@@ -162,8 +164,9 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   current-user.ts         getCurrentUser() / requireUser(returnTo).
   github.ts               GitHub OAuth + REST + connection persistence.
   crypto.ts               encrypt / decrypt for secrets at rest.
-  ai-keys.ts              Workspace AI provider keys: getAIKeys (workspace key, else env), getProviderKeyViews (masked),
-                          verifyProviderKey, saveProviderKey / removeProviderKey (encrypted).
+  ai-keys.ts              AI provider keys: getAIKeys (owner's account key, else workspace key, else env; keyInUse),
+                          getProviderKeyViews (masked), verifyProviderKey, saveProviderKey / removeProviderKey (account
+                          or workspace scope, encrypted).
   storage.ts              S3 uploads/reads, logo limits.
   workspaces.ts           Workspace queries (always scoped by owner) + getDashboardContext().
   overview.ts             getOverviewData(): stats + upcoming tasks from getBoardData, recent work activity.
@@ -202,7 +205,8 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           scanAgentWithAI(), reviewSkillWithAI() (upload review + type/load/roles), isConfigAIAvailable().
   openai.ts               OpenAI client (null without a key), responseCostMicros().
   anthropic.ts            Anthropic client (null without a key), messageCostMicros(), toClaudeSchema().
-  agents.ts               Agents persistence: ensureDefaultAgents(), getAgentTeam(), getTeamOverview() (read-only: members +
+  agents.ts               Agents persistence: ensureDefaultAgents(), getAgentTeam(), getAccountSpend() (Settings: month spend
+                          across the owner's workspaces), getTeamOverview() (read-only: members +
                           runs in flight for the live process and the Overview),
                           updateAgentConfig(), refreshRuleTrust(), saveTrustScan(),
                           checkAgentCanRun(), logAgentActivity(), stage activity rows, agentMaxTurns(); getAgent(),
@@ -306,8 +310,9 @@ Where new code goes:
 
 **Secrets & external services**
 - GitHub tokens are stored only via `saveGithubConnection` (encrypted) and read only via `getGithubToken`. Never send a token, ciphertext or S3 key to the client.
-- AI provider keys are stored only via `saveProviderKey` (verified with the provider, encrypted) and read only via
-  `getAIKeys`. The client only ever gets `ProviderKeyView` (source + masked hint); the show/hide eye applies to what the
+- AI provider keys are stored only via `saveProviderKey` (verified with the provider, encrypted; on the account, used by
+  every workspace the user owns, or on one workspace, used only when the account has none) and read only via
+  `getAIKeys`. The client only ever gets `ProviderKeyView` (masked hints + the source in use); the show/hide eye applies to what the
   user is typing, never to a saved key. Model calls take the key as an argument (`openAIClient(key)`, `anthropicClient(key)`).
 - Uploaded files go to private S3 via `lib/storage.ts`. Allowed logo types: PNG, JPEG, WebP, GIF, ≤ 1 MB. No SVG (script risk).
 - Handle a GitHub `401` as "connection expired": prompt the user to reconnect.
@@ -701,7 +706,7 @@ See `.env.example` for the full list with comments. Feature-specific:
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Connecting GitHub on `/workspaces/new`. OAuth App callback: `<NEXT_PUBLIC_APP_URL>/api/github/callback`. |
 | `TOKEN_ENCRYPTION_KEY` | Encrypting GitHub tokens and AI provider keys (`openssl rand -base64 32`). Rotating it forces every user to reconnect GitHub and re-enter their AI keys. |
 | `S3_*` | Workspace logo uploads. Without them the upload button is disabled; icons still work. |
-| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Optional server-wide fallback for workspaces that haven't saved their own key in Settings → AI providers. |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Optional server-wide fallback when neither the owner's account (Settings → AI keys) nor the workspace has a key. |
 | `JOBS_API_URL`, `JOBS_API_KEY` | Cloudhike Jobs: runs SwitchAgent scans in the background. |
 | `PUBLIC_APP_URL` | The app's internet-reachable URL for callbacks (jobs, Switch evaluations); defaults to `NEXT_PUBLIC_APP_URL`. A tunnel in local dev. |
 | `SWITCH_AGENT_AI_API_KEY` | Optional server-wide Switch Trust key (Editor role) for workspaces that connect without their own. |

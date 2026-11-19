@@ -89,8 +89,31 @@ export const workspaces = pgTable(
 export type Workspace = typeof workspaces.$inferSelect;
 
 /**
- * A workspace's API key for an AI provider (Settings → AI providers). One per provider; without one, the server's
- * environment key is used. Kept out of `workspaces` so a workspace row passed around can never carry a secret.
+ * A user's API key for an AI provider (Settings → Your account → AI keys): every workspace they own uses it. One per
+ * provider. It wins over a workspace's own key (ai_provider_keys), which only covers a provider the account has no
+ * key for; the server's environment key comes last. Never select `api_key` into client-facing data.
+ */
+export const userAiKeys = pgTable(
+  "user_ai_keys",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    // AES-256-GCM ciphertext (lib/crypto.ts).
+    apiKey: text("api_key").notNull(),
+    // Masked form for display, e.g. "sk-ant-••••a1B2".
+    hint: text("hint").notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [unique("user_ai_keys_user_provider").on(table.userId, table.provider)]
+);
+
+/**
+ * A workspace's own API key for an AI provider (Settings → This project → AI providers), optional: used only when
+ * the owner's account has no key for that provider (user_ai_keys wins). Kept out of `workspaces` so a workspace row
+ * passed around can never carry a secret.
  */
 export const aiProviderKeys = pgTable(
   "ai_provider_keys",

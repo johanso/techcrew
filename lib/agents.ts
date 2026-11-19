@@ -219,6 +219,45 @@ export async function monthSpendMicros(agentId: number) {
   return row?.total ?? 0;
 }
 
+export type AccountSpend = {
+  /** First day of the month (UTC), ISO. */
+  monthStart: string;
+  totalMicros: number;
+  /** Every workspace the user owns, biggest spend first (zero included). */
+  byWorkspace: { id: number; name: string; micros: number }[];
+  /** Per agent role across all workspaces, biggest first. */
+  byAgent: { key: AgentKey; micros: number }[];
+};
+
+/** Settings → Your account: this month's model spend across every workspace the user owns. */
+export async function getAccountSpend(userId: number): Promise<AccountSpend> {
+  const { start } = monthWindow();
+  const [owned, rows] = await Promise.all([
+    db.select({ id: workspaces.id, name: workspaces.name }).from(workspaces).where(eq(workspaces.ownerId, userId)),
+    db
+      .select({
+        workspaceId: agentActivity.workspaceId,
+        key: agents.key,
+        // float8: a sum over many projects can pass int's $2,147.
+        micros: sql<number>`coalesce(sum(${agentActivity.costMicros}), 0)::float8`,
+      })
+      .from(agentActivity)
+      .innerJoin(workspaces, eq(workspaces.id, agentActivity.workspaceId))
+      .innerJoin(agents, eq(agents.id, agentActivity.agentId))
+      .where(and(eq(workspaces.ownerId, userId), gte(agentActivity.createdAt, start)))
+      .groupBy(agentActivity.workspaceId, agents.key),
+  ]);
+  const sum = (filter: (row: (typeof rows)[number]) => boolean) => rows.filter(filter).reduce((total, row) => total + Number(row.micros), 0);
+  return {
+    monthStart: start.toISOString(),
+    totalMicros: sum(() => true),
+    byWorkspace: owned.map((w) => ({ ...w, micros: sum((row) => row.workspaceId === w.id) })).sort((a, b) => b.micros - a.micros),
+    byAgent: AGENT_KEYS.map((key) => ({ key, micros: sum((row) => row.key === key) }))
+      .filter((row) => row.micros > 0)
+      .sort((a, b) => b.micros - a.micros),
+  };
+}
+
 // ── Page data ──────────────────────────────────────────────────────────────────
 
 export type AgentStatus = "ready" | "working" | "paused" | "over_budget";

@@ -459,16 +459,26 @@ Security), Approval (Lead), Testing, Merge (automatic, no agent).
 
 ## Settings
 
-`/dashboard/[workspaceId]/settings` (also reachable from the user menu, which jumps to `#account`, `#workspace` or `#ai`; its Agent skills item opens `/settings/skills`):
+`/dashboard/[workspaceId]/settings` (also reachable from the user menu, which jumps to `#account`, `#workspace` or `#ai`; its Agent skills item opens `/settings/skills`).
+Two groups: **Your account** (applies to every project you own) and **This workspace**.
+
+Your account:
 - **Account** — avatar, name, verified-email badge, email, member since, last sign-in, account id.
+- **AI keys** (`#keys`) — one OpenAI and one Anthropic key for every project you own: status (Connected with the
+  masked key, Using the server's key, or Not connected), a password field with a show/hide eye, **Save key** /
+  **Replace key** (checked with the provider first) and **Remove** (confirmation). The account's key always wins over a
+  workspace's own key.
+- **Spending this month** (`#usage`) — model spend across every project this calendar month (UTC): the total, ranked
+  bars by project and by agent. Each project's own spend stays on its AI Team page.
+
+This workspace:
 - **Workspace** — avatar, name, repository, default branch, visibility, creation date, **Open repository**.
-- **AI providers** (`#ai`) — **Agents work on** OpenAI or Anthropic: each agent then picks its model from that company on
+- **AI provider** (`#ai`) — **Agents work on** OpenAI or Anthropic: each agent then picks its model from that company on
   the AI Team page and remembers one per company, so switching back restores those choices. The first time, each agent
   gets the closest model (GPT-6.1 Sol ↔ Claude Sonnet 5.5, GPT-6 Astra ↔ Claude Opus 5.5, GPT-6 Luna ↔ Claude Haiku 5.5;
-  Terra → Sonnet). Every change is logged on the agent; a company without a key can't be chosen. Below, one key field per
-  provider: status (Connected with the masked key, Using the server's key, or Not connected), a password field with a
-  show/hide eye, **Save key** / **Replace key** (checked with the provider first; errors stay next to the field) and
-  **Remove** (confirmation dialog). The AI Team's "No AI provider connected" chip links here.
+  Terra → Sonnet). Every change is logged on the agent; a company without a key can't be chosen. Below, **Workspace
+  keys (optional)**: the same key fields, used only for a company your account has no key for (the status says when
+  the account's key is used instead). The AI Team's "No AI provider connected" chip links here.
 - **Switch automatically when out of credit** (`#ai`, toggle, off by default) — see [Out of credit](#out-of-credit).
   Needs a key for both companies to do anything.
 - **Switch Trust** (`#switch`) — connect the workspace's Switch account: API key (masked, show/hide), instance URL,

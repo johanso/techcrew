@@ -33,6 +33,11 @@ async function authorize(workspaceId: number) {
   return getOwnedWorkspace(user.id, workspaceId);
 }
 
+// Where a key is saved: the user's account (every workspace they own) or this workspace only.
+const KEY_SCOPES = ["account", "workspace"] as const;
+export type KeyScopeName = (typeof KEY_SCOPES)[number];
+const isKeyScope = (value: unknown): value is KeyScopeName => KEY_SCOPES.includes(value as never);
+
 // Provider changes show on the AI Team page too (model picker, "not connected" labels, agent models).
 function refresh(workspaceId: number) {
   revalidatePath(`/dashboard/${workspaceId}/settings`);
@@ -141,18 +146,21 @@ export async function switchProviderAction(workspaceId: number, _prev: ProviderS
 export type ProviderKeyState = { ok?: boolean; errors?: { apiKey?: string }; message?: string; savedAt?: number; scansQueued?: number };
 
 /**
- * Saves a workspace API key after checking it with the provider. The key is encrypted at rest and never sent back:
- * the form only ever shows its masked hint. Bound to the workspace id and provider (validated: bound args are input too).
+ * Saves an API key after checking it with the provider: on the account (every workspace the user owns) or on this
+ * workspace only. The key is encrypted at rest and never sent back: the form only ever shows its masked hint. Bound
+ * to the workspace id, provider and scope (validated: bound args are input too).
  */
 export async function saveProviderKeyAction(
   workspaceId: number,
   provider: unknown,
+  scope: unknown,
   _prev: ProviderKeyState,
   formData: FormData
 ): Promise<ProviderKeyState> {
   const workspace = await authorize(workspaceId);
   if (!workspace) return { message: "Workspace not found." };
   if (!isAgentProvider(provider)) return { message: "Unknown provider." };
+  if (!isKeyScope(scope)) return { message: "Unknown key scope." };
 
   const raw = formData.get("apiKey");
   const key = typeof raw === "string" ? raw.trim() : "";
@@ -163,7 +171,7 @@ export async function saveProviderKeyAction(
   if (!verified.ok) return { errors: { apiKey: verified.error } };
 
   try {
-    await saveProviderKey(workspace.id, provider, key);
+    await saveProviderKey(scope === "account" ? { userId: workspace.ownerId } : { workspaceId: workspace.id }, provider, key);
   } catch (error) {
     console.error("[settings] key save failed", error);
     return { message: "We couldn't save the key. Please try again." };
@@ -175,21 +183,32 @@ export async function saveProviderKeyAction(
     const scans = await requestSwitchScans({ workspaceId: workspace.id, trigger: "connected", userId: user.id });
     if (scans.ok) scansQueued = scans.queued;
   }
-  refresh(workspaceId);
+  refreshKeys(workspaceId, scope);
   return { ok: true, savedAt: Date.now(), scansQueued };
 }
 
-export async function removeProviderKeyAction(workspaceId: number, provider: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
+// An account key serves every workspace the user owns: refresh all their dashboards.
+function refreshKeys(workspaceId: number, scope: KeyScopeName) {
+  if (scope === "account") revalidatePath("/dashboard", "layout");
+  else refresh(workspaceId);
+}
+
+export async function removeProviderKeyAction(
+  workspaceId: number,
+  provider: unknown,
+  scope: unknown
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const workspace = await authorize(workspaceId);
   if (!workspace) return { ok: false, error: "Workspace not found." };
   if (!isAgentProvider(provider)) return { ok: false, error: "Unknown provider." };
+  if (!isKeyScope(scope)) return { ok: false, error: "Unknown key scope." };
   try {
-    await removeProviderKey(workspace.id, provider);
+    await removeProviderKey(scope === "account" ? { userId: workspace.ownerId } : { workspaceId: workspace.id }, provider);
   } catch (error) {
     console.error("[settings] key remove failed", error);
     return { ok: false, error: "We couldn't remove the key. Please try again." };
   }
-  refresh(workspaceId);
+  refreshKeys(workspaceId, scope);
   return { ok: true };
 }
 

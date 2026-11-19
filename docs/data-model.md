@@ -7,6 +7,7 @@ The hosted auth service keeps identities elsewhere (its own `auth` schema); the 
 - [users](#users)
 - [github_connections](#github_connections)
 - [workspaces](#workspaces)
+- [user_ai_keys](#user_ai_keys)
 - [ai_provider_keys](#ai_provider_keys)
 - [tasks](#tasks)
 - [agents](#agents)
@@ -27,6 +28,7 @@ The hosted auth service keeps identities elsewhere (its own `auth` schema); the 
 erDiagram
     users ||--o| github_connections : "has (0..1)"
     users ||--o{ workspaces : owns
+    users ||--o{ user_ai_keys : "AI keys (one per provider)"
     users ||--o{ tasks : "created (nullable)"
     workspaces ||--o{ tasks : contains
     workspaces ||--o{ agents : "has (6)"
@@ -215,10 +217,25 @@ A workspace is bound to **exactly one** GitHub repository, chosen at creation. O
 The repository metadata is captured once. If the repo is renamed or its default branch changes on GitHub, these
 columns aren't updated (yet).
 
+## user_ai_keys
+
+A user's API key per AI provider (Settings → Your account → AI keys), used by every workspace they own. It wins over a
+workspace's own key; the server's environment key comes last (`keyInUse` in `lib/ai-keys.ts`). Migration 0010 moved
+every workspace key here (the newest per owner and provider) and deleted the workspace copies.
+
+| Column | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | serial | no | Primary key. |
+| `user_id` | integer | no | → `users.id`, cascade. **Unique with `provider`.** |
+| `provider` | text | no | `openai` or `anthropic`. |
+| `api_key` | text | no | **Encrypted** with AES-256-GCM (`lib/crypto.ts`). Only `getAIKeys()` decrypts it; never send it to the client. |
+| `hint` | text | no | Masked key for display, e.g. `sk-ant-••••a1B2`. |
+| `updated_at` | timestamp | no | |
+
 ## ai_provider_keys
 
-A workspace's API key per AI provider (Settings → AI providers). Separate from `workspaces` so a workspace row never
-carries a secret. Without a row, the server's environment key is used.
+A workspace's own API key per AI provider (Settings → This workspace → AI provider), optional: used only for a provider
+the owner's account has no key for. Separate from `workspaces` so a workspace row never carries a secret.
 
 | Column | Type | Null | Notes |
 | --- | --- | --- | --- |
