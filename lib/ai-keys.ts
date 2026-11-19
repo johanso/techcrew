@@ -5,13 +5,14 @@ import OpenAI from "openai";
 import { and, eq } from "drizzle-orm";
 
 import { aiProviderKeys, db, userAiKeys, workspaces } from "@/db";
-import { PROVIDERS, type AgentProvider, type ProviderStatus } from "@/lib/agent-config";
+import { PROVIDER_IDS, PROVIDERS, type AgentProvider, type ProviderStatus } from "@/lib/agent-config";
 import { decrypt, encrypt } from "@/lib/crypto";
+import { checkOpenRouterKey } from "@/lib/openrouter";
 
 /**
  * AI provider keys. The owner's account key (Settings → Your account) wins, so one key serves every project; a
  * project's own key only covers a provider the account has no key for; the server environment's key
- * (OPENAI_API_KEY / ANTHROPIC_API_KEY) comes last. Keys are encrypted at rest and never sent to the client: the UI
+ * (OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENROUTER_API_KEY) comes last. Keys are encrypted at rest and never sent to the client: the UI
  * only ever sees `hint`.
  */
 
@@ -31,8 +32,12 @@ export type ProviderKeyView = {
   inUse: KeySource | null;
 };
 
-const ENV_KEY: Record<AgentProvider, string> = { openai: "OPENAI_API_KEY", anthropic: "ANTHROPIC_API_KEY" };
-const envKey = (provider: AgentProvider) => process.env[ENV_KEY[provider]] || null;
+const envKey = (provider: AgentProvider) => process.env[PROVIDERS[provider].envVar] || null;
+
+/** One value per provider, in PROVIDER_IDS order. */
+function perProvider<T>(value: (provider: AgentProvider) => T): Record<AgentProvider, T> {
+  return Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, value(provider)])) as Record<AgentProvider, T>;
+}
 
 type KeyRow = { provider: string; apiKey: string; hint: string; updatedAt: Date };
 
@@ -56,7 +61,7 @@ async function keyRows(userId: number, workspaceId: number | null) {
 /** The keys agents and AI helpers of this workspace use (its owner's account keys first). */
 export async function getAIKeys(workspaceId: number): Promise<AIKeys> {
   const [owner] = await db.select({ id: workspaces.ownerId }).from(workspaces).where(eq(workspaces.id, workspaceId));
-  if (!owner) return { openai: envKey("openai"), anthropic: envKey("anthropic") };
+  if (!owner) return perProvider(envKey);
   const rows = await keyRows(owner.id, workspaceId);
   const key = (provider: AgentProvider) => {
     const find = (list: KeyRow[]) => list.find((r) => r.provider === provider)?.apiKey ?? null;
@@ -64,11 +69,11 @@ export async function getAIKeys(workspaceId: number): Promise<AIKeys> {
     if (!used) return null;
     return used.source === "environment" ? used.key : decrypt(used.key);
   };
-  return { openai: key("openai"), anthropic: key("anthropic") };
+  return perProvider(key);
 }
 
 export function keyStatus(keys: AIKeys): ProviderStatus {
-  return { openai: Boolean(keys.openai), anthropic: Boolean(keys.anthropic) };
+  return perProvider((provider) => Boolean(keys[provider]));
 }
 
 /** What Settings shows per provider: which keys are saved (masked) and which one is used, never a key. */
@@ -84,12 +89,12 @@ export async function getProviderKeyViews(userId: number, workspaceId: number | 
     const environment = envKey(provider) !== null;
     return { account, workspace, environment, inUse: keyInUse<unknown>({ account, workspace, environment: environment || null })?.source ?? null };
   };
-  return { openai: view("openai"), anthropic: view("anthropic") };
+  return perProvider(view);
 }
 
 /** "sk-ant-api03-…xyz" → "sk-ant-••••xyz1": enough to recognize a key, useless to anyone who sees it. */
 export function maskKey(key: string) {
-  const prefix = key.match(/^(sk-ant-|sk-proj-|sk-)/)?.[0] ?? "";
+  const prefix = key.match(/^(sk-ant-|sk-proj-|sk-or-v1-|sk-)/)?.[0] ?? "";
   return `${prefix}••••${key.slice(-4)}`;
 }
 
@@ -100,7 +105,10 @@ export function maskKey(key: string) {
 export async function verifyProviderKey(provider: AgentProvider, key: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const name = PROVIDERS[provider].label;
   try {
-    if (provider === "openai") {
+    if (provider === "openrouter") {
+      // Its model list is public, so it proves nothing about the key: ask about the key itself.
+      if ((await checkOpenRouterKey(key)) === "rejected") return { ok: false, error: `${name} rejected this key. Check that you copied all of it.` };
+    } else if (provider === "openai") {
       await new OpenAI({ apiKey: key, maxRetries: 0, timeout: 15_000 }).models.list();
     } else {
       await new Anthropic({ apiKey: key, maxRetries: 0, timeout: 15_000 }).models.list({ limit: 1 });

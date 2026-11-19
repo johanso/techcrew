@@ -36,7 +36,7 @@ export async function updateAgentAutomation(workspaceId: number, values: { agent
     .where(eq(workspaces.id, workspaceId));
 }
 
-/** Settings → AI providers: switch to the other company on its own when the current one runs out of credit. */
+/** Settings → AI providers: switch to another company on its own when the current one runs out of credit. */
 export async function updateAutoFailover(workspaceId: number, enabled: boolean) {
   await db.update(workspaces).set({ aiAutoFailover: enabled, updatedAt: new Date() }).where(eq(workspaces.id, workspaceId));
 }

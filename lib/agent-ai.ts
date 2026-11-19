@@ -1,11 +1,14 @@
 import "server-only";
 
+import type OpenAI from "openai";
+
 import {
   AGENT_KEYS,
   AGENT_ROLES,
   DESCRIPTION_MAX,
   INSTRUCTIONS_MAX,
   PERMISSION_BY_ID,
+  PROVIDER_IDS,
   formatCents,
   type AgentKey,
   type AgentModelId,
@@ -19,6 +22,7 @@ import { getAIKeys, type AIKeys } from "@/lib/ai-keys";
 import { anthropicClient, anthropicErrorMessage, messageCostMicros } from "@/lib/anthropic";
 import { getGithubToken, getRepoContext, type RepoContext } from "@/lib/github";
 import { openAIClient, openAIErrorMessage, responseCostMicros } from "@/lib/openai";
+import { OPENROUTER_ROUTING, completionCostMicros, openRouterClient, openRouterErrorMessage } from "@/lib/openrouter";
 import { sandboxAvailable } from "@/lib/sandbox";
 import { SANDBOX_STAGES } from "@/lib/sandbox/config";
 
@@ -29,14 +33,13 @@ import { SANDBOX_STAGES } from "@/lib/sandbox/config";
  */
 
 /** Model for configuration helpers per provider: strong writing at a moderate price. */
-const CONFIG_MODELS = { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5" } as const satisfies Record<AgentProvider, AgentModelId>;
+const CONFIG_MODELS = { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5", openrouter: "deepseek/deepseek-v4-pro-0813" } as const satisfies Record<AgentProvider, AgentModelId>;
 
 export type ConfigAI = { provider: AgentProvider; apiKey: string };
 
-/** The provider and key for configuration helpers, or null when the workspace has no key at all. */
+/** The provider and key for configuration helpers (`preferred` first, then PROVIDER_IDS order), or null without keys. */
 export function configAI(keys: AIKeys, preferred: AgentProvider): ConfigAI | null {
-  const other: AgentProvider = preferred === "openai" ? "anthropic" : "openai";
-  for (const provider of [preferred, other]) {
+  for (const provider of [preferred, ...PROVIDER_IDS.filter((id) => id !== preferred)]) {
     const apiKey = keys[provider];
     if (apiKey) return { provider, apiKey };
   }
@@ -50,7 +53,8 @@ export async function getWorkspaceConfigAI(workspace: { id: number }) {
 
 /** One message for users when the AI request fails. */
 export function configAIErrorMessage(ai: ConfigAI, error: unknown) {
-  return ai.provider === "openai" ? openAIErrorMessage(error) : anthropicErrorMessage(error);
+  if (ai.provider === "openai") return openAIErrorMessage(error);
+  return ai.provider === "anthropic" ? anthropicErrorMessage(error) : openRouterErrorMessage(error);
 }
 
 /** One structured (JSON schema) completion on the workspace's provider. */
@@ -70,6 +74,23 @@ async function structuredCompletion<T>(
       text: { format: { type: "json_schema", name: input.name, strict: true, schema: input.schema } },
     });
     return { data: JSON.parse(response.output_text) as T, model, costMicros: responseCostMicros(model, response.usage) };
+  }
+
+  if (ai.provider === "openrouter") {
+    const model = CONFIG_MODELS.openrouter;
+    const body: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & { provider: typeof OPENROUTER_ROUTING } = {
+      model,
+      messages: [
+        { role: "system", content: input.system },
+        { role: "user", content: input.user },
+      ],
+      response_format: { type: "json_schema", json_schema: { name: input.name, strict: true, schema: input.schema } },
+      provider: OPENROUTER_ROUTING,
+    };
+    const response = await openRouterClient(ai.apiKey).chat.completions.create(body);
+    const text = response.choices[0]?.message.content;
+    if (!text) throw new Error("The model returned no text.");
+    return { data: JSON.parse(text) as T, model, costMicros: completionCostMicros(model, response.usage) };
   }
 
   const anthropic = anthropicClient(ai.apiKey);

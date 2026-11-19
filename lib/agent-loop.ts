@@ -2,12 +2,14 @@ import "server-only";
 
 import { and, asc, eq, lt, sql } from "drizzle-orm";
 import { NonRetriableError } from "inngest";
+import OpenAI from "openai";
 import type {
   BetaContentBlock,
   BetaMessageParam,
   BetaToolResultBlockParam,
   BetaToolUnion,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
+import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import type { FunctionTool, ResponseInput } from "openai/resources/responses/responses";
 
 import { agentRunMessages, db } from "@/db";
@@ -16,6 +18,7 @@ import { isSimulatedAgents, simulatedTurn } from "@/lib/agent-simulated";
 import { executeTool, toolStep, type ToolContext, type ToolStep } from "@/lib/agent-tools";
 import { anthropicClient, messageCostMicros, toClaudeSchema } from "@/lib/anthropic";
 import { openAIClient, responseCostMicros } from "@/lib/openai";
+import { OPENROUTER_ROUTING, completionCostMicros, openRouterClient, parseFinishArguments } from "@/lib/openrouter";
 
 /**
  * One turn of an agent's tool loop, on the agent's model provider. The pipeline calls it once per Inngest step,
@@ -23,11 +26,13 @@ import { openAIClient, responseCostMicros } from "@/lib/openai";
  *
  * - OpenAI (Responses API) keeps the conversation server-side (`previous_response_id`); between turns we only
  *   carry the tool outputs still to send.
- * - Anthropic (Messages API) is stateless: the conversation is stored in agent_run_messages and the state only
- *   says how many of its messages are committed, so a retried turn overwrites its own rows instead of appending.
+ * - Anthropic (Messages API) and OpenRouter (Chat Completions) are stateless: the conversation is stored in
+ *   agent_run_messages and the state only says how many of its messages are committed, so a retried turn overwrites
+ *   its own rows instead of appending.
  *
  * A stage ends when the agent calls its finish tool (structured result). On the last allowed turn the agent is
- * told to finish (OpenAI: the finish tool is forced; Claude 5.5 models reject forced tools, so it's an instruction).
+ * told to finish (OpenAI: the finish tool is forced; Claude 5.5 models and many OpenRouter hosts reject forced
+ * tools, so there it's an instruction).
  */
 
 export type LoopState = {
@@ -42,7 +47,7 @@ export type LoopState = {
       pending: ResponseInput;
     }
   | {
-      provider: "anthropic";
+      provider: "anthropic" | "openrouter";
       runId: number;
       conversation: string;
       /** Messages of the conversation committed so far (seq 0 … length-1). */
@@ -71,11 +76,13 @@ export function modelUnavailableReason(model: AgentModelId, providers: ProviderS
  * so every later turn just reads the committed history.
  */
 export async function initialLoopState(input: { brief: string; model: AgentModelId; runId: number; conversation: string }): Promise<LoopState> {
-  if (modelInfo(input.model).provider === "openai") {
+  const { provider } = modelInfo(input.model);
+  if (provider === "openai") {
     return { turn: 0, model: input.model, provider: "openai", previousResponseId: null, pending: [{ role: "user", content: input.brief }] };
   }
+  // The same first message on both stateless APIs.
   await saveMessages(input.runId, input.conversation, 0, [{ role: "user", content: input.brief }]);
-  return { turn: 0, model: input.model, provider: "anthropic", runId: input.runId, conversation: input.conversation, length: 1 };
+  return { turn: 0, model: input.model, provider, runId: input.runId, conversation: input.conversation, length: 1 };
 }
 
 const NUDGE = "Continue working with your tools. When you're done, call the finish tool with your result.";
@@ -95,7 +102,9 @@ type TurnInput = {
 
 export async function agentTurn<T>(input: TurnInput): Promise<TurnOutcome<T>> {
   if (isSimulatedAgents()) return simulatedTurn<T>(input);
-  return input.state.provider === "openai" ? openAITurn<T>(input, input.state) : claudeTurn<T>(input, input.state);
+  const { state } = input;
+  if (state.provider === "openai") return openAITurn<T>(input, state);
+  return state.provider === "anthropic" ? claudeTurn<T>(input, state) : openRouterTurn<T>(input, state);
 }
 
 // ── OpenAI (Responses API) ─────────────────────────────────────────────────────
@@ -161,17 +170,17 @@ function claudeTools(tools: FunctionTool[]): BetaToolUnion[] {
   }));
 }
 
-async function loadMessages(runId: number, conversation: string, length: number) {
+async function loadMessages<M>(runId: number, conversation: string, length: number) {
   const rows = await db
     .select({ message: agentRunMessages.message })
     .from(agentRunMessages)
     .where(and(eq(agentRunMessages.runId, runId), eq(agentRunMessages.conversation, conversation), lt(agentRunMessages.seq, length)))
     .orderBy(asc(agentRunMessages.seq));
-  return rows.map((row) => row.message as BetaMessageParam);
+  return rows.map((row) => row.message as M);
 }
 
 /** Writes messages at their positions. A retried turn rewrites the same positions, so history never forks. */
-async function saveMessages(runId: number, conversation: string, from: number, messages: BetaMessageParam[]) {
+async function saveMessages(runId: number, conversation: string, from: number, messages: (BetaMessageParam | ChatCompletionMessageParam)[]) {
   await db
     .insert(agentRunMessages)
     .values(messages.map((message, i) => ({ runId, conversation, seq: from + i, message })))
@@ -181,11 +190,11 @@ async function saveMessages(runId: number, conversation: string, from: number, m
     });
 }
 
-async function claudeTurn<T>(input: TurnInput, state: Extract<LoopState, { provider: "anthropic" }>): Promise<TurnOutcome<T>> {
+async function claudeTurn<T>(input: TurnInput, state: Extract<LoopState, { provider: "anthropic" | "openrouter" }>): Promise<TurnOutcome<T>> {
   if (!input.apiKey) throw new NonRetriableError("The Anthropic API key was removed. Add it again in Settings → AI providers.");
   const anthropic = anthropicClient(input.apiKey);
 
-  const history = await loadMessages(state.runId, state.conversation, state.length);
+  const history = await loadMessages<BetaMessageParam>(state.runId, state.conversation, state.length);
   // The last-turn instruction rides as a mid-conversation system message: it isn't stored, and the stage ends here.
   const messages: BetaMessageParam[] = input.forceFinish ? [...history, { role: "system", content: lastTurn(input.finish.name) }] : history;
   const fallback = FALLBACK_MODELS.includes(state.model);
@@ -241,4 +250,86 @@ async function claudeTurn<T>(input: TurnInput, state: Extract<LoopState, { provi
   // Stored verbatim: thinking and fallback blocks must go back to the API unchanged.
   await saveMessages(state.runId, state.conversation, state.length, [{ role: "assistant", content: response.content }, reply]);
   return { state: { ...state, turn: state.turn + 1, length: state.length + 2 }, costMicros, steps, result: null };
+}
+
+// ── OpenRouter (Chat Completions) ──────────────────────────────────────────────
+
+// Room for a whole file in one write_file call plus reasoning; hosts cap it lower where they must.
+const OPENROUTER_MAX_TOKENS = 32_000;
+
+function chatTools(tools: FunctionTool[]): ChatCompletionTool[] {
+  return tools.map((tool) => ({
+    type: "function",
+    function: { name: tool.name, description: tool.description ?? undefined, parameters: tool.parameters ?? undefined, strict: tool.strict ?? undefined },
+  }));
+}
+
+/** The assistant message to send back next turn: tool calls plus reasoning, unchanged (reasoning models need it). */
+function assistantReply(message: OpenAI.Chat.Completions.ChatCompletionMessage): ChatCompletionMessageParam {
+  // OpenRouter's extensions, absent from the SDK's types.
+  const extra = message as { reasoning_details?: unknown; reasoning?: unknown };
+  return {
+    role: "assistant",
+    content: message.content ?? "",
+    ...(message.tool_calls?.length ? { tool_calls: message.tool_calls } : {}),
+    ...(extra.reasoning_details ? { reasoning_details: extra.reasoning_details } : extra.reasoning ? { reasoning: extra.reasoning } : {}),
+  } as ChatCompletionMessageParam;
+}
+
+async function openRouterTurn<T>(input: TurnInput, state: Extract<LoopState, { provider: "anthropic" | "openrouter" }>): Promise<TurnOutcome<T>> {
+  if (!input.apiKey) throw new NonRetriableError("The OpenRouter API key was removed. Add it again in Settings → AI providers.");
+  const client = openRouterClient(input.apiKey);
+
+  const history = await loadMessages<ChatCompletionMessageParam>(state.runId, state.conversation, state.length);
+  // The last-turn instruction isn't stored: the stage ends here. A user message, since hosts differ on late system ones.
+  const messages: ChatCompletionMessageParam[] = [
+    { role: "system", content: input.instructions },
+    ...history,
+    ...(input.forceFinish ? [{ role: "user" as const, content: lastTurn(input.finish.name) }] : []),
+  ];
+  const body: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & { provider: typeof OPENROUTER_ROUTING } = {
+    model: state.model,
+    messages,
+    tools: chatTools([...input.tools, input.finish]),
+    tool_choice: "auto",
+    max_tokens: OPENROUTER_MAX_TOKENS,
+    provider: OPENROUTER_ROUTING,
+  };
+  let response: OpenAI.Chat.Completions.ChatCompletion;
+  try {
+    response = await client.chat.completions.create(body, { timeout: OPENAI_TURN_TIMEOUT_MS });
+  } catch (error) {
+    if (error instanceof OpenAI.AuthenticationError) throw new NonRetriableError("OpenRouter rejected the API key. Check it in Settings → AI providers.");
+    if (error instanceof OpenAI.PermissionDeniedError) throw new NonRetriableError(`OpenRouter's moderation blocked ${modelInfo(state.model).label} on this task. Try another model for this agent.`);
+    throw error;
+  }
+  const costMicros = completionCostMicros(state.model, response.usage);
+  const choice = response.choices[0];
+  if (!choice) throw new Error("OpenRouter returned no answer.");
+
+  const truncated = choice.finish_reason === "length";
+  const calls = (choice.message.tool_calls ?? []).filter((call) => call.type === "function");
+  const finish = calls.find((call) => call.function.name === input.finish.name);
+  const parsed = finish && !truncated ? parseFinishArguments(finish.function.arguments, input.finish) : null;
+  if (parsed?.ok) return { state: { ...state, turn: state.turn + 1 }, costMicros, steps: [], result: parsed.value as T };
+
+  // Every tool call must be answered, each with its own tool message.
+  const replies: ChatCompletionMessageParam[] = [];
+  const steps: ToolStep[] = [];
+  for (const call of calls) {
+    const { name, arguments: args } = call.function;
+    let output: string;
+    if (truncated) output = "Your output was cut off before this call was complete. Send it again, in smaller pieces if needed.";
+    else if (call === finish && parsed && !parsed.ok) output = parsed.error;
+    else {
+      output = await executeTool(input.toolContext, input.tools, name, args);
+      steps.push(toolStep(name, args, output));
+    }
+    replies.push({ role: "tool", tool_call_id: call.id, content: output });
+  }
+  if (!replies.length) replies.push({ role: "user", content: NUDGE });
+
+  const turnMessages = [assistantReply(choice.message), ...replies];
+  await saveMessages(state.runId, state.conversation, state.length, turnMessages);
+  return { state: { ...state, turn: state.turn + 1, length: state.length + turnMessages.length }, costMicros, steps, result: null };
 }

@@ -91,15 +91,16 @@ analysis ──ready──▶ development ──▶ PR ──┤                
   2. `<stage>-<round>-turn-<n>` → `runStageTurn`: one model call (`lib/agent-loop.ts`) plus its tool calls
      (`lib/agent-tools.ts`). Re-checks pause/budget each turn; adds the turn's cost to the activity row and the run.
      The model is pinned on the stage's first turn. **OpenAI**: the conversation lives on OpenAI
-     (`previous_response_id`); steps only carry pending tool outputs. **Anthropic**: the conversation is stored in
-     `agent_run_messages` and steps only carry its length, so step output stays small. The last allowed turn (the
-     agent's **max turns**) forces the finish tool (OpenAI) or adds a "finish now" system message (Claude 5.5 models
-     reject forced tools), so a stage ends with a structured result or "ran out of turns". Each turn's tool calls go
+     (`previous_response_id`); steps only carry pending tool outputs. **Anthropic** and **OpenRouter** (Chat
+     Completions): the conversation is stored in `agent_run_messages` and steps only carry its length, so step output
+     stays small. The last allowed turn (the agent's **max turns**) forces the finish tool (OpenAI) or adds a "finish
+     now" message (Claude 5.5 models and many OpenRouter hosts reject forced tools), so a stage ends with a structured result or "ran out of turns". Each turn's tool calls go
      to `agent_run_steps` (the card's agent log), and the stage's end too. If the run stopped meanwhile (the parallel
      stage failed), the turn stops too and only this stage's log is closed.
-  3. **Out of credit** (OpenAI `insufficient_quota` / billing codes, Anthropic "credit balance too low"): with
-     `workspaces.ai_auto_failover` on and a key for the other company, the turn moves every agent on the broke company
-     to the other one (`moveAgentsToProvider`) and returns `restart`: the stage starts over on the new provider,
+  3. **Out of credit** (OpenAI `insufficient_quota` / billing codes, Anthropic "credit balance too low", OpenRouter
+     402 except its in-flight budget): with `workspaces.ai_auto_failover` on and a key for another company, the turn
+     moves every agent on the broke company to the first other company with a key (`fallbackProvider`,
+     `moveAgentsToProvider`) and returns `restart`: the stage starts over on the new provider,
      **once per stage**.
      Otherwise the run stops with `failure: { kind: "out_of_credit", provider }`, which the board turns into a
      "switch and retry" notice.

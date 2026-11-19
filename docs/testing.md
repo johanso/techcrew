@@ -41,7 +41,7 @@ products (see code.claude.com/docs/en/legal-and-compliance). Use simulated mode 
 
 ## Models and providers
 
-Each agent picks its **company and model** on the AI Team page (Configure → Company, Model); a team can mix both
+Each agent picks its **company and model** on the AI Team page (Configure → Company, Model); a team can mix
 companies. `agents.provider_models` remembers each agent's model per company for out-of-credit moves.
 
 | Model | Provider | $ / 1M in · out | Notes |
@@ -53,9 +53,21 @@ companies. `agents.provider_models` remembers each agent's model per company for
 | Claude Opus 5.5 | Anthropic | 4 · 20 | Refusal fallback on |
 | Claude Sonnet 5.5 | Anthropic | 2 · 10 | Default for Analyst, Developer, Reviewer, Security and Lead; also drafting/trust reviews on Anthropic; refusal fallback on |
 | Claude Haiku 5.5 | Anthropic | 0.1 · 0.5 (0.5 · 2.5 above 100K-token prompts) | Default for Tester |
+| Gemini 4 Argon | OpenRouter (Google) | 2 · 10 | Flagship |
+| Grok 4.7 | OpenRouter (xAI) | 2 · 6 | Flagship |
+| DeepSeek V4 Pro | OpenRouter (DeepSeek) | 0.111 · 4.44 | Default for Analyst, Developer, Reviewer, Security and Lead on OpenRouter; also drafting/trust reviews on OpenRouter |
+| GLM 5.3 | OpenRouter (Z.ai) | 0.07 · 1.4 | Balanced |
+| Kimi K3.1 Pro | OpenRouter (Moonshot) | 0.253 · 8.8 | Balanced |
+| Gemini 4 Hydrogen | OpenRouter (Google) | 1.5 · 7.5 | Efficient |
+| Grok Build 0.1 | OpenRouter (xAI) | 1 · 2 | Efficient |
+| DeepSeek V4.1 Flash | OpenRouter (DeepSeek) | 0.3 · 1.2 | Default for Tester on OpenRouter |
+| GLM 5.3 Flash | OpenRouter (Z.ai) | 0.15 · 0.5 | Fast |
+| Gemini 3.8 Flash | OpenRouter (Google) | 0.825 · 4.125 | Fast |
 
-Prices live in `AGENT_MODELS` (`lib/agent-config.ts`); update them there. Equivalents for a first switch:
-`EQUIVALENT_MODEL`.
+Prices live in `AGENT_MODELS` (`lib/agent-config.ts`); update them there. OpenRouter prices are its listed ones: hosts
+differ, and the cost logged is the one OpenRouter reports per response. Each model has a **tier** (flagship, balanced,
+efficient, fast); moving an agent to another company picks the first model there of the same tier (`closestModel`),
+else a neighboring one.
 
 How each provider runs a stage (`lib/agent-loop.ts`):
 
@@ -67,6 +79,12 @@ How each provider runs a stage (`lib/agent-loop.ts`):
   Sonnet send `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`): if a safety classifier declines, Anthropic
   retries on its recommended model and the cost is priced at the model that answered. A refusal or context overflow
   stops the run with a clear reason.
+- **OpenRouter** — Chat Completions through the OpenAI SDK (`baseURL` openrouter.ai); conversation stored in
+  `agent_run_messages` like Claude's, with tool calls and `reasoning_details` sent back unchanged. Routing
+  (`OPENROUTER_ROUTING`): `data_collection: "deny"` (no host that keeps or trains on prompts), `require_parameters`
+  (only hosts that support tools), no 4-bit quantized hosts. Many hosts reject a forced tool, so the last turn adds a
+  "call the finish tool now" message; strict schemas aren't enforced everywhere, so the finish call is checked
+  (`parseFinishArguments`) and sent back to the model when it's invalid. Cost = `usage.cost` from OpenRouter.
 - The model is **pinned per stage**: changing it mid-run applies from the next stage.
 
 ## Test plan and status
@@ -119,6 +137,10 @@ How each provider runs a stage (`lib/agent-loop.ts`):
 | 44 | Settings → Sandbox | Open `#sandbox` on a workspace whose repo has `package.json`; switch on, save, **Test the sandbox** | Commands prefilled from `package.json`; saved; the check shows Passed and the end of the output | ✅ by the user in the browser on "Sandbox demo" (2026-11-18): saved `npm ci` / `npm test` / `npm run build` and ran the check (its volume `techteam-check-19` stays until the 12 h sweep) |
 | 45 | Sandbox in the pipeline | ▶ Run a card with the sandbox on | The Developer and the Tester call `run_tests` / `run_build`; the agent log shows the command and its outcome line; the run's volume is removed when it ends | ✅ simulated, 2026-11-18, $0: "Sandbox demo" #1 (run 47): development `npm test` ✅ 17.0 s and `npm run build` ✅ 10.7 s, CI passed, testing `npm test` ✅ 12.4 s and `npm run build` ✅ 11.1 s, ready to merge; `techteam-run-47` gone afterwards. ✅ live on OpenAI, 2026-11-19: "Sandbox demo" SAN-2 (run 49, shares that add up to the total): the Developer wrote the change and its tests, then ran `npm test` ✅ 23.7 s and `npm run build` ✅ 6.7 s on its own before submitting; CI passed; Reviewer and Security approved, the Lead approved (low risk); the Tester ran `npm test` ✅ 8.6 s and `npm run build` ✅ 6.9 s; PR #2 ready to merge. 6 min 34 s, $0.171 (Developer $0.068, Reviewer $0.038, Security $0.028, Analyst $0.022, Lead $0.014, Tester $0.002). Everything passed first time, so the fix-after-failure loop is still unseen |
 | 46 | Account AI keys | Migration 0010, then Settings on another workspace of the same owner; save / remove an account key; a workspace key while the account has one | Workspace keys moved to the owner's account; every owned workspace resolves them; the workspace form says the account's key is used; Spending this month sums every project | ✅ by script, 2026-11-19: migration moved the two keys of "Ajustes de Test" to user 1 and left no workspace rows; `getAIKeys` resolves OpenAI and Anthropic for workspaces 1 and 19; `keyInUse` unit-tested. ✅ by the user in the browser: masked saved keys, AI Team spend per project, Spending this month across projects, the regrouped Settings and the one-item account menu |
+| 47 | OpenRouter key | Settings → AI providers → OpenRouter: an invalid key, then a valid one | Invalid rejected inline (checked with `GET /key`, no spend); valid saved masked (`sk-or-v1-••••…`); AI Team → Configure lists OpenRouter models grouped by maker | ✅ by the user (2026-11-19: key saved in Settings, agents moved to OpenRouter models in Configure) |
+| 48 | Real OpenRouter run | Every agent on OpenRouter (e.g. DeepSeek V4 Pro, Tester on DeepSeek V4.1 Flash), ▶ Run a small card | Agents use tools through Chat Completions; `agent_run_messages` fills up; cost = OpenRouter's reported cost; finish calls parse | ✅ (2026-11-19) Every model by script: one strict tool call each, all 10 parsed, total $0.008; hosts in the US (DeepSeek on CoreWeave / InferenceNet, not DeepSeek's own API), Gemini 4 Argon slowest (19.5 s). Live: run 50 (AJU-20, PR #23): Developer on DeepSeek V4 Pro, 4 turns, $0.012; Tester on DeepSeek V4.1 Flash, 5 turns, $0.006; `reasoning_details` stored and sent back |
+| 49 | Mixed companies in one run | Developer on OpenAI, Reviewer on Anthropic, Tester on OpenRouter | Each stage on its own company; costs add up on the run | 🟡 OpenAI + OpenRouter ✅ (run 50: Analyst, Reviewer, Security, Lead on OpenAI; Developer and Tester on OpenRouter; $0.091 in all, ready to merge); Anthropic not in the mix (no credit) |
+| 50 | OpenRouter out of credit | A key with a $0 limit (OpenRouter → Keys → credit limit), ▶ Run | Run stops with "OpenRouter is out of credit"; board offers **Move agents to … and retry** when another company has a key | ⬜ |
 | 38 | Skill toggle in the configure dialog | AI Team → Configure → Skills switch | Saves at once; trust rescanned; activity logged; Switch report flagged as older | 🟡 server path ✅ by script; switch not clicked in the browser |
 | 23 | Notifications | Trigger PR ready / needs info / stop / out of credit | Bell count, list newest first, opening marks read, Mark all as read | ✅ in the browser; `run_failed` produced by a real run stop |
 

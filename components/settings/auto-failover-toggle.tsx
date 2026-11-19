@@ -7,8 +7,8 @@ import { saveAutoFailoverAction } from "@/app/dashboard/[workspaceId]/settings/a
 import { FormMessage } from "@/components/auth/form-parts";
 import { Switch } from "@/components/ui/switch";
 
-/** Settings → AI providers: move agents to the other company on their own when theirs runs out of credit mid-run. */
-export function AutoFailoverToggle({ workspaceId, enabled, bothConnected }: { workspaceId: number; enabled: boolean; bothConnected: boolean }) {
+/** Settings → AI providers: move agents to another company on their own when theirs runs out of credit mid-run. */
+export function AutoFailoverToggle({ workspaceId, enabled, canSwitch }: { workspaceId: number; enabled: boolean; canSwitch: boolean }) {
   const [optimistic, setOptimistic] = useOptimistic(enabled);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -30,9 +30,10 @@ export function AutoFailoverToggle({ workspaceId, enabled, bothConnected }: { wo
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="text-sm font-semibold">Switch automatically when out of credit</span>
           <span className="text-xs text-muted-foreground">
-            If a company runs out of credit while agents work, the agents on it move to the other one (closest model)
-            and the stage starts over there, instead of stopping. You get a notification either way.
-            {!bothConnected && " Needs an API key for both companies."}
+            If a company runs out of credit while agents work, the agents on it move to the next company with a key
+            (OpenAI, Anthropic, then OpenRouter; closest model) and the stage starts over there, instead of stopping.
+            You get a notification either way.
+            {!canSwitch && " Needs API keys for at least two companies."}
           </span>
         </span>
         <Switch checked={optimistic} onCheckedChange={toggle} disabled={pending} aria-label="Switch automatically when out of credit" className="mt-1" />

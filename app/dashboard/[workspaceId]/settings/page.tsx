@@ -16,6 +16,7 @@ import { SwitchWeeklyToggle } from "@/components/settings/switch-weekly-toggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { WorkspaceAvatar, workspaceLogoSrc } from "@/components/workspace/workspace-avatar";
+import { PROVIDER_IDS } from "@/lib/agent-config";
 import { parseMergeMode } from "@/lib/agent-run-config";
 import { getSkillLibrary } from "@/lib/agent-skills";
 import { ensureDefaultAgents, getAccountSpend } from "@/lib/agents";
@@ -93,8 +94,9 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
           actions={<span className="eyebrow text-muted-foreground">AI</span>}
         />
         <div className="flex flex-col gap-6 p-6">
-          <ProviderKeyForm workspaceId={workspace.id} provider="openai" scope="account" view={keys.openai} />
-          <ProviderKeyForm workspaceId={workspace.id} provider="anthropic" scope="account" view={keys.anthropic} />
+          {PROVIDER_IDS.map((provider) => (
+            <ProviderKeyForm key={provider} workspaceId={workspace.id} provider={provider} scope="account" view={keys[provider]} />
+          ))}
         </div>
         {/* Workspace-only settings live here too, so everything about AI companies is in one place. */}
         <div className="flex flex-col gap-6 border-t border-border/70 p-6">
@@ -105,7 +107,7 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
           <AutoFailoverToggle
             workspaceId={workspace.id}
             enabled={workspace.aiAutoFailover}
-            bothConnected={keys.openai.inUse !== null && keys.anthropic.inUse !== null}
+            canSwitch={PROVIDER_IDS.filter((provider) => keys[provider].inUse !== null).length >= 2}
           />
           <div className="flex flex-col gap-6 border-t border-border/70 pt-6">
             <div className="flex flex-col gap-1">
@@ -114,8 +116,9 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
                 Only used for a company your account has no key for. Your account&apos;s key always wins.
               </p>
             </div>
-            <ProviderKeyForm workspaceId={workspace.id} provider="openai" scope="workspace" view={keys.openai} />
-            <ProviderKeyForm workspaceId={workspace.id} provider="anthropic" scope="workspace" view={keys.anthropic} />
+            {PROVIDER_IDS.map((provider) => (
+              <ProviderKeyForm key={provider} workspaceId={workspace.id} provider={provider} scope="workspace" view={keys[provider]} />
+            ))}
           </div>
         </div>
       </section>

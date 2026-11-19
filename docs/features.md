@@ -242,15 +242,16 @@ Locally, Run needs the Inngest Dev Server (`npm run inngest:dev`); otherwise it 
 
 ### Out of credit
 
-When OpenAI or Anthropic refuses a request because the account has no credit, the run stops with that reason (not a
-generic failure):
+When OpenAI, Anthropic or OpenRouter refuses a request because the account has no credit, the run stops with that
+reason (not a generic failure):
 - The card says **Out of OpenAI credit** (wallet icon), and the AI team card on the Overview too.
 - A notice above the board lists the stopped cards with **Add credit** (the provider's billing page) and **Move agents
-  to Anthropic and retry**: every agent still on the broke company moves to its closest model on the other one and each
-  card runs again; reruns continue on their open pull requests. Without a key for the other company it offers **Add an
-  … key** instead. If no agent is on that company any more, the button just says **Retry**.
-- **Automatic switch** (Settings → AI providers, off by default): the agents on the broke company move to the other one
-  on their own and the current stage starts over there (once per stage); you get a "Switched agents to …" notification.
+  to … and retry**: every agent still on the broke company moves to its closest model (same tier) on the first other
+  company with a key (OpenAI, Anthropic, then OpenRouter) and each card runs again; reruns continue on their open pull
+  requests. Without another company's key it offers **Add another company's key** instead. If no agent is on that
+  company any more, the button just says **Retry**.
+- **Automatic switch** (Settings → AI providers, off by default): the agents on the broke company move to the next one
+  with a key on their own and the current stage starts over there (once per stage); you get a "Switched agents to …" notification.
 
 ## Agent pipeline
 
@@ -318,8 +319,9 @@ card runs. Security and Lead are read-only by default (read the repository, issu
   asks the AI (OpenAI, else Claude) for a description and instructions tailored to the repository's description, languages, topics and
   README, the selected permissions and budget, plus an optional focus; **Undo** restores the previous text; nothing is
   saved until **Save changes**), **Permissions** by category with risk level and *Default* tags (**Reset to defaults**),
-  **Company** (OpenAI or Anthropic; one without a key says *No key* and links to Settings) and **Model** (that company's
-  models with prices; changing company picks the closest tier, so each agent can work on a different company) and
+  **Company** (OpenAI, Anthropic or OpenRouter; one without a key says *No key* and links to Settings) and **Model**
+  (that company's models with prices — OpenRouter's grouped by maker: Google, xAI, DeepSeek, Z.ai, Moonshot; changing
+  company picks the closest tier, so each agent can work on a different company) and
   monthly budget (presets $25/$50/$100/$250). The side panel shows the **Trust Score** (ring,
   grade — Trusted ≥ 85, Needs review ≥ 70, At risk — summary, checks passed, findings, **Scan again**) and
   **Spending** for the month (spent, budget bar, remaining, projection, reset date, breakdown: task runs, AI drafting,
@@ -465,8 +467,8 @@ Two groups: **Your account** (applies to every project you own) and **This works
 
 Your account:
 - **Account** (`#account`) — avatar, name, verified-email badge, email, member since, last sign-in, account id.
-- **AI providers** (`#ai`) — everything about AI companies in one card. On top, your account's OpenAI and Anthropic
-  keys, used by every project: a saved key shows in its field masked (first characters, dots, last four); **Replace
+- **AI providers** (`#ai`) — everything about AI companies in one card. On top, your account's OpenAI, Anthropic and
+  OpenRouter keys (OpenRouter: one key for Google, DeepSeek, Z.ai, xAI and Moonshot models), used by every project: a saved key shows in its field masked (first characters, dots, last four); **Replace
   key** opens an empty password field with a show/hide eye (**Save key**, checked with the provider first, or
   **Cancel**); **Remove** asks first. Without a key: Using the server's key, or Not connected. Every company with a key
   is available: each agent picks its company and model on the AI Team page. Below, **This workspace only**:

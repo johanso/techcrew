@@ -1,16 +1,46 @@
 import { describe, expect, it } from "vitest";
 
-import { AGENT_KEYS, AGENT_MODELS, AGENT_ROLES, EQUIVALENT_MODEL, agentModel, agentModelFor, defaultProvider, formatMicros, modelInfo, modelsFor } from "@/lib/agent-config";
+import {
+  AGENT_KEYS,
+  AGENT_MODELS,
+  AGENT_ROLES,
+  PROVIDER_IDS,
+  agentModel,
+  agentModelFor,
+  closestModel,
+  defaultProvider,
+  fallbackProvider,
+  formatMicros,
+  makersOf,
+  modelInfo,
+  modelsFor,
+} from "@/lib/agent-config";
 
 describe("models per provider", () => {
   it("lists only that company's models", () => {
     expect(modelsFor("openai").every((m) => m.provider === "openai")).toBe(true);
     expect(modelsFor("anthropic").every((m) => m.provider === "anthropic")).toBe(true);
-    expect(modelsFor("openai").length + modelsFor("anthropic").length).toBe(AGENT_MODELS.length);
+    expect(modelsFor("openrouter").every((m) => m.provider === "openrouter")).toBe(true);
+    expect(PROVIDER_IDS.reduce((sum, provider) => sum + modelsFor(provider).length, 0)).toBe(AGENT_MODELS.length);
   });
 
-  it("maps every model to one on the other company", () => {
-    for (const model of AGENT_MODELS) expect(modelInfo(EQUIVALENT_MODEL[model.id]).provider).not.toBe(model.provider);
+  it("finds a closest model for every model on every other company", () => {
+    for (const model of AGENT_MODELS) {
+      for (const provider of PROVIDER_IDS) expect(modelInfo(closestModel(model.id, provider)!).provider).toBe(provider);
+    }
+  });
+
+  it("keeps the tier when there is one, else takes the more capable neighbor", () => {
+    expect(closestModel("gpt-6.1-sol", "openrouter")).toBe("deepseek/deepseek-v4-pro-0813");
+    expect(closestModel("claude-haiku-5-5", "openrouter")).toBe("deepseek/deepseek-v4.1-flash");
+    expect(closestModel("google/gemini-4-argon", "anthropic")).toBe("claude-opus-5-5");
+    expect(closestModel("x-ai/grok-build-0.1", "anthropic")).toBe("claude-sonnet-5-5");
+    expect(closestModel("gpt-6.1-terra", "anthropic")).toBe("claude-sonnet-5-5");
+  });
+
+  it("groups OpenRouter models by maker", () => {
+    expect(makersOf("openrouter")).toEqual(["Google", "xAI", "DeepSeek", "Z.ai", "Moonshot"]);
+    expect(makersOf("openai")).toEqual(["OpenAI"]);
   });
 });
 
@@ -21,6 +51,7 @@ describe("roles", () => {
       expect(role.id).toBe(key);
       expect(modelInfo(role.defaults.models.openai).provider).toBe("openai");
       expect(modelInfo(role.defaults.models.anthropic).provider).toBe("anthropic");
+      expect(modelInfo(role.defaults.models.openrouter).provider).toBe("openrouter");
     }
   });
 
@@ -49,6 +80,11 @@ describe("agentModelFor", () => {
     expect(agentModelFor("analyst", "anthropic", "retired-model", {})).toBe("claude-sonnet-5-5");
   });
 
+  it("moves to OpenRouter tier for tier", () => {
+    expect(agentModelFor("tester", "openrouter", "gpt-6-luna", {})).toBe("deepseek/deepseek-v4.1-flash");
+    expect(agentModelFor("lead", "openai", "z-ai/glm-5.3", {})).toBe("gpt-6.1-sol");
+  });
+
   it("ignores a remembered model from the wrong company", () => {
     expect(agentModelFor("developer", "openai", "claude-sonnet-5-5", { openai: "claude-opus-5-5" })).toBe("gpt-6.1-sol");
   });
@@ -72,8 +108,21 @@ describe("agentModel", () => {
 
 describe("defaultProvider", () => {
   it("starts new agents on a company with a key, OpenAI first", () => {
-    expect(defaultProvider({ openai: true, anthropic: true })).toBe("openai");
-    expect(defaultProvider({ openai: false, anthropic: true })).toBe("anthropic");
-    expect(defaultProvider({ openai: false, anthropic: false })).toBe("openai");
+    expect(defaultProvider({ openai: true, anthropic: true, openrouter: true })).toBe("openai");
+    expect(defaultProvider({ openai: false, anthropic: true, openrouter: true })).toBe("anthropic");
+    expect(defaultProvider({ openai: false, anthropic: false, openrouter: true })).toBe("openrouter");
+    expect(defaultProvider({ openai: false, anthropic: false, openrouter: false })).toBe("openai");
+  });
+});
+
+describe("fallbackProvider", () => {
+  it("picks the first other company with a key", () => {
+    expect(fallbackProvider("openai", { openai: true, anthropic: true, openrouter: true })).toBe("anthropic");
+    expect(fallbackProvider("openai", { openai: true, anthropic: false, openrouter: true })).toBe("openrouter");
+    expect(fallbackProvider("openrouter", { openai: false, anthropic: true, openrouter: true })).toBe("anthropic");
+  });
+
+  it("is null when no other company has a key", () => {
+    expect(fallbackProvider("anthropic", { openai: false, anthropic: true, openrouter: false })).toBeNull();
   });
 });
