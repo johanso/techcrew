@@ -20,6 +20,7 @@ import {
 import type { ToolStep } from "@/lib/agent-tools";
 import type { BoardColumnId } from "@/lib/board-config";
 import { ciForRound, type CiResult } from "@/lib/ci-gate";
+import { removeRunSandbox } from "@/lib/sandbox";
 
 /**
  * Agent runs: one pass of a card through the pipeline (lib/inngest/agent-run.ts). Callers authorize the workspace;
@@ -82,6 +83,8 @@ export async function markStageRunning(runId: number, phase: RunStage) {
 export async function finishRun(runId: number, status: RunStatus, error: string | null = null, failure: RunFailure | null = null) {
   const terminal = status !== "awaiting_merge";
   await updateRun(runId, { status, error, failure, ...(terminal ? { finishedAt: new Date() } : {}) });
+  // No agent works on the run any more (a merge needs no sandbox): free its checkout in the background.
+  void removeRunSandbox(runId);
 }
 
 export async function addRunCost(runId: number, costMicros: number) {

@@ -71,6 +71,9 @@ export const TOOL_LABEL: Record<string, string> = {
   get_checks: "Checked CI",
   search_skill: "Searched skill",
   read_skill: "Read skill",
+  run_tests: "Ran the tests",
+  run_build: "Ran the build",
+  run_command: "Ran",
 };
 
 export const RUN_STATUSES = [

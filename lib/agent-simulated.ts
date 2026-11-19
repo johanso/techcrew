@@ -11,7 +11,8 @@ import { executeTool, toolStep, type ToolContext, type ToolStep } from "@/lib/ag
  * commit, the diff and CI checks really happen), then the stage's finish tool with a fixed, passing result: the
  * Reviewer and Security approve with no findings and the Lead approves at low risk (the risk floor still applies).
  * An agent with skills switched on also searches its first skill and reads the top match in that first turn, so the
- * skill tools run for free too.
+ * skill tools run for free too. With the sandbox on, the Developer (after its commit) and the Tester also run the tests
+ * and the build for real.
  */
 
 export function isSimulatedAgents() {
@@ -117,6 +118,17 @@ async function skillCalls(input: { finish: FunctionTool; toolContext: ToolContex
   return [toolStep("search_skill", searchArgs, found), toolStep("read_skill", readArgs, read)];
 }
 
+/** run_tests then run_build, each when the agent has it (lib/sandbox: real containers, no model). */
+async function sandboxCalls(input: { toolContext: ToolContext; tools: FunctionTool[] }): Promise<ToolStep[]> {
+  const steps: ToolStep[] = [];
+  for (const name of ["run_tests", "run_build"]) {
+    if (!input.tools.some((tool) => tool.name === name)) continue;
+    const output = await executeTool(input.toolContext, input.tools, name, "{}");
+    steps.push(toolStep(name, "{}", output));
+  }
+  return steps;
+}
+
 /** One scripted turn, shaped like a model turn: tool call first, the stage's result on the next turn (or when forced). */
 export async function simulatedTurn<T>(input: {
   tools: FunctionTool[];
@@ -140,5 +152,6 @@ export async function simulatedTurn<T>(input: {
   if (call.name === "write_file" && !output.startsWith("Created") && !output.startsWith("Updated")) {
     throw new Error(`Simulated developer couldn't write its file: ${output}`);
   }
-  return { state: next, costMicros: 0, steps: [...skillSteps, toolStep(call.name, args, output)], result: null };
+  const sandboxSteps = input.finish.name === "submit_work" || input.finish.name === "submit_test_report" ? await sandboxCalls(input) : [];
+  return { state: next, costMicros: 0, steps: [...skillSteps, toolStep(call.name, args, output), ...sandboxSteps], result: null };
 }

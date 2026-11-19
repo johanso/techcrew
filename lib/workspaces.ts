@@ -8,6 +8,7 @@ import { db, workspaces, type NewWorkspace } from "@/db";
 import type { AgentProvider } from "@/lib/agent-config";
 import type { MergeMode } from "@/lib/agent-run-config";
 import { requireUser } from "@/lib/current-user";
+import type { SandboxCommands } from "@/lib/sandbox/config";
 
 export function listWorkspaces(ownerId: number) {
   return db.select().from(workspaces).where(eq(workspaces.ownerId, ownerId)).orderBy(desc(workspaces.createdAt));
@@ -44,6 +45,14 @@ export async function updateAIProvider(workspaceId: number, provider: AgentProvi
 /** Settings → AI providers: switch to the other company on its own when the current one runs out of credit. */
 export async function updateAutoFailover(workspaceId: number, enabled: boolean) {
   await db.update(workspaces).set({ aiAutoFailover: enabled, updatedAt: new Date() }).where(eq(workspaces.id, workspaceId));
+}
+
+/** Settings → Sandbox: the switch and the commands, saved together so a run never guesses them. */
+export async function updateSandbox(workspaceId: number, values: { sandboxEnabled: boolean; sandboxCommands: SandboxCommands }) {
+  await db
+    .update(workspaces)
+    .set({ ...values, updatedAt: new Date() })
+    .where(eq(workspaces.id, workspaceId));
 }
 
 export async function insertWorkspace(values: NewWorkspace) {

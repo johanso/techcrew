@@ -91,7 +91,6 @@ export function ciForRound(results: readonly CiResult[] | null | undefined, roun
 
 // Timestamps GitHub prefixes to every log line, and terminal colors.
 const LOG_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z /;
-// eslint-disable-next-line no-control-regex -- ANSI color codes start with the ESC control character.
 const LOG_ANSI = /\x1b\[[0-9;]*m/g;
 const LOG_LINES = 60;
 const LOG_CHARS = 4000;

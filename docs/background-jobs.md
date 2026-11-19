@@ -102,6 +102,9 @@ analysis ──ready──▶ development ──▶ PR ──┤                
      (`switchAgentsToProvider`) and returns `restart`: the stage starts over on the new provider, **once per stage**.
      Otherwise the run stops with `failure: { kind: "out_of_credit", provider }`, which the board turns into a
      "switch and retry" notice.
+- **Sandbox** ([sandbox.md](sandbox.md)): with Settings → Sandbox on, a Developer or Tester turn may call
+  `run_tests` / `run_build` / `run_command`, which run inside the turn's step (up to 5 minutes each, one at a time per
+  run). The run's volume is removed when the run ends (`finishRun`), whatever the outcome.
 - **Between stages**: `branch-<round>` (creates `agent/<key>-<slug>` from the default branch, once per run),
   `pull-request-<round>` (opens the PR, fails if nothing was committed), the **CI gate** — `ci-<round>-start` (records
   "waiting" on the branch head; knows whether the repo has workflows in `.github/workflows/`), then

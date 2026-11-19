@@ -32,6 +32,7 @@ How the app is put together. For coding conventions and the design system, see [
 | File storage | AWS S3 (`@aws-sdk/client-s3`) | Private bucket for workspace logos. |
 | Background jobs | **Inngest** v3 | Durable functions served at `/api/inngest`. |
 | Background HTTP jobs | **Cloudhike Jobs** | SwitchAgent scans: a job calls `/api/switch-trust/scans/<id>` back (`lib/jobs.ts`). |
+| Agent sandboxes | **Docker** + **gVisor** on a VPS | The `docker` CLI over SSH (`SANDBOX_DOCKER_HOST`), no SDK; throwaway containers per call (`lib/sandbox/`). See [sandbox.md](sandbox.md). |
 | Drag and drop | `@dnd-kit/core` 6 + `@dnd-kit/sortable` 10 | Stable API (not the 0.x `@dnd-kit/react`). |
 | Dates | `date-fns` | |
 | Quality | **ESLint 9** (flat config, `eslint-config-next`), **Vitest 4** | `npm run check` = `tsc` + lint + unit tests. |
@@ -63,6 +64,7 @@ components/
   ai-team/                   AI Team: agent cards (faces, live working state), configure dialog, trust, spend and
                              skills panels, live process (six steps per card in flight), live team polling
   skills/                    Agent skills UI: Settings library + upload, badges, findings, agent checkboxes
+  settings/                  Settings forms: automation, providers, Switch, sandbox (commands + Test the sandbox)
   app-header.tsx, brand.tsx  Top bar for /workspaces pages; product mark + APP_NAME
 db/
   schema.ts                  Drizzle schema (all tables)
@@ -114,6 +116,8 @@ lib/                         Server logic (most files start with `import "server
   jobs.ts                    Cloudhike Jobs client, public app URL
   workspace-icons.ts         Selectable workspace icons (shared client/server)
   inngest/                   Inngest client, boilerplate functions, agent pipeline + auto pickup
+  sandbox/                   Agent sandboxes: config.ts (pure: commands, detection, report), docker.ts (containers
+                             over the docker CLI, sweep), index.ts (repo commands for runs and the Settings check)
   utils.ts                   cn(), initials()
 proxy.ts                     Optimistic auth guard for /dashboard and /workspaces
 drizzle.config.ts            drizzle-kit config (public schema only)
@@ -121,6 +125,7 @@ docs/                        This documentation
 drizzle/                     SQL migrations + snapshots (generated; 0000_baseline = schema as of 2026-11)
 test/                        Test helpers (server-only stand-in); tests live next to their modules (*.test.ts)
 scripts/                     db-baseline.mjs, sync-agent-skills.mjs (npm run skills:sync)
+deploy/                      setup.sh: prepares a fresh Ubuntu 24.04 VPS as the sandbox host (idempotent)
 agent-skills/                Built-in skills vendored at pinned commits (sources.json, catalog.json, <slug>/)
 public/                      agents/<key>.webp: one face per agent role
 AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.md just imports AGENTS.md)
@@ -143,7 +148,7 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `/dashboard/[workspaceId]/ai-team` | owner | AI Team: agents, configure dialog, trust score, spending, activity. |
 | `/dashboard/[workspaceId]/pull-requests` | owner | Agent pull requests (refreshed from GitHub on load), review/test verdicts, **Merge**. |
 | `/dashboard/[workspaceId]/activity` | owner | Workspace activity timeline (`?show=` for older events). |
-| `/dashboard/[workspaceId]/settings` | owner | Account (`#account`), workspace (`#workspace`), AI providers (`#ai`), agent automation (`#agents`). |
+| `/dashboard/[workspaceId]/settings` | owner | Account (`#account`), workspace (`#workspace`), AI providers (`#ai`), Switch Trust (`#switch`), agent automation (`#agents`), Sandbox (`#sandbox`), Agent skills summary (`#skills`). |
 
 "owner" = signed in **and** owner of that workspace; anything else is a 404.
 
@@ -166,10 +171,10 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `app/(auth)/actions.ts` | `signUp`, `signIn`, `completeSocialSignIn`, `signOut` |
 | `app/workspaces/actions.ts` | `createWorkspace`, `disconnectGithub` |
 | `app/dashboard/[workspaceId]/actions.ts` | `getTeamStatusAction`, `getNotificationsAction`, `markNotificationsReadAction` |
-| `app/dashboard/[workspaceId]/board/actions.ts` | `createCardAction`, `updateCardAction`, `moveCardsAction`, `removeCardAction`, `runCardAction`, `stopCardAction`, `mergeCardAction`, `switchProviderAndRetryAction`, `getRunLogAction`, `syncIssuesAction` |
-| `app/dashboard/[workspaceId]/ai-team/actions.ts` | `saveAgentAction`, `scanAgentAction`, `generateAgentAction` |
+| `app/dashboard/[workspaceId]/board/actions.ts` | `createCardAction`, `updateCardAction`, `moveCardsAction`, `removeCardAction`, `runCardAction`, `answerCardAction`, `stopCardAction`, `mergeCardAction`, `switchProviderAndRetryAction`, `getRunLogAction`, `syncIssuesAction`, `getBoardAction` |
+| `app/dashboard/[workspaceId]/ai-team/actions.ts` | `saveAgentAction`, `scanAgentAction`, `switchScanAgentAction`, `generateAgentAction`, `setAgentSkillAction` |
 | `app/dashboard/[workspaceId]/pull-requests/actions.ts` | `mergePullRequestAction` |
-| `app/dashboard/[workspaceId]/settings/actions.ts` | `saveAutomationAction`, `switchProviderAction`, `saveAutoFailoverAction`, `saveProviderKeyAction`, `removeProviderKeyAction` |
+| `app/dashboard/[workspaceId]/settings/actions.ts` | `saveAutomationAction`, `saveSandboxAction`, `checkSandboxAction`, `saveAutoFailoverAction`, `switchProviderAction`, `saveProviderKeyAction`, `removeProviderKeyAction`, `connectSwitchAction`, `disconnectSwitchAction`, `saveSwitchWeeklyAction`, `inspectSkillAction`, `installSkillAction`, `saveSkillAssignmentsAction`, `deleteSkillAction` |
 
 Server Actions are POST endpoints. Each one re-checks the session and ownership itself; never assume the page that
 rendered the form already did.
@@ -289,3 +294,4 @@ The full design system — palette table, contrast rules, typography scale, layo
 | GitHub | `lib/github.ts`, `lib/github-issues.ts` | `401` → "reconnect", `403/404` → "no access", others → retry later. See [github-integration.md](github-integration.md). |
 | S3 | `lib/storage.ts` | Upload errors fail workspace creation with a generic message; read errors → 404 for the logo. |
 | Inngest | `lib/inngest/*`, `/api/inngest` | `send` failure → Run shows an error, the run is marked failed and nothing moves. See [background-jobs.md](background-jobs.md). |
+| Sandbox host (Docker over SSH) | `lib/sandbox/*` | Unset `SANDBOX_DOCKER_HOST` → Settings can't turn it on and agents get no run tools. An unreachable host or a timeout comes back to the agent as a failed run ("Failed while preparing the checkout", "Timed out…"), never as a stage error. See [sandbox.md](sandbox.md). |

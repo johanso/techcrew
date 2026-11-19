@@ -98,9 +98,31 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
   one model's blind spots.
 
 ### v0.6 — Sandbox
-- Run code in an isolated container: install, build and test before the PR; the Developer fixes what fails.
-- Then **UI / UX reviewers** that look at the running app (screenshots in a headless browser). Without the sandbox they
-  could only read code.
+Agents run the code, not only read it. Sandboxes are throwaway Docker containers under gVisor on a VPS
+(`deploy/setup.sh`), driven over SSH; the repository goes in as a tarball, so no token ever enters a container. Built in
+four milestones on the `feat/sandbox` branch, tested against `techteam-sandbox-demo` (Vite + TypeScript, tests, build,
+CI).
+
+1. **Run code**
+   - VPS ready: Docker, gVisor, firewall, keys-only SSH ✅. Test repository with tests, build and CI ✅.
+   - `lib/sandbox/`: one interface, a Docker-over-SSH implementation. CPU, memory, process and time limits; output
+     clipped; egress only to package registries.
+   - Settings → Sandbox: on/off, install / test / build commands detected from `package.json`, editable.
+   - Tools behind the existing `tests.run` permission: `run_tests`, `run_build`, `run_command` for the Developer
+     (fix what fails before review) and the Tester (runs the tests itself, not only CI). The agent log records each
+     command, its exit code and duration, never its output.
+   - Simulated mode scripts a sandbox call; one live run on the test repository.
+2. **Preview and a browser for the Tester**
+   - A preview of each agent PR on `pr-<n>.preview.<domain>` (needs a domain with wildcard DNS), stopped when the PR
+     closes or after a time limit.
+   - The Tester drives it in headless Chromium (Playwright): steps, console errors, screenshots in the agent log.
+3. **Designer agent** (seventh role, a reviewer first)
+   - Reviews in parallel with the Reviewer and Security: screenshots of the changed pages at 375 / 768 / 1280 px in
+     light and dark, read by a vision model; findings go to the Lead.
+   - Face, defaults, AI Team card, live process and metrics like every role.
+4. **Polish and release**
+   - Sandbox numbers on the Metrics page; limits per workspace; cleanup of stale containers, previews and images.
+   - Docs, test plan rows, CHANGELOG, release **v0.6.0**.
 
 ### v0.7 — Brain
 - A project memory every agent reads before working: repository conventions, decisions, what earlier cards learned.

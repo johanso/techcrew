@@ -13,13 +13,16 @@ import {
   FilePlusIcon,
   FileTextIcon,
   FileXIcon,
+  FlaskConicalIcon,
   FolderTreeIcon,
+  HammerIcon,
   ListChecksIcon,
   LoaderCircleIcon,
   MessageCircleQuestionIcon,
   MessageCircleReplyIcon,
   ScrollTextIcon,
   SearchIcon,
+  SquareTerminalIcon,
   TextSearchIcon,
   WrenchIcon,
   type LucideIcon,
@@ -62,6 +65,9 @@ const TOOL_ICON: Record<string, LucideIcon> = {
   get_checks: ListChecksIcon,
   search_skill: TextSearchIcon,
   read_skill: BookOpenTextIcon,
+  run_tests: FlaskConicalIcon,
+  run_build: HammerIcon,
+  run_command: SquareTerminalIcon,
 };
 
 function Step({ step }: { step: RunLogStep }) {

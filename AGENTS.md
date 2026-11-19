@@ -103,8 +103,9 @@ app/
                           (agent log), syncIssuesAction (also refreshes agent PRs) (auth + validation).
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
       settings/           Account (#account), workspace (#workspace), AI providers (#ai: keys + provider switch), Switch
-                          Trust (#switch), agent automation (#agents) and an Agent skills card (#skills) linking to skills/page.tsx (the
-                          library on its own page). actions.ts: automation,
+                          Trust (#switch), agent automation (#agents), Sandbox (#sandbox) and an Agent skills card (#skills) linking to
+                          skills/page.tsx (the library on its own page). actions.ts: automation, saveSandboxAction /
+                          checkSandboxAction (Test the sandbox),
                           provider switch, auto failover toggle, save/remove provider key, connect/disconnect Switch,
                           inspectSkillAction / installSkillAction (upload, two steps), saveSkillAssignmentsAction,
                           deleteSkillAction.
@@ -129,6 +130,7 @@ components/
   settings/               agent-automation-form (task pickup + merge mode), provider-switch-form, auto-failover-toggle,
                           provider-key-form
                           (masked key + show/hide), switch-connection-form (Switch Trust account), switch-weekly-toggle,
+                          sandbox-form (Settings → Sandbox: switch, commands, Test the sandbox),
                           option-cards (radio
                           cards shared by the settings forms).
   ai-team/                AI Team: ai-team-view (page markup), agent-roster (cards + open overlay state), agent-card
@@ -191,8 +193,12 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   switch-trust-config.ts  Pure: scan statuses, pickFastEvaluation, runPhase, buildSwitchReport, parseEvalMessages.
   switch-eval.ts          answerEvaluation(): an agent answers one Switch test with its model + instructions (+ its
                           always-loaded skills), cost logged.
+  sandbox/                Agent sandboxes (docs/sandbox.md). config.ts: pure, client-safe (commands, detectCommands,
+                          parseSandboxCommand, sandboxReport, outputTail). docker.ts: runInSandbox (prepare with network,
+                          command without, gVisor + limits), removeSandbox, hourly sweep. index.ts: sandboxAvailable,
+                          detectRepoCommands, runRepoCommand (one volume per run), removeRunSandbox, checkSandbox.
   jobs.ts                 Cloudhike Jobs: enqueueJob, getJobRun, publicAppUrl (null for local addresses).
-  agent-ai.ts             Config AI (OpenAI if configured, else Anthropic): generateAgentConfig() (repo-aware instructions),
+  agent-ai.ts             Config AI (OpenAI if configured, else Anthropic): generateAgentConfig() (repo-aware, sandbox-aware instructions),
                           scanAgentWithAI(), reviewSkillWithAI() (upload review + type/load/roles), isConfigAIAvailable().
   openai.ts               OpenAI client (null without a key), responseCostMicros().
   anthropic.ts            Anthropic client (null without a key), messageCostMicros(), toClaudeSchema().
@@ -256,6 +262,8 @@ agent-skills/             Built-in agent skills, vendored: sources.json (repo, p
                           (files exactly as published + SOURCE.md + upstream LICENSE). Never hand-edit; run skills:sync.
 public/                   agents/<key>.webp: one face per agent role (256×256, round with transparent corners).
 scripts/                  db-baseline.mjs (mark migrations applied on a pushed DB), sync-agent-skills.mjs (skills:sync).
+deploy/                   setup.sh: prepares a fresh Ubuntu 24.04 VPS (firewall, swap, Docker, gVisor for agent sandboxes,
+                          `techteam` user; `--lock-ssh` = keys only). Idempotent, so the next VPS runs the same script.
 proxy.ts                  Optimistic cookie guard for /dashboard and /workspaces.
 ```
 
@@ -562,6 +570,11 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     a second stop only closes that stage's log and activity (one notification).
   - Each stage is a tool loop of at most the agent's max turns, **one Inngest step per turn**; the last turn forces the
     stage's finish tool (strict JSON schema). Step bodies reload state from the DB — never keep state in closures.
+  - **Sandbox** (`lib/sandbox/`, [`docs/sandbox.md`](docs/sandbox.md)): with Settings → Sandbox on and `tests.run`, the
+    Developer and the Tester get `run_tests` / `run_build` / `run_command` on the branch's latest commit. The repository
+    goes in as a tarball (never a token); install has network, the command never does; one volume per run, removed in
+    `finishRun`. Log the command and the outcome line only (`toolStep`), never the output. The stage protocol says
+    "you can't run code" only to agents without the tools.
   - **Permissions are enforced as tools** (`toolsFor` in `lib/agent-tools.ts`). Adding a capability = a tool gated by a
     permission there, not a prompt instruction. ("Skills" are knowledge, not capabilities: see Agent skills below.) Agents never write `.github/workflows/`, `.env*` (except `.env.example`) or
     `.git/`; manifests need `deps.manage`. Tool output is untrusted data — the stage protocol in `systemPrompt` says so.
@@ -595,7 +608,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     rewrite instead of duplicating. Never log tool *content* (file reads, diffs): only targets and short confirmations
     or errors (`toolStep`). The log sheet shows parallel stages as separate blocks, both live at once.
   - **Simulated mode** (`AGENTS_SIMULATED=true`) scripts every stage, including Security (pass) and the Lead (approve,
-    low risk), so the whole flow runs without a model.
+    low risk), so the whole flow runs without a model. With the sandbox on, the Developer and the Tester also call
+    `run_tests` and `run_build` for real.
   - **Out of credit** (`isOpenAIOutOfCredit` / `isAnthropicOutOfCredit`) is not a generic failure: the run stops with
     `agent_runs.failure = { kind: "out_of_credit", provider }` and the board offers switch-and-retry
     (`switchProviderAndRetryAction`). With `workspaces.ai_auto_failover` and the other company's key, `runStageTurn`
@@ -691,4 +705,5 @@ See `.env.example` for the full list with comments. Feature-specific:
 | `JOBS_API_URL`, `JOBS_API_KEY` | Cloudhike Jobs: runs SwitchAgent scans in the background. |
 | `PUBLIC_APP_URL` | The app's internet-reachable URL for callbacks (jobs, Switch evaluations); defaults to `NEXT_PUBLIC_APP_URL`. A tunnel in local dev. |
 | `SWITCH_AGENT_AI_API_KEY` | Optional server-wide Switch Trust key (Editor role) for workspaces that connect without their own. |
+| `SANDBOX_DOCKER_HOST`, `SANDBOX_IMAGE` | Agent sandboxes: the Docker host (`ssh://…` to a VPS set up with `deploy/setup.sh`, or the local socket on it). Unset: Settings → Sandbox can't be switched on. |
 | `AGENTS_SIMULATED` | Local testing: `true` runs the pipeline with scripted agents (`lib/agent-simulated.ts`) — no model calls or spend, but real GitHub work (branch, `agent-simulations/<branch>.md`, PR). |

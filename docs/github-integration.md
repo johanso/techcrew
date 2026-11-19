@@ -181,7 +181,10 @@ always with the owner's token and always on the linked repository:
 | Follow-up issue | Merge blocked by conflict / failing build (*File issues*) | `POST /issues` (label `bug`) |
 
 Reads: tree, contents, code search (default branch only), compare, PR state and mergeability, check runs and commit
-statuses. A `401` stops the run with "Reconnect GitHub" instead of retrying.
+statuses. The sandbox ([sandbox.md](sandbox.md)) also downloads the branch's latest commit as a tarball
+(`GET /tarball/{sha}`): the app follows GitHub's redirect without the token and pipes the archive (≤ 300 MB) to the
+container, so the token never leaves the app. Settings → Sandbox reads the root `package.json` and the root file list
+to suggest commands. A `401` stops the run with "Reconnect GitHub" instead of retrying.
 
 ## Not supported yet
 

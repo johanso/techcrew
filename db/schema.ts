@@ -6,6 +6,7 @@ import type { AnalystBrief, LeadDecision, ReviewReport, RunFailure, SecurityRepo
 import type { SkillScan } from "@/lib/agent-skills-config";
 import type { TrustReport } from "@/lib/agent-trust";
 import type { CiResult } from "@/lib/ci-gate";
+import type { SandboxCommands } from "@/lib/sandbox/config";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -75,6 +76,10 @@ export const workspaces = pgTable(
     // When the provider runs out of credit mid-run and the other one has a key, switch the team to it and restart
     // the stage instead of stopping (Settings → AI providers). Off by default: switching changes every agent's model.
     aiAutoFailover: boolean("ai_auto_failover").default(false).notNull(),
+    // Settings → Sandbox: agents with "Run tests in a sandbox" get run_tests / run_build / run_command. The commands
+    // are saved with the switch (prefilled from package.json), so a run never guesses them.
+    sandboxEnabled: boolean("sandbox_enabled").default(false).notNull(),
+    sandboxCommands: jsonb("sandbox_commands").$type<SandboxCommands>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },

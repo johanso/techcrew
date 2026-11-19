@@ -1,0 +1,196 @@
+"use client";
+
+import { startTransition, use, useActionState, useState, useTransition } from "react";
+import { CheckIcon, CircleCheckIcon, CircleXIcon, PlayIcon, ServerOffIcon, TerminalIcon } from "lucide-react";
+
+import {
+  checkSandboxAction,
+  saveSandboxAction,
+  type SandboxCheckResult,
+  type SandboxFormState,
+} from "@/app/dashboard/[workspaceId]/settings/actions";
+import { FormMessage } from "@/components/auth/form-parts";
+import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
+import { useFieldErrors } from "@/hooks/use-field-errors";
+import { SANDBOX_COMMAND_KINDS, SANDBOX_COMMAND_LABEL, type SandboxCommandKind, type SandboxCommands } from "@/lib/sandbox/config";
+
+type Values = Record<SandboxCommandKind, string>;
+
+const toValues = (commands: SandboxCommands | null): Values => ({
+  install: commands?.install ?? "",
+  test: commands?.test ?? "",
+  build: commands?.build ?? "",
+});
+
+type SandboxFormProps = {
+  workspaceId: number;
+  /** The server has a sandbox host (SANDBOX_DOCKER_HOST). */
+  available: boolean;
+  enabled: boolean;
+  saved: SandboxCommands | null;
+};
+
+/** Settings → Sandbox, once the commands detected from package.json have loaded (null: package.json couldn't be read). */
+export function SandboxSettings({ detected, ...props }: SandboxFormProps & { detected: Promise<SandboxCommands | null> }) {
+  return <SandboxForm {...props} detected={use(detected)} />;
+}
+
+/** Matches SandboxForm while the detected commands load. */
+export function SandboxFormSkeleton() {
+  return (
+    <div className="flex flex-col gap-6 border-t border-border/70 p-6" aria-hidden>
+      <div className="flex items-start gap-3">
+        <Skeleton className="size-9 rounded-lg" />
+        <div className="flex flex-1 flex-col gap-1.5">
+          <Skeleton className="h-4 w-56" />
+          <Skeleton className="h-3 w-full max-w-md" />
+        </div>
+      </div>
+      {SANDBOX_COMMAND_KINDS.map((kind) => (
+        <div key={kind} className="flex flex-col gap-2">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-10 w-full rounded-lg" />
+        </div>
+      ))}
+      <div className="flex justify-end">
+        <Skeleton className="h-10 w-32 rounded-lg" />
+      </div>
+    </div>
+  );
+}
+
+function SandboxForm({ workspaceId, available, enabled, saved, detected }: SandboxFormProps & { detected: SandboxCommands | null }) {
+  const [state, formAction, pending] = useActionState<SandboxFormState, FormData>(saveSandboxAction.bind(null, workspaceId), {});
+  const { errorFor, onChange } = useFieldErrors(state);
+  const [on, setOn] = useState(enabled);
+  const [values, setValues] = useState<Values>(() => toValues(saved ?? detected));
+  const [checking, startCheck] = useTransition();
+  const [check, setCheck] = useState<SandboxCheckResult | null>(null);
+
+  // Compared with what the server rendered, so "Saved" shows only until the next edit. Nothing saved yet: always savable.
+  const savedValues = toValues(saved);
+  const dirty = !saved || on !== enabled || SANDBOX_COMMAND_KINDS.some((kind) => values[kind].trim() !== savedValues[kind]);
+
+  const runCheck = () =>
+    startCheck(async () => {
+      setCheck(null);
+      setCheck(await checkSandboxAction(workspaceId));
+    });
+
+  return (
+    <form
+      // Dispatched by hand: a form `action` resets the form afterwards, which would put the inputs back.
+      onSubmit={(event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        data.set("enabled", on ? "on" : "off");
+        startTransition(() => formAction(data));
+      }}
+      onChange={onChange}
+      className="flex min-w-0 flex-col gap-6 border-t border-border/70 p-6"
+    >
+      <label className="flex cursor-pointer items-start gap-3">
+        <span className="icon-tile size-9 text-brand-emphasis [&_svg]:size-4">
+          <TerminalIcon />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="text-sm font-semibold">Let agents run code in the sandbox</span>
+          <span className="text-xs text-muted-foreground">
+            The Developer and the Tester install, test and build each change on a throwaway copy of the branch. Your
+            tests run without network access, and no token or secret ever enters the container.
+          </span>
+        </span>
+        <Switch checked={on} onCheckedChange={setOn} disabled={!available || pending} aria-label="Let agents run code in the sandbox" className="mt-1" />
+      </label>
+
+      {!available && (
+        <p className="flex items-start gap-2 text-xs text-muted-foreground">
+          <ServerOffIcon className="mt-0.5 size-3.5 shrink-0" />
+          This server has no sandbox host (SANDBOX_DOCKER_HOST), so agents can&apos;t run code yet.
+        </p>
+      )}
+
+      <div className="flex flex-col gap-4">
+        {SANDBOX_COMMAND_KINDS.map((kind) => {
+          const error = errorFor(kind);
+          const found = detected?.[kind];
+          return (
+            <Field key={kind} data-invalid={!!error}>
+              <FieldLabel htmlFor={`sandbox-${kind}`}>{SANDBOX_COMMAND_LABEL[kind]}</FieldLabel>
+              <Input
+                id={`sandbox-${kind}`}
+                name={kind}
+                className="h-10 font-mono text-sm"
+                value={values[kind]}
+                onChange={(event) => setValues((current) => ({ ...current, [kind]: event.target.value }))}
+                placeholder={found ?? "Nothing to run"}
+                autoComplete="off"
+                spellCheck={false}
+                aria-invalid={!!error}
+              />
+              <FieldError>{error}</FieldError>
+              <FieldDescription>
+                {detected === null ? (
+                  "Couldn't read package.json on the default branch."
+                ) : found ? (
+                  <>
+                    Detected from package.json: <code className="font-mono">{found}</code>
+                  </>
+                ) : (
+                  "Nothing detected. Leave it empty to skip this step."
+                )}
+              </FieldDescription>
+            </Field>
+          );
+        })}
+      </div>
+
+      <FormMessage message={state.message} />
+
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Button type="button" variant="outline" className="h-9" onClick={runCheck} disabled={!available || !saved || dirty || checking || pending}>
+          {checking ? <Spinner /> : <PlayIcon data-icon="inline-start" />}
+          {checking ? "Running… this can take a few minutes" : "Test the sandbox"}
+        </Button>
+        <div className="flex items-center justify-end gap-3">
+          {state.ok && !dirty && !pending && (
+            <span role="status" className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <CheckIcon className="size-3.5 text-success" />
+              Saved
+            </span>
+          )}
+          <Button type="submit" className="h-10" disabled={pending || !dirty}>
+            {pending && <Spinner />}
+            {pending ? "Saving…" : "Save sandbox"}
+          </Button>
+        </div>
+      </div>
+
+      {check && <CheckResult result={check} />}
+    </form>
+  );
+}
+
+function CheckResult({ result }: { result: SandboxCheckResult }) {
+  if (!result.ok) return <FormMessage message={result.error} />;
+  return (
+    <div role="status" className="flex min-w-0 flex-col gap-3 rounded-lg border p-4">
+      <p className="flex items-start gap-2 text-sm font-medium">
+        {result.passed ? (
+          <CircleCheckIcon className="mt-0.5 size-4 shrink-0 text-success" />
+        ) : (
+          <CircleXIcon className="mt-0.5 size-4 shrink-0 text-error" />
+        )}
+        <span className="min-w-0 break-words">{result.headline}</span>
+      </p>
+      {result.output && (
+        <pre className="relative max-h-64 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs whitespace-pre-wrap break-words">{result.output}</pre>
+      )}
+    </div>
+  );
+}

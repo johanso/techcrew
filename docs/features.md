@@ -347,7 +347,7 @@ Without `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` the page shows "No AI provider c
 | Review pull requests, Comment on issues, File issues, Read CI results | ✅ Reviews (Reviewer, Security, Lead) and test reports posted on the PR, needs-info comments, merge follow-up issues, check runs/statuses. |
 | Manage dependencies | ✅ Gate only: without it, manifests and lockfiles can't be written. |
 | Merge pull requests | 🟡 Not an agent tool: merging is controlled by Settings → Agents (manual, automatic when low risk, automatic). |
-| Write tests, Run tests in a sandbox | 🟡 / ❌ Tests can be written as files; nothing executes them (needs a sandbox service). |
+| Write tests, Run tests in a sandbox | ✅ With Settings → Sandbox on: `run_tests`, `run_build` and `run_command` for the Developer and the Tester, in gVisor containers ([sandbox.md](sandbox.md)). Off: tests are only written as files. |
 | Web research | ❌ Needs a search tool (e.g. OpenAI's web search tool in the Responses API). |
 | Read environment secrets | ❌ No per-workspace secrets store. |
 
@@ -481,6 +481,9 @@ Security), Approval (Lead), Testing, Merge (automatic, no agent).
   low risk: once tests and CI pass, if the Lead rated it low risk / Automatic: once approval, tests and CI pass). Both
   default to Manual; workspaces that merged automatically before v0.2 keep Automatic. A note explains that a blocked merge makes the Tester file a
   follow-up card.
+- **Sandbox** (`#sandbox`) — **Let agents run code in the sandbox** (off by default; needs a sandbox host on the
+  server) and the **install / test / build** commands, prefilled from `package.json`. **Test the sandbox** runs them on
+  the default branch and shows the result. See [sandbox.md](sandbox.md).
 - **Agent skills** (`#skills`) — a summary card (installed and uploaded counts) with **Manage skills**, which opens the library page; see [Agent skills](#agent-skills).
 
 Account and workspace details are read-only.

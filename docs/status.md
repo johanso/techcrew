@@ -48,7 +48,7 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 
 Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
-- **Some permissions have no tool behind them**: Web research, Read environment secrets and Run tests in a sandbox are
+- **Some permissions have no tool behind them**: Web research and Read environment secrets are
   stored and scored but no agent tool exists for them (see [features.md](features.md#ai-team)).
 
 ## Known limitations
@@ -61,9 +61,10 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 - **Sync imports at most 500 issues per run** and never writes back to GitHub.
 - **Cards created in the app are not created on GitHub.**
 - **No undo** for Remove task (the row is kept, but there's no UI to restore it).
-- **Agents can't run code.** The Developer edits files through the GitHub API and the Tester verifies statically
-  (diff, pre-checks). Builds and tests only run if the repository has CI on pull requests; the pipeline then waits
-  for it after each push and sends failures back to the Developer.
+- **Agents run code only with the sandbox on** (Settings → Sandbox, a Docker host from `deploy/setup.sh`): then the
+  Developer and the Tester run the tests, the build and one-line commands. Without it they verify statically and
+  rely on CI. Node images only, and no browser yet (previews and UI checks are milestone 2). The Developer still
+  edits through the GitHub API.
 - **One commit per file edit** on agent branches (contents API); merges are squashed, so `main` gets one commit.
 - **Reviews are posted as comments**, not approvals: GitHub doesn't let the token's own account approve its own PR.
 - **Auto pickup only takes never-run cards**, one at a time per workspace, every 2 minutes.

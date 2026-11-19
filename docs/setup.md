@@ -59,6 +59,8 @@ All variables live in `.env`. Restart `npm run dev` after changing them.
 | `JOBS_API_URL`, `JOBS_API_KEY` | for Switch scans | `lib/jobs.ts` | Cloudhike Jobs project (`https://cloudhike.dev/api/jobs-service/<project>`) and its server-only key. SwitchAgent scans run on it. |
 | `PUBLIC_APP_URL` | for Switch scans | `lib/jobs.ts` | The app's internet-reachable origin, called back by Cloudhike jobs and Switch evaluations. Defaults to `NEXT_PUBLIC_APP_URL`; a local address disables scans, so in dev use a tunnel (`ngrok http 3000`). |
 | `SWITCH_AGENT_AI_API_KEY` | optional | `lib/switch-trust.ts` | Server-wide Switch Trust key (Editor role) for workspaces that connect without their own. See [switch-trust.md](switch-trust.md). |
+| `SANDBOX_DOCKER_HOST` | for the sandbox | `lib/sandbox/docker.ts` | Docker host for agent sandboxes: `ssh://<user>@<ip>` (or an `~/.ssh/config` alias) for a VPS set up with `deploy/setup.sh`, `unix:///var/run/docker.sock` when the app runs on it. Unset: Settings → Sandbox can't be switched on. See [sandbox.md](sandbox.md). |
+| `SANDBOX_IMAGE` | no | `lib/sandbox/docker.ts` | Container image for sandboxes. Default `node:24-bookworm`. |
 | `INNGEST_EVENT_KEY` | production | `lib/inngest/client.ts` | Inngest Cloud event key. Not needed locally (the Dev Server is used). |
 | `INNGEST_SIGNING_KEY` | production | Inngest `serve()` | Verifies requests from Inngest Cloud to `/api/inngest`. Not needed locally. |
 | `INNGEST_DEV` | no | Inngest SDK | Set to `1` to force Dev Mode, `0` to force Cloud Mode. If unset, the SDK (v3) infers Dev Mode unless the environment looks like production (`NODE_ENV=production`, Vercel/Netlify production, …). |
@@ -129,6 +131,13 @@ For SwitchAgent scans: create a Jobs project on Cloudhike (`JOBS_API_URL`, `JOBS
 Editor role in Switch Trust (Settings → API keys), and expose the app publicly (`PUBLIC_APP_URL`). Then Settings →
 Switch Trust → **Connect securely**. Details: [switch-trust.md](switch-trust.md).
 
+### Agent sandbox (optional)
+
+To let the Developer and the Tester run tests and builds: a fresh Ubuntu 24.04 VPS, then as root `bash
+deploy/setup.sh` (and `--lock-ssh` once you can log in as `techteam` with a key). Set `SANDBOX_DOCKER_HOST`, turn on
+SSH connection reuse for that host (`ControlMaster auto`, `ControlPath ~/.ssh/cm-%r@%h-%p`, `ControlPersist 10m`),
+then Settings → Sandbox → save the commands and **Test the sandbox**. Details: [sandbox.md](sandbox.md#setting-up-a-host).
+
 ### Built-in agent skills
 
 Nothing to set up: the built-ins are committed in `agent-skills/` and every workspace gets them on first use. To
@@ -192,5 +201,8 @@ npm run inngest:dev    # terminal 2 — only needed for the board's Run action
 | Board shows "Your GitHub connection expired or was revoked" | The token was revoked on GitHub (or `TOKEN_ENCRYPTION_KEY` changed). Click **Reconnect GitHub**. |
 | **Run** fails with "Is the Inngest Dev Server running?" | Start `npm run inngest:dev`. Without it, the SDK falls back to Inngest Cloud and the placeholder event key is rejected (401). |
 | Logo upload button is disabled | S3 variables are not set. |
+| Settings → Sandbox can't be switched on | `SANDBOX_DOCKER_HOST` isn't set (restart the dev server after setting it), or neither a test nor a build command is saved. |
+| **Test the sandbox** fails while preparing the checkout | The app can't reach Docker on the host: try `docker -H "$SANDBOX_DOCKER_HOST" info` from the same machine (SSH key, host key, user in the `docker` group). |
+| Each sandbox call takes 10 s or more before the command starts | SSH connection reuse is off for the host (see [sandbox.md](sandbox.md#setting-up-a-host)). |
 | `npm run db:generate` asks questions ("Interactive prompts require a TTY") | drizzle-kit can't tell a rename from a drop + add. Run it in a regular terminal and answer the prompt. |
 | `npm install` fails with "Cannot read properties of null (reading 'edgesOut')" | An npm 10 bug while resolving peer dependencies. Add `--legacy-peer-deps` to that install. |
