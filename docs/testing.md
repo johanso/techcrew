@@ -47,30 +47,28 @@ simulated mode to test the pipeline for free.
 Each agent picks its **company and model** on the AI Team page (Configure → Company, Model); a team can mix
 companies. `agents.provider_models` remembers each agent's model per company for out-of-credit moves.
 
-| Model | Provider | $ / 1M in · out | Notes |
-| --- | --- | --- | --- |
-| GPT-6 Astra | OpenAI | 10 · 50 | Flagship |
-| GPT-6.1 Sol | OpenAI | 2 · 10 | Default for Analyst, Developer, Reviewer, Security and Lead; also drafting/trust reviews on OpenAI |
-| GPT-6.1 Terra | OpenAI | 1 · 5 | Maps to Sonnet on a switch (no Claude equivalent) |
-| GPT-6 Luna | OpenAI | 0.1 · 0.5 | Default for Tester |
-| Claude Opus 5.5 | Anthropic | 4 · 20 | Refusal fallback on |
-| Claude Sonnet 5.5 | Anthropic | 2 · 10 | Default for Analyst, Developer, Reviewer, Security and Lead; also drafting/trust reviews on Anthropic; refusal fallback on |
-| Claude Haiku 5.5 | Anthropic | 0.1 · 0.5 (0.5 · 2.5 above 100K-token prompts) | Default for Tester |
-| Gemini 4 Argon | OpenRouter (Google) | 2 · 10 | Flagship |
-| Grok 4.7 | OpenRouter (xAI) | 2 · 6 | Flagship |
-| DeepSeek V4 Pro | OpenRouter (DeepSeek) | 0.111 · 4.44 | Default for Analyst, Developer, Reviewer, Security and Lead on OpenRouter; also drafting/trust reviews on OpenRouter |
-| GLM 5.3 | OpenRouter (Z.ai) | 0.07 · 1.4 | Balanced |
-| Kimi K3.1 Pro | OpenRouter (Moonshot) | 0.253 · 8.8 | Balanced |
-| Gemini 4 Hydrogen | OpenRouter (Google) | 1.5 · 7.5 | Efficient |
-| Grok Build 0.1 | OpenRouter (xAI) | 1 · 2 | Efficient |
-| DeepSeek V4.1 Flash | OpenRouter (DeepSeek) | 0.3 · 1.2 | Default for Tester on OpenRouter |
-| GLM 5.3 Flash | OpenRouter (Z.ai) | 0.15 · 0.5 | Fast |
-| Gemini 3.8 Flash | OpenRouter (Google) | 0.825 · 4.125 | Fast |
+The models come from the **model catalog** (`lib/model-catalog.ts`, [model-catalog-plan.md](model-catalog-plan.md)):
+OpenRouter's public `/models` list (no key, no spend), filtered and stored in `model_catalog`, refreshed daily and with
+Settings → AI → **Refresh models**. Nothing in code lists models any more: a new model shows up in the picker after the
+next refresh. What the picker offered on 2026-11-21 ($ per 1M tokens in · out, the catalog's listed price):
 
-Prices live in `AGENT_MODELS` (`lib/agent-config.ts`); update them there. OpenRouter prices are its listed ones: hosts
-differ, and the cost logged is the one OpenRouter reports per response. Each model has a **tier** (flagship, balanced,
-efficient, fast); moving an agent to another company picks the first model there of the same tier (`closestModel`),
-else a neighboring one.
+| Company | Flagship | Balanced | Fast |
+| --- | --- | --- | --- |
+| OpenAI | GPT-6.2 Astra (8 · 40), GPT-6.2 Sol (2 · 10) | GPT-6.1 Terra (1 · 5) | GPT-6 Luna (0.1 · 0.5) |
+| Anthropic | Claude Fable 5.2 (8 · 40), Claude Opus 5.5 (4 · 20) | Claude Sonnet 5.5 (2 · 10) | Claude Haiku 5.5 (0.1 · 0.5) |
+| OpenRouter | Gemini 4 Neon, Carbon, Argon, Hydrogen; Kimi K3, Kimi K3.1 Pro | Gemini 3.8 Flash, Gemini 3.5 Flash Lite, Grok 4.7, DeepSeek V4 Pro 0813, Kimi K2.7 Code | DeepSeek V4.1 Flash 1017, GLM 5.3, GLM 5.3 FlashX (and Legal), GLM 5.3 Flash |
+
+- **Tiers** rank each company's current models by output price (top third flagship, bottom third fast). Moving an agent
+  to another company keeps the tier, nearest in price within it (`closestModel`).
+- **Role defaults** are a tier: balanced for the Analyst, Developer, Reviewer, Security and Lead, fast for the Tester;
+  the tier's cheapest current model (on OpenRouter DeepSeek's first). On 2026-11-21: Terra / Sonnet / DeepSeek V4 Pro,
+  and Luna / Haiku / DeepSeek V4.1 Flash for the Tester. Drafting and trust reviews use the Analyst's default.
+- **Prices** are the catalog's: OpenRouter's real cost per response is what's logged for its models; the OpenAI and
+  Anthropic APIs are priced from the catalog (long prompts at the catalog's higher rate); Claude Code reports its own.
+  A model the catalog never listed has no price (its cost counts as 0, with a warning in the server log).
+- **Offline / first run**: the app runs on the built-in seed (`lib/model-seed.ts`, the models offered before the
+  catalog). Unit tests use the seed or `lib/__fixtures__/openrouter-models.json`; simulated mode never fetches on its own.
+- An agent whose model left the list keeps running on it; AI Team shows it as "older" until the owner picks another.
 
 How each provider runs a stage (`lib/agent-loop.ts`):
 
@@ -184,12 +182,15 @@ How each provider runs a stage (`lib/agent-loop.ts`):
 | 82 | Lighter turns per provider | One development stage per provider on a medium card | OpenRouter: requests after the fold carry the `<earlier-turns>` digest, cost per turn stops growing; Claude: `context_management` applied only past 150K tokens; OpenAI: no 400 on `context_management` / `text.verbosity`, compaction item past 120K; activity shows turns and tool calls | ⬜ needs live runs (spends; Anthropic needs credit) |
 | 83 | CLI agents: pure rules (no CLI) | Unit tests: `cli-agents-config.test.ts` (`cliAgentsAllowed`, auth parsing, account check, `planIncludesModel`, `resolveRoute` for every fallback, `planLimitAction`, usage summary), `cli/claude-config.test.ts` (arguments, stream reader, outcome classifier on 2.1.326's real "Not logged in" output), `mcp-protocol.test.ts`, `cli/stage-mcp.test.ts` (tools per stage and permissions), `db-errors.test.ts`, `agent-turns.test.ts` (`cliChunkPrompt`), `run-metrics.test.ts` (plan runs) | All pass | ✅ unit tests |
 | 84 | Claude Code accepts the flags and TechTeam's MCP server (no spend) | `claudeChunkArgs` run with an empty `CLAUDE_CONFIG_DIR` against a throwaway server using `lib/mcp-protocol.ts` | The init event lists exactly `mcp__techteam__*`, the server connected (bearer from the env), no foreign tools, skills or slash commands; the run ends "Not logged in" | ✅ by script (2026-11-20, Claude Code 2.1.326): `server/discover`, `initialize`, `notifications/initialized`, `tools/list` seen |
-| 85 | Separate login | `claude auth status --json` with an empty `CLAUDE_CONFIG_DIR` while the normal login is signed in | `loggedIn: false` | ✅ (2026-11-20, macOS); sign-in through Settings not tried yet; Windows ⬜ |
+| 85 | Separate login | `claude auth status --json` with an empty `CLAUDE_CONFIG_DIR` while the normal login is signed in | `loggedIn: false` | ✅ (2026-11-20, macOS); sign-in through Settings ✅ on Windows (2026-11-21, live run 87) |
 | 86 | Isolation check with a signed-in plan | `npx tsx scripts/cli-isolation-check.mts` after signing in TechTeam's Claude Code | No foreign tools, no hook events, the model reports no CLAUDE.md, memory or skills; the normal login unchanged | ⬜ needs the owner's OK (uses the plan) |
-| 87 | Live run on the plan | "Sandbox demo", Developer on a Claude model routed through the plan, the rest on OpenRouter | Agent log: tool calls appear live, the result ends "Your Claude plan · N turns · K tokens (≈ $x)", no API spend for that stage; AI Team chip "Your Claude plan"; then the same on the Windows PC | ⬜ needs the owner's OK |
+| 87 | Live run on the plan | "Sandbox demo", Developer on a Claude model routed through the plan, the rest on OpenRouter | Agent log: tool calls appear live, the result ends "Your Claude plan · N turns · K tokens (≈ $x)", no API spend for that stage; AI Team chip "Your Claude plan"; then the same on the Windows PC | ✅ Live on the Windows PC (2026-11-21, Claude Pro, the owner's personal TechTeam account): all six agents on the plan (five on Claude Sonnet 5.5, the Tester on Claude Haiku 5.5), a small change taken all the way to production; every `task_run` row `billing = plan`, $0 API spend, ≈ $0.32 at API prices (reference), 300K tokens. Mixed plan + OpenRouter not tried yet |
 | 88 | Plan limit | Simulate a limit (a classifier test, or a fake CLI that prints a rejected `rate_limit_event`) with each choice | Wait: card "Waiting for your Claude plan · resets …", one notification, resumes the same session; API: restart with a Route line; failover: agents moved; none possible: `plan_limit` failure | 🟡 rules unit-tested; the pipeline path ⬜ |
 | 89 | Two computers | Run the same card from both, auto pickup on both | The second start is refused ("already working on this card"); `AGENTS_AUTO_PICKUP=false` skips the cron | 🟡 constraint applied to the shared database (migration 0016) and unit-tested error mapping; not tried from two computers |
 | 90 | Deploy shows nothing | `NEXT_PUBLIC_APP_URL` public, or `VERCEL=1`, or `AGENTS_LOCAL_CLI=false` | No Plans group in Settings, no route chips, `/api/mcp/runs/*` 404, Run behaves as before | 🟡 unit-tested (`cliAgentsAllowed`); not checked in the browser |
+| 91 | Model catalog: pure rules | Unit tests: `model-catalog-config.test.ts` on `lib/__fixtures__/openrouter-models.json` (id mapping both ways, filter, current per family, tiers, closest model, pickers, seed fallback), `agent-request-params.test.ts` (knobs from the catalog), `agent-config.test.ts` (role defaults per tier) | All pass | ✅ unit tests |
+| 92 | Model catalog: real fetch | `refreshModelCatalog()` by script against the shared database (no key, no spend) | 110 eligible models stored; 24 current (OpenAI 4, Anthropic 4 with Claude Fable 5.2, OpenRouter 16); `claude-sonnet-5-5`, `gpt-6.1-terra`, `deepseek/deepseek-v4-pro-0813` current, `gpt-6.1-sol` and `deepseek/deepseek-v4.1-flash` older, `x-ai/grok-build-0.1` from the seed | ✅ by script (2026-11-21) |
+| 93 | Model picker and Refresh models | AI Team → Configure → Company / Model; Settings → AI → Models | Current models with tier, eye, price (or *Your plan*); an older model shows "Older model"; Refresh models updates "Models updated …" | ⬜ not checked in the browser |
 | 38 | Skill toggle in the configure dialog | AI Team → Configure → Skills switch | Saves at once; trust rescanned; activity logged; Switch report flagged as older | 🟡 server path ✅ by script; switch not clicked in the browser |
 | 23 | Notifications | Trigger PR ready / needs info / stop / out of credit | Bell count, list newest first, opening marks read, Mark all as read | ✅ in the browser; `run_failed` produced by a real run stop |
 

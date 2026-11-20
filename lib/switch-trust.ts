@@ -4,7 +4,8 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { agents, db, switchConnections, trustScans, workspaces, type AgentRow, type SwitchConnectionRow, type TrustScanRow } from "@/db";
-import { AGENT_ROLES, PROVIDERS, modelInfo, type AgentKey } from "@/lib/agent-config";
+import { AGENT_ROLES, PROVIDERS, type AgentKey } from "@/lib/agent-config";
+import { modelProvider } from "@/lib/model-catalog-config";
 import { activeAgentModel, saveTrustScan } from "@/lib/agents";
 import { getAIKeys } from "@/lib/ai-keys";
 import { decrypt, deriveSecret, encrypt } from "@/lib/crypto";
@@ -329,7 +330,7 @@ export async function requestSwitchScans(input: {
       continue;
     }
     // Switch tests the agent through its own model: without a key every test would fail, so say so now.
-    const provider = modelInfo(activeAgentModel(row)).provider;
+    const provider = modelProvider(activeAgentModel(row)) ?? "openai";
     if (!simulated && !keys[provider]) {
       firstError ??= `Add an ${PROVIDERS[provider].label} API key in Settings: Switch tests each agent through its model.`;
       continue;

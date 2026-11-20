@@ -14,8 +14,11 @@ const CATEGORIES: { id: SpendCategory; label: string; tone: string }[] = [
 // Budgets reset at 00:00 UTC on the 1st; format in UTC so the date doesn't shift with the viewer's time zone.
 const utcLabel = (date: Date, options: Intl.DateTimeFormatOptions) => date.toLocaleDateString("en-US", { ...options, timeZone: "UTC" });
 
-/** This month's spend for the configure dialog. `budgetCents` is the dialog's draft, so edits preview live. */
-export function SpendingPanel({ spend, budgetCents }: { spend: AgentView["spend"]; budgetCents: number }) {
+/**
+ * This month's spend for the configure dialog. `budgetCents` is the dialog's draft, so edits preview live. `onPlan`:
+ * the agent runs on the owner's plan on this computer, so the budget parts are hidden (only API spend has a budget).
+ */
+export function SpendingPanel({ spend, budgetCents, onPlan = false }: { spend: AgentView["spend"]; budgetCents: number; onPlan?: boolean }) {
   const budgetMicros = budgetCents * (MICROS_PER_USD / 100);
   const remaining = Math.max(0, budgetMicros - spend.monthMicros);
   const resetsAt = new Date(spend.resetsAt);
@@ -37,28 +40,36 @@ export function SpendingPanel({ spend, budgetCents }: { spend: AgentView["spend"
           <p className="text-xs text-muted-foreground">spent this month</p>
         </div>
 
-        <BudgetMeter spentMicros={spend.monthMicros} budgetCents={budgetCents} label="budget" />
+        {onPlan ? (
+          <p className="text-xs text-muted-foreground">
+            Task runs on your plan add no API spend. What shows here is API spend from other computers, AI drafting and trust scans.
+          </p>
+        ) : (
+          <>
+            <BudgetMeter spentMicros={spend.monthMicros} budgetCents={budgetCents} label="budget" />
 
-        <dl className="grid grid-cols-2 gap-3 text-xs">
-          <div className="flex flex-col gap-0.5">
-            <dt className="text-muted-foreground">Remaining</dt>
-            <dd className="font-semibold tabular-nums">{formatMicros(remaining)}</dd>
-          </div>
-          <div className="flex flex-col gap-0.5">
-            <dt className="text-muted-foreground">Projected</dt>
-            <dd className={cn("font-semibold tabular-nums", projectedOver && "text-error")}>
-              {formatMicros(spend.projectedMicros)}
-            </dd>
-          </div>
-          <div className="flex flex-col gap-0.5">
-            <dt className="text-muted-foreground">Monthly budget</dt>
-            <dd className="font-semibold tabular-nums">{formatCents(budgetCents)}</dd>
-          </div>
-          <div className="flex flex-col gap-0.5">
-            <dt className="text-muted-foreground">Resets</dt>
-            <dd className="font-semibold">{utcLabel(resetsAt, { month: "short", day: "numeric" })}</dd>
-          </div>
-        </dl>
+            <dl className="grid grid-cols-2 gap-3 text-xs">
+              <div className="flex flex-col gap-0.5">
+                <dt className="text-muted-foreground">Remaining</dt>
+                <dd className="font-semibold tabular-nums">{formatMicros(remaining)}</dd>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <dt className="text-muted-foreground">Projected</dt>
+                <dd className={cn("font-semibold tabular-nums", projectedOver && "text-error")}>
+                  {formatMicros(spend.projectedMicros)}
+                </dd>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <dt className="text-muted-foreground">Monthly budget</dt>
+                <dd className="font-semibold tabular-nums">{formatCents(budgetCents)}</dd>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <dt className="text-muted-foreground">Resets</dt>
+                <dd className="font-semibold">{utcLabel(resetsAt, { month: "short", day: "numeric" })}</dd>
+              </div>
+            </dl>
+          </>
+        )}
 
         <div className="flex flex-col gap-2.5 border-t border-border/70 pt-4">
           <p className="eyebrow text-muted-foreground">Breakdown</p>

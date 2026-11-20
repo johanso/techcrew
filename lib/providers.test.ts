@@ -5,6 +5,11 @@ import { describe, expect, it } from "vitest";
 import { isAnthropicOutOfCredit, messageCostMicros, toClaudeSchema } from "@/lib/anthropic";
 import { isOpenAIOutOfCredit, responseCostMicros } from "@/lib/openai";
 import { completionCostMicros, isOpenRouterOutOfCredit, parseFinishArguments } from "@/lib/openrouter";
+import { findModel } from "@/lib/model-catalog-config";
+import { SEED_CATALOG } from "@/lib/model-seed";
+
+// Prices come from the catalog; the seed's are the ones checked by hand.
+const price = (id: string) => findModel(SEED_CATALOG, id)!.pricing;
 
 const headers = new Headers();
 
@@ -43,36 +48,43 @@ describe("cost accounting", () => {
   it("prices OpenAI usage per 1M tokens, with cached input cheaper", () => {
     // GPT-6.1 Sol: $2 in, $0.10 cached, $10 out per 1M tokens.
     const usage = { input_tokens: 1_000_000, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 }, output_tokens: 100_000, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 1_100_000 };
-    expect(responseCostMicros("gpt-6.1-sol", usage)).toBe(3_000_000);
+    expect(responseCostMicros(price("gpt-6.1-sol"), usage)).toBe(3_000_000);
     const cached = { ...usage, input_tokens_details: { cached_tokens: 1_000_000, cache_write_tokens: 0 } };
-    expect(responseCostMicros("gpt-6.1-sol", cached)).toBe(1_100_000);
-    expect(responseCostMicros("gpt-6.1-sol", null)).toBe(0);
+    expect(responseCostMicros(price("gpt-6.1-sol"), cached)).toBe(1_100_000);
+    expect(responseCostMicros(price("gpt-6.1-sol"), null)).toBe(0);
+  });
+
+  it("counts nothing for a model without a price (never seen in the catalog)", () => {
+    const usage = { input_tokens: 1_000, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 }, output_tokens: 100, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 1_100 };
+    expect(responseCostMicros(null, usage)).toBe(0);
+    expect(messageCostMicros(null, { input_tokens: 1_000, output_tokens: 100, cache_read_input_tokens: null, cache_creation_input_tokens: null })).toBe(0);
   });
 
   it("prices Claude usage with cache reads and writes", () => {
     // Claude Sonnet 5.5: $2 in, $0.20 cache read, $2.50 cache write, $10 out per 1M tokens.
     const usage = { input_tokens: 100_000, output_tokens: 10_000, cache_read_input_tokens: 500_000, cache_creation_input_tokens: 200_000 };
-    expect(messageCostMicros("claude-sonnet-5-5", "claude-sonnet-5-5", usage)).toBe(200_000 + 100_000 + 500_000 + 100_000);
+    expect(messageCostMicros(price("claude-sonnet-5-5"), usage)).toBe(200_000 + 100_000 + 500_000 + 100_000);
   });
 
   it("prices Haiku's long prompts at the higher rate", () => {
     const long = { input_tokens: 150_000, output_tokens: 0, cache_read_input_tokens: null, cache_creation_input_tokens: null };
     const short = { ...long, input_tokens: 50_000 };
-    expect(messageCostMicros("claude-haiku-5-5", "claude-haiku-5-5", long)).toBe(75_000);
-    expect(messageCostMicros("claude-haiku-5-5", "claude-haiku-5-5", short)).toBe(5_000);
+    expect(messageCostMicros(price("claude-haiku-5-5"), long)).toBe(75_000);
+    expect(messageCostMicros(price("claude-haiku-5-5"), short)).toBe(5_000);
   });
 });
 
 describe("OpenRouter cost", () => {
   it("uses the cost OpenRouter reports", () => {
-    expect(completionCostMicros("z-ai/glm-5.3", { prompt_tokens: 10_000, completion_tokens: 500, cost: 0.0042 })).toBe(4_200);
+    expect(completionCostMicros(price("z-ai/glm-5.3"), { prompt_tokens: 10_000, completion_tokens: 500, cost: 0.0042 })).toBe(4_200);
+    expect(completionCostMicros(null, { prompt_tokens: 10_000, completion_tokens: 500, cost: 0.0042 })).toBe(4_200);
   });
 
   it("estimates from the listed price when there's no cost", () => {
     // DeepSeek V4.1 Flash: $0.30 in, $0.006 cached, $1.20 out per 1M tokens.
     const usage = { prompt_tokens: 1_000_000, completion_tokens: 100_000, prompt_tokens_details: { cached_tokens: 500_000 } };
-    expect(completionCostMicros("deepseek/deepseek-v4.1-flash", usage)).toBe(150_000 + 3_000 + 120_000);
-    expect(completionCostMicros("deepseek/deepseek-v4.1-flash", null)).toBe(0);
+    expect(completionCostMicros(price("deepseek/deepseek-v4.1-flash"), usage)).toBe(150_000 + 3_000 + 120_000);
+    expect(completionCostMicros(price("deepseek/deepseek-v4.1-flash"), null)).toBe(0);
   });
 });
 

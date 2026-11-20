@@ -39,7 +39,7 @@ import { AgentRunStatus } from "@/components/board/agent-run-status";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AGENT_MODELS, AGENT_ROLES, formatMicros } from "@/lib/agent-config";
+import { AGENT_ROLES, formatMicros } from "@/lib/agent-config";
 import { STAGE_META, TOOL_LABEL, isActiveRun } from "@/lib/agent-run-config";
 import type { RunLog, RunLogStage, RunLogStep } from "@/lib/agent-runs";
 
@@ -127,7 +127,6 @@ function Step({ step, runId }: { step: RunLogStep; runId: number }) {
 
 function StageBlock({ stage, live, runId }: { stage: RunLogStage; live: boolean; runId: number }) {
   const role = AGENT_ROLES[stage.agent];
-  const model = AGENT_MODELS.find((m) => m.id === stage.model);
   const end = stage.end ? STAGE_END[stage.end.kind] : null;
   return (
     <section className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 last:border-b-0">
@@ -140,7 +139,7 @@ function StageBlock({ stage, live, runId }: { stage: RunLogStage; live: boolean;
           </p>
           <p className="truncate text-xs text-muted-foreground">
             {role.name}
-            {model && ` · ${model.label}`}
+            {stage.modelLabel && ` · ${stage.modelLabel}`}
             {stage.turns > 0 && ` · ${stage.turns} turn${stage.turns === 1 ? "" : "s"}`}
           </p>
         </div>

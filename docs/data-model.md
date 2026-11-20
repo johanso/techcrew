@@ -328,7 +328,7 @@ One row per agent role per workspace. The six roles (`analyst`, `developer`, `re
 | `key` | text | no | | Role key. **Unique with `workspace_id`.** Also what `tasks.assignee_agent_id` stores. |
 | `description` | text | no | | One sentence, ≤ 280 chars. |
 | `instructions` | text | no | | The agent's operating instructions (system prompt), 50–8,000 chars. |
-| `model` | text | no | | Model id from `AGENT_MODELS`, on either company: its provider is the agent's company (AI Team → Configure). |
+| `model` | text | no | | A model's route id from the model catalog (`claude-sonnet-5-5`, `gpt-6.1-terra`, `deepseek/…`): its company is the agent's company (AI Team → Configure). |
 | `provider_models` | jsonb | no | `{}` | The agent's model per provider (`{ openai, anthropic }`), so a provider switch and back restores it. |
 | `skills` | text[] | no | `{}` | **Permission** ids from `PERMISSIONS` (`permissions` in Drizzle). Kept its v0.1 name; "skills" now means the knowledge packs in `agent_skills`. |
 | `monthly_budget_cents` | integer | no | | $1–$10,000. |
@@ -421,6 +421,29 @@ the owner's computers; each has its own CLI and login, identified by the machine
 | `enabled` | boolean | no | `false` | Route this CLI's company's models through the owner's plan on this computer. |
 | `on_limit` | text | yes | | `PLAN_LIMIT_POLICIES`: `wait`, `api`, `failover`; null = the default (`api` with a key, else `wait`). |
 | `confirmed_email`, `confirmed_org` | text | yes | | The account the owner confirmed; stages refuse to run on another one. |
+| `updated_at` | timestamp | no | `now()` | |
+
+## model_catalog
+
+The model catalog ([`lib/model-catalog.ts`](../lib/model-catalog.ts)): OpenRouter's public `GET /api/v1/models`, filtered
+to the models TechTeam can offer, one row per model. Shared by every workspace and computer (one refresh serves all);
+no foreign keys. Rows are never deleted: a model that leaves the list keeps its label and price for agents still on it.
+Which models are offered (newest per family), their tier and their route id are computed when read
+(`buildCatalog`), not stored.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `openrouter_id` | text | no | | Primary key: the catalog's id (`anthropic/claude-opus-5.5`); `agents.model` stores the route id derived from it (`claude-opus-5-5`). |
+| `label` | text | no | | The catalog's name without its company prefix. |
+| `released_at` | timestamp | no | | The catalog's `created`. |
+| `expires_at` | timestamp | yes | | The catalog's `expiration_date`; past it the model isn't offered. |
+| `vision` | boolean | no | `false` | `image` in `architecture.input_modalities`. |
+| `context_length` | integer | yes | | |
+| `pricing` | jsonb | no | | `ModelPricing`, USD per 1M tokens (input, cachedInput, cacheWrite, output, longPrompt). |
+| `parameters` | jsonb | no | `[]` | `supported_parameters` (tools, structured_outputs, reasoning_effort, verbosity …). |
+| `efforts` | jsonb | yes | | `reasoning.supported_efforts` in TechTeam's vocabulary; null when none are listed. |
+| `listed` | boolean | no | `true` | In the latest successful fetch. |
+| `seen_at` | timestamp | no | | The latest fetch that listed it; the newest one is "Models updated …" in Settings. |
 | `updated_at` | timestamp | no | `now()` | |
 
 ## trust_scans
@@ -573,7 +596,8 @@ an unknown `status` (e.g. after renaming a column), `getBoardData` shows it in *
 
 Agent ids (`assignee_agent_id`, `agents.key`) are the role keys in `AGENT_KEYS`
 ([`lib/agent-config.ts`](../lib/agent-config.ts)): `analyst`, `developer`, `reviewer`, `security`, `lead`, `tester`. An unknown id renders
-as unassigned. `model` and `skills` (permissions) are validated against `AGENT_MODELS` / `PERMISSIONS` by `parseAgentConfigInput`.
+as unassigned. `skills` (permissions) are validated against `PERMISSIONS` by `parseAgentConfigInput`; `model` by its shape
+there (`isModelId`), and a new model must be one the catalog offers now (`saveAgentAction`).
 Skill `type`, `load` and `source` values live in [`lib/agent-skills-config.ts`](../lib/agent-skills-config.ts).
 
 ## Behaviors worth knowing

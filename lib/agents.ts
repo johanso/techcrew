@@ -5,7 +5,6 @@ import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, ne, sql } from "dr
 import { agentActivity, agentRunSteps, agentRuns, agents, db, pullRequests, tasks, workspaces, type AgentRow, type Workspace } from "@/db";
 import {
   AGENT_KEYS,
-  AGENT_MODELS,
   AGENT_ROLES,
   PROVIDER_IDS,
   PROVIDERS,
@@ -17,12 +16,11 @@ import {
   PERMISSION_BY_ID,
   formatCents,
   isAgentKey,
-  isAgentModelId,
   isPermissionId,
   agentModel,
   agentModelFor,
   defaultProvider,
-  modelInfo,
+  roleDefaultModel,
   type Agent,
   type AgentKey,
   type AgentModelId,
@@ -49,6 +47,8 @@ import { ISSUE_TYPES, type IssueType } from "@/lib/board-config";
 import { ciForRound } from "@/lib/ci-gate";
 import { LIVE_ACTIONS, agentDoingSentence, type LiveRun, type LiveStage } from "@/lib/live-process";
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
+import { getModelCatalog } from "@/lib/model-catalog";
+import { catalogLabel, findModel, isModelId, modelProvider, type ModelCatalog } from "@/lib/model-catalog-config";
 import type { TrustScanView } from "@/lib/switch-trust-config";
 
 /**
@@ -165,6 +165,7 @@ export async function ensureDefaultAgents(workspaceId: number) {
   if (!missing.length) return ensureBuiltinSkills(workspaceId);
   // Each agent can later move to any company on the AI Team page; they start on one that has a key.
   const provider = defaultProvider(keyStatus(await getAIKeys(workspaceId)));
+  const catalog = await getModelCatalog();
 
   const now = new Date();
   const inserted = await db
@@ -172,6 +173,7 @@ export async function ensureDefaultAgents(workspaceId: number) {
     .values(
       missing.map((key) => {
         const { defaults } = AGENT_ROLES[key];
+        const model = roleDefaultModel(catalog, key, provider);
         const monthlyBudgetCents = defaults.monthlyBudgetUsd * 100;
         const report = scanAgentRules({ key, instructions: defaults.instructions, permissions: defaults.permissions, monthlyBudgetCents });
         return {
@@ -179,8 +181,8 @@ export async function ensureDefaultAgents(workspaceId: number) {
           key,
           description: defaults.description,
           instructions: defaults.instructions,
-          model: defaults.models[provider],
-          providerModels: { [provider]: defaults.models[provider] },
+          model,
+          providerModels: { [provider]: model },
           permissions: defaults.permissions,
           monthlyBudgetCents,
           maxTurns: defaults.maxTurns,
@@ -306,6 +308,10 @@ export type AgentView = Agent & {
   description: string;
   instructions: string;
   model: AgentModelId;
+  /** The model's name (the catalog's label, else its id). */
+  modelLabel: string;
+  /** Whether the catalog still offers the model; false: an older model the agent keeps until it's changed. */
+  modelCurrent: boolean;
   permissions: PermissionId[];
   /** Ids of the library skills switched on for this agent (agent_skill_assignments). */
   skillIds: number[];
@@ -323,6 +329,8 @@ export type AgentView = Agent & {
     resetsAt: string;
   };
   trust: TrustReport | null;
+  /** The name of the model the trust report scored, when it names one. */
+  trustModelLabel: string | null;
   /** Latest SwitchAgent scan (lib/switch-trust.ts), pending or finished; null when never scanned with Switch. */
   scan: TrustScanView | null;
   /** Last configuration change: a Switch report older than this describes an earlier configuration. */
@@ -352,6 +360,7 @@ export async function getAgentTeam(
 ): Promise<{ agents: AgentView[]; stats: AgentTeamStats }> {
   await ensureDefaultAgents(workspace.id);
   const { start, end } = monthWindow();
+  const catalog = await getModelCatalog();
 
   const [rows, spendRows, taskRows, activityRows, working, skillIds] = await Promise.all([
     db.select().from(agents).where(eq(agents.workspaceId, workspace.id)),
@@ -404,6 +413,8 @@ export async function getAgentTeam(
         description: row.description,
         instructions: row.instructions,
         model: activeAgentModel(row),
+        modelLabel: catalogLabel(catalog, activeAgentModel(row)),
+        modelCurrent: Boolean(findModel(catalog, activeAgentModel(row))?.current),
         permissions: row.permissions.filter(isPermissionId),
         skillIds: skillIds.get(key) ?? [],
         monthlyBudgetCents: row.monthlyBudgetCents,
@@ -418,6 +429,7 @@ export async function getAgentTeam(
           resetsAt: end.toISOString(),
         },
         trust: row.trustReport ?? null,
+        trustModelLabel: row.trustReport?.model ? catalogLabel(catalog, row.trustReport.model) : null,
         scan: scans.get(row.id) ?? null,
         configuredAt: row.updatedAt.toISOString(),
         activity: activityRows
@@ -609,7 +621,8 @@ export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" |
   // A company is out of credit while the latest run stopped for it and some agent still works on it (until a run
   // gets going again).
   const broke = latestRun?.status === "failed" && latestRun.failure?.kind === "out_of_credit" ? latestRun.failure.provider : null;
-  const outOfCredit = broke && rows.some((row) => modelInfo(activeAgentModel(row)).provider === broke) ? broke : null;
+  const outOfCredit = broke && rows.some((row) => modelProvider(activeAgentModel(row)) === broke) ? broke : null;
+  const catalog = await getModelCatalog();
 
   const [ended, runs] = await Promise.all([getEndedStages(runningRows), getLiveRuns(workspace, rows)]);
   const current = new Map<AgentKey, { label: string; task: NonNullable<TeamMember["task"]>; doing: string | null }>();
@@ -647,7 +660,7 @@ export async function getTeamOverview(workspace: Pick<Workspace, "id" | "name" |
       task: working?.task ?? null,
       doing: working?.doing ?? null,
       lastAction: last ? { title: last.title, at: last.at } : null,
-      model: modelInfo(row ? activeAgentModel(row) : AGENT_ROLES[key].defaults.models.openai).label,
+      model: catalogLabel(catalog, row ? activeAgentModel(row) : roleDefaultModel(catalog, key, "openai")),
       monthSpendMicros: spent,
       monthlyBudgetCents: budgetCents,
     };
@@ -690,7 +703,8 @@ export function parseAgentConfigInput(raw: unknown): ParseResult {
   if (instructions.length < INSTRUCTIONS_MIN) errors.instructions = `Write at least ${INSTRUCTIONS_MIN} characters of instructions.`;
   else if (instructions.length > INSTRUCTIONS_MAX) errors.instructions = `Keep instructions under ${INSTRUCTIONS_MAX.toLocaleString()} characters.`;
 
-  if (!isAgentModelId(input.model)) errors.model = "Choose a model.";
+  // The shape only: whether the catalog offers it is checked by the save (saveAgentAction).
+  if (!isModelId(input.model)) errors.model = "Choose a model.";
 
   const permissions = Array.isArray(input.permissions) ? [...new Set(input.permissions.filter(isPermissionId))] : [];
   if (!permissions.length) errors.permissions = "Grant at least one permission.";
@@ -711,7 +725,7 @@ export function parseAgentConfigInput(raw: unknown): ParseResult {
     value: {
       description,
       instructions,
-      model: input.model as AgentModelId,
+      model: input.model as string,
       permissions,
       monthlyBudgetCents: Math.round(budget * 100),
       maxTurns,
@@ -720,12 +734,9 @@ export function parseAgentConfigInput(raw: unknown): ParseResult {
   };
 }
 
-function modelLabel(id: string) {
-  return AGENT_MODELS.find((m) => m.id === id)?.label ?? id;
-}
-
 /** "Instructions, model (GPT-6.1 Sol → GPT-6 Luna), permissions (+Web research)" — for the activity log. */
-function describeChanges(row: AgentRow, next: AgentConfigInput) {
+function describeChanges(row: AgentRow, next: AgentConfigInput, catalog: ModelCatalog) {
+  const modelLabel = (id: string) => catalogLabel(catalog, id);
   const changes: string[] = [];
   if (row.description !== next.description) changes.push("description");
   if (row.instructions !== next.instructions) changes.push("instructions");
@@ -750,9 +761,10 @@ function describeChanges(row: AgentRow, next: AgentConfigInput) {
 export async function updateAgentConfig(workspaceId: number, key: AgentKey, input: AgentConfigInput) {
   const row = await getAgentRow(workspaceId, key);
   if (!row) return null;
-  const provider = modelInfo(input.model).provider;
+  const provider = modelProvider(input.model);
+  if (!provider) return null;
 
-  const changes = describeChanges(row, input);
+  const changes = describeChanges(row, input, await getModelCatalog());
   const trustInputsChanged =
     row.instructions !== input.instructions ||
     row.monthlyBudgetCents !== input.monthlyBudgetCents ||
@@ -809,7 +821,7 @@ export async function getAgentTeamRows(workspaceId: number) {
 /** The companies the workspace's agents run on now. */
 export async function teamProviders(workspaceId: number): Promise<ProviderStatus> {
   const rows = await getAgentTeamRows(workspaceId);
-  const used = new Set(rows.map((row) => modelInfo(activeAgentModel(row)).provider));
+  const used = new Set(rows.map((row) => modelProvider(activeAgentModel(row))));
   return Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, used.has(provider)])) as ProviderStatus;
 }
 
@@ -821,11 +833,13 @@ export async function teamProviders(workspaceId: number): Promise<ProviderStatus
 export async function moveAgentsToProvider(workspaceId: number, from: AgentProvider, to: AgentProvider, why: string) {
   await ensureDefaultAgents(workspaceId);
   const rows = await db.select().from(agents).where(eq(agents.workspaceId, workspaceId));
+  const catalog = await getModelCatalog();
+  const modelLabel = (id: string) => catalogLabel(catalog, id);
   let moved = 0;
   for (const row of rows) {
     const current = activeAgentModel(row);
-    if (modelInfo(current).provider !== from) continue;
-    const next = agentModelFor(row.key as AgentKey, to, current, row.providerModels);
+    if (modelProvider(current) !== from) continue;
+    const next = agentModelFor(catalog, row.key as AgentKey, to, current, row.providerModels);
     await db
       .update(agents)
       .set({ model: next, providerModels: { ...row.providerModels, [from]: current, [to]: next }, updatedAt: new Date() })

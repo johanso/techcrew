@@ -11,6 +11,7 @@ import { accountMatches, describeAccount, isPlanLimitPolicy, isPlanLogin, type C
 import { cliAgentsAvailable, detectClaude, getCliSettings, saveCliSettings, signOutClaude, startClaudeSignIn } from "@/lib/cli";
 import { getClaudePlanView } from "@/lib/cli/plan-view";
 import { requireUser } from "@/lib/current-user";
+import { refreshModelCatalog } from "@/lib/model-catalog";
 import {
   connectSwitch,
   disconnectSwitch,
@@ -135,6 +136,18 @@ export async function saveAutoFailoverAction(workspaceId: number, enabled: unkno
   await updateAutoFailover(workspace.id, enabled);
   revalidatePath(`/dashboard/${workspaceId}/settings`);
   return { ok: true };
+}
+
+/**
+ * Settings → AI → Refresh models: fetches OpenRouter's public model list now (no key, no spend). The catalog is shared
+ * by every workspace, so any signed-in owner may refresh it.
+ */
+export async function refreshModelsAction(workspaceId: number): Promise<{ ok: true; models: number } | { ok: false; error: string }> {
+  const workspace = await authorize(workspaceId);
+  if (!workspace) return { ok: false, error: "Workspace not found." };
+  const result = await refreshModelCatalog();
+  if (result.ok) refresh(workspaceId);
+  return result;
 }
 
 export type ProviderKeyState = { ok?: boolean; errors?: { apiKey?: string }; message?: string; savedAt?: number; scansQueued?: number };

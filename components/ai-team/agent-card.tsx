@@ -3,7 +3,6 @@ import { ActivityIcon, BlocksIcon, CircleAlertIcon, CpuIcon, KeyRoundIcon, Libra
 import { AgentPortrait, AgentStatusBadge, BudgetMeter, TrustChip } from "@/components/ai-team/agent-visuals";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { AGENT_MODELS } from "@/lib/agent-config";
 import type { AgentView, TeamMember } from "@/lib/agents";
 import { ROUTE_LABEL, type AgentRoute } from "@/lib/cli-agents-config";
 import { isPendingScan } from "@/lib/switch-trust-config";
@@ -38,7 +37,6 @@ export function AgentCard({
   onConfigure: () => void;
   onViewActivity: () => void;
 }) {
-  const model = AGENT_MODELS.find((m) => m.id === agent.model);
   const status = live?.status ?? agent.status;
   const working = status === "working";
 
@@ -74,9 +72,10 @@ export function AgentCard({
         )}
 
         <ul className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground" aria-label="Setup">
-          <li className="flex items-center gap-1.5" title="Model">
+          <li className="flex items-center gap-1.5" title={agent.modelCurrent ? "Model" : "Model (no longer offered: pick a current one in Configure)"}>
             <CpuIcon className="size-3.5" />
-            <span className="font-medium text-foreground">{model?.label ?? agent.model}</span>
+            <span className="font-medium text-foreground">{agent.modelLabel}</span>
+            {!agent.modelCurrent && <span>· older</span>}
           </li>
           {route !== undefined && (
             <li title="How its stages reach the model on this computer (Settings → AI)">
@@ -124,10 +123,18 @@ export function AgentCard({
           )}
         </ul>
 
-        <div className="mt-auto flex flex-col gap-2 rounded-lg bg-muted/50 p-3 ring-1 ring-border/60">
-          <p className="eyebrow text-muted-foreground">Monthly budget</p>
-          <BudgetMeter spentMicros={agent.spend.monthMicros} budgetCents={agent.monthlyBudgetCents} />
-        </div>
+        {/* An agent on the owner's plan here adds no API spend, so a budget means nothing on this computer. */}
+        {route && route !== "api" ? (
+          <div className="mt-auto flex flex-col gap-1 rounded-lg bg-muted/50 p-3 ring-1 ring-border/60">
+            <p className="eyebrow text-muted-foreground">Usage</p>
+            <p className="text-xs text-muted-foreground">Included in your plan on this computer: no API spend.</p>
+          </div>
+        ) : (
+          <div className="mt-auto flex flex-col gap-2 rounded-lg bg-muted/50 p-3 ring-1 ring-border/60">
+            <p className="eyebrow text-muted-foreground">Monthly budget</p>
+            <BudgetMeter spentMicros={agent.spend.monthMicros} budgetCents={agent.monthlyBudgetCents} />
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2 border-t border-border/70 p-3">

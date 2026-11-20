@@ -4,6 +4,8 @@ import { and, asc, desc, eq, inArray, isNull, max, min, ne, notExists, sql } fro
 
 import { agentRunSteps, agentRuns, db, pullRequests, taskReferences, tasks, workspaces, type AgentRunRow } from "@/db";
 import type { AgentKey, AgentModelId } from "@/lib/agent-config";
+import { getModelCatalog } from "@/lib/model-catalog";
+import { catalogLabel } from "@/lib/model-catalog-config";
 import { VISUAL_REFERENCE_KINDS } from "@/lib/reference-config";
 import {
   ACTIVE_RUN_STATUSES,
@@ -446,6 +448,8 @@ export type RunLogStage = {
   round: number;
   agent: AgentKey;
   model: AgentModelId | null;
+  /** The model's name (the catalog's label, else its id). */
+  modelLabel: string | null;
   turns: number;
   costMicros: number;
   steps: RunLogStep[];
@@ -492,6 +496,7 @@ export async function getTaskRunLog(workspaceId: number, taskId: number): Promis
     .where(eq(agentRunSteps.runId, run.id))
     .orderBy(asc(agentRunSteps.createdAt), asc(agentRunSteps.round), asc(agentRunSteps.turn), asc(agentRunSteps.seq));
 
+  const catalog = await getModelCatalog();
   const stages: RunLogStage[] = [];
   for (const row of rows) {
     if (!isAgentStage(row.stage)) continue;
@@ -502,6 +507,7 @@ export async function getTaskRunLog(workspaceId: number, taskId: number): Promis
         round: row.round,
         agent: STAGE_META[row.stage].agent,
         model: (row.model as AgentModelId | null) ?? null,
+        modelLabel: row.model ? catalogLabel(catalog, row.model) : null,
         turns: 0,
         costMicros: 0,
         steps: [],

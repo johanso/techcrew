@@ -13,6 +13,7 @@ import type { AgentTeamStats, AgentView, TeamOverview } from "@/lib/agents";
 import type { SkillView } from "@/lib/agent-skills-config";
 import { isPendingScan, type SwitchTrustStatus } from "@/lib/switch-trust-config";
 import type { AgentRoutes } from "@/lib/cli-agents-config";
+import type { ModelCatalog } from "@/lib/model-catalog-config";
 
 /** AI Team content. Presentational: the page loads the data. */
 export function AiTeamView({
@@ -23,6 +24,7 @@ export function AiTeamView({
   aiEnabled,
   providers,
   plans,
+  catalog,
   switchTrust,
   skills,
   routes,
@@ -36,6 +38,8 @@ export function AiTeamView({
   providers: ProviderStatus;
   /** Companies this computer can run on the owner's plan without an API key ("Your plan" in the model picker). */
   plans: Partial<Record<AgentProvider, boolean>>;
+  /** The models the picker offers (current ones plus the team's own). */
+  catalog: ModelCatalog;
   switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
@@ -129,6 +133,7 @@ export function AiTeamView({
           aiEnabled={aiEnabled}
           providers={providers}
           plans={plans}
+          catalog={catalog}
           switchTrust={switchTrust}
           skills={skills}
           routes={routes}

@@ -2,7 +2,7 @@ import "server-only";
 
 import Anthropic from "@anthropic-ai/sdk";
 
-import { AGENT_MODELS, MICROS_PER_USD, type AgentModelId } from "@/lib/agent-config";
+import { MICROS_PER_USD, type ModelPricing } from "@/lib/agent-config";
 
 /** Client for one workspace's key (lib/ai-keys.ts). Clients are cheap; keys differ per workspace, so none is shared. */
 export function anthropicClient(apiKey: string) {
@@ -17,16 +17,19 @@ type TokenUsage = {
 };
 
 /**
- * Cost of one Messages response in micro-dollars. `servedBy` is the model that answered: with refusal fallbacks
- * it can differ from the one requested, and is priced at its own rates when we know them.
+ * Cost of one Messages response in micro-dollars, at the catalog's price of the model that answered (with refusal
+ * fallbacks it can differ from the one requested: the caller passes the served model's price when the catalog knows
+ * it). Without a price (a model the catalog never listed) the cost is unknown: 0, and a warning.
  */
-export function messageCostMicros(requested: AgentModelId, servedBy: string, usage: TokenUsage) {
-  const model = AGENT_MODELS.find((m) => m.id === servedBy) ?? AGENT_MODELS.find((m) => m.id === requested)!;
-  const pricing = model.pricing;
+export function messageCostMicros(pricing: ModelPricing | null, usage: TokenUsage) {
+  if (!pricing) {
+    console.warn("[anthropic] no price for this model in the catalog; cost not counted");
+    return 0;
+  }
   const cacheRead = usage.cache_read_input_tokens ?? 0;
   const cacheWrite = usage.cache_creation_input_tokens ?? 0;
   const promptTokens = usage.input_tokens + cacheRead + cacheWrite;
-  const long = "longPrompt" in pricing && promptTokens > pricing.longPrompt.aboveTokens ? pricing.longPrompt : null;
+  const long = pricing.longPrompt && promptTokens > pricing.longPrompt.aboveTokens ? pricing.longPrompt : null;
   // Cache rates scale with the base input rate, so a long-prompt request scales them too.
   const scale = long ? long.input / pricing.input : 1;
   const usd =

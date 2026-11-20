@@ -1,6 +1,7 @@
 import "server-only";
 
-import { AGENT_ROLES, isAgentKey, modelInfo } from "@/lib/agent-config";
+import { AGENT_ROLES, isAgentKey } from "@/lib/agent-config";
+import { modelProvider } from "@/lib/model-catalog-config";
 import { getAIKeys } from "@/lib/ai-keys";
 import { activeAgentModel, getAgentTeamRows } from "@/lib/agents";
 import { accountMatches, claudeInstallCommand, defaultPlanLimitPolicy, describeAccount, isPlanLogin, type ClaudePlanView } from "@/lib/cli-agents-config";
@@ -29,7 +30,7 @@ export async function getClaudePlanView(userId: number, workspaceId: number, { f
     enabled: machine.enabled,
     onLimit: machine.onLimit ?? defaultPlanLimitPolicy(Boolean(keys.anthropic)),
     hasKey: Boolean(keys.anthropic),
-    agents: rows.filter((row) => modelInfo(activeAgentModel(row)).provider === "anthropic").map((row) => (isAgentKey(row.key) ? AGENT_ROLES[row.key].name : row.key)),
+    agents: rows.filter((row) => modelProvider(activeAgentModel(row)) === "anthropic").map((row) => (isAgentKey(row.key) ? AGENT_ROLES[row.key].name : row.key)),
     limitedUntil: machine.limitedUntil && new Date(machine.limitedUntil) > new Date() ? machine.limitedUntil : null,
     checkedAt: detection.checkedAt,
   };

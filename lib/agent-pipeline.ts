@@ -16,8 +16,7 @@ import {
   defaultProvider,
   fallbackProvider,
   isPermissionId,
-  modelInfo,
-  modelsFor,
+  roleDefaultModel,
   type AgentKey,
   type AgentModelId,
   type AgentProvider,
@@ -131,7 +130,9 @@ import { sandboxAvailable } from "@/lib/sandbox";
 import { previewLogSummary, sandboxCommandsOf, type RunPreview } from "@/lib/sandbox/config";
 import { pollRunPreview, previewsAvailable, startRunPreview } from "@/lib/sandbox/preview";
 import { LINK_FRAME, REFERENCE_KIND_META, VISUAL_REFERENCE_KINDS, referenceHost, referenceVisionProblem, referenceVisionStages } from "@/lib/reference-config";
-import { claudeEffort } from "@/lib/agent-request-params";
+import { claudeEffort, modelKnobs } from "@/lib/agent-request-params";
+import { catalogModel, getModelCatalog } from "@/lib/model-catalog";
+import { catalogLabel, currentModels, findModel, modelProvider } from "@/lib/model-catalog-config";
 import type { ImageLoader } from "@/lib/reference-images";
 import { getAgentReferences, loadImageObject, loadReferenceImage, taskHasVisualReferences } from "@/lib/references";
 import { runScreenshotKey } from "@/lib/storage";
@@ -873,11 +874,13 @@ type RouteWorkspace = { id: number; ownerId: number };
  * key, or none (`problem`). The model is the agent's; the route is the computer's (docs/cli-agents-plan.md).
  */
 async function agentRoute(workspace: RouteWorkspace, row: AgentRow | null, key: AgentKey, providers: ProviderStatus, forceApi = false) {
-  const model: AgentModelId = row ? activeAgentModel(row) : AGENT_ROLES[key].defaults.models[defaultProvider(providers)];
+  const catalog = await getModelCatalog();
+  const model: AgentModelId = row ? activeAgentModel(row) : roleDefaultModel(catalog, key, defaultProvider(providers));
   // Simulated agents need no provider and never spawn a CLI.
   if (isSimulatedAgents()) return { model, resolved: { route: "api", billing: "api", note: null } as RouteResolution };
   const cli = cliForModel(model) ? await claudeMachineState(workspace.ownerId) : null;
-  return { model, resolved: resolveRoute({ model, hasKey: providers[modelInfo(model).provider], cli, forceApi }) };
+  const provider = modelProvider(model);
+  return { model, resolved: resolveRoute({ model, label: catalogLabel(catalog, model), hasKey: provider ? providers[provider] : false, cli, forceApi }) };
 }
 
 /** Whether an agent's next stage would take the owner's plan on this computer (its budget then doesn't apply). */
@@ -896,8 +899,9 @@ export async function planProvidersHere(workspace: RouteWorkspace): Promise<Part
   const cli = await claudeMachineState(workspace.ownerId);
   if (!cli) return {};
   const plans: Partial<Record<AgentProvider, boolean>> = {};
+  const catalog = await getModelCatalog();
   for (const provider of PROVIDER_IDS) {
-    const carried = modelsFor(provider).some(({ id }) => {
+    const carried = currentModels(catalog, provider).some(({ id }) => {
       if (!cliForModel(id)) return false;
       const { route } = resolveRoute({ model: id, hasKey: false, cli });
       return route !== null && route !== "api";
@@ -958,13 +962,15 @@ export async function referenceModelProblem(workspaceId: number, taskId: number,
     .where(eq(workspaces.id, workspaceId));
   const previews = Boolean(workspace?.sandboxEnabled && workspace.sandboxPreview && previewsAvailable());
   const providers = keyStatus(await getAIKeys(workspaceId));
+  const catalog = await getModelCatalog();
   const agents = await Promise.all(
     referenceVisionStages({ previews }).map(async (stage) => {
       const key = STAGE_META[stage].agent;
       const row = await getAgentRow(workspaceId, key);
-      const model = modelInfo(row ? activeAgentModel(row) : AGENT_ROLES[key].defaults.models[defaultProvider(providers)]);
-      // Simulated agents don't look at anything.
-      return { name: AGENT_ROLES[key].name, modelLabel: model.label, vision: model.vision || isSimulatedAgents() };
+      const id = row ? activeAgentModel(row) : roleDefaultModel(catalog, key, defaultProvider(providers));
+      // A model the catalog doesn't know counts as blind. Simulated agents don't look at anything.
+      const model = findModel(catalog, id);
+      return { name: AGENT_ROLES[key].name, modelLabel: model?.label ?? id, vision: Boolean(model?.vision) || isSimulatedAgents() };
     })
   );
   return referenceVisionProblem(cardKey, true, agents);
@@ -1014,6 +1020,8 @@ type StageTurnInput = {
 /** What an agent can use in a stage right now: its tools (permissions, skills, references, sandbox, preview). */
 async function stageSetup(ctx: RunContext, row: AgentRow, stage: AgentStage, runId: number, model: AgentModelId, token: string) {
   const permissions = agentPermissions(row.permissions);
+  // A model the catalog doesn't know gets notes instead of images.
+  const vision = Boolean((await catalogModel(model))?.vision);
   // Read every turn, like pause and budget: switching a skill on or off applies from the agent's next turn.
   const skills = await getAgentSkills(row.id);
   // The card's references, read every turn too: one removed mid-run is gone from the next turn.
@@ -1032,10 +1040,10 @@ async function stageSetup(ctx: RunContext, row: AgentRow, stage: AgentStage, run
     // browse_preview: offered with previews on; when none is running for this run, the tool says so.
     preview:
       ctx.workspace.sandboxEnabled && ctx.workspace.sandboxPreview && previewsAvailable()
-        ? { workspaceId: ctx.workspace.id, runId, vision: modelInfo(model).vision }
+        ? { workspaceId: ctx.workspace.id, runId, vision }
         : null,
     // Images go only to a model that can see them; the others get a note (read_reference).
-    references: references.length ? { items: references, vision: modelInfo(model).vision } : null,
+    references: references.length ? { items: references, vision } : null,
   };
   return { toolContext, tools: toolsFor(toolContext), skills, references };
 }
@@ -1108,7 +1116,7 @@ export async function runStageTurn<S extends AgentStage>(input: StageTurnInput &
   const instructions = await stageInstructions(row, ctx, input.stage, setup);
   if (route !== "api") return cliTurn<S>({ input, ctx, row, model, instructions, providers });
 
-  const unavailable = modelUnavailableReason(model, providers);
+  const unavailable = await modelUnavailableReason(model, providers);
   if (unavailable) return { kind: "stopped", reason: unavailable };
   const state =
     input.state ??
@@ -1125,7 +1133,7 @@ export async function runStageTurn<S extends AgentStage>(input: StageTurnInput &
     outcome = await agentTurn<unknown>({
       stage: input.stage,
       notice: input.turn && input.maxTurns ? turnsLeftNotice(input.turn, input.maxTurns, FINISH[input.stage].name) : null,
-      apiKey: keys[modelInfo(model).provider],
+      apiKey: keys[modelProvider(model) ?? "openai"],
       instructions,
       tools: setup.tools,
       finish: FINISH[input.stage],
@@ -1251,7 +1259,7 @@ async function cliTurn<S extends AgentStage>(args: {
     prompt: cliChunkPrompt({ brief: resume ? null : await stageBrief(ctx, input.stage, input.work), remaining, chunkTurns, finish: finish.name }),
     systemPrompt: args.instructions + cliToolsNote(finish.name),
     maxTurns: chunkTurns,
-    effort: claudeEffort(model, input.stage),
+    effort: claudeEffort(modelKnobs(model, await catalogModel(model)), input.stage),
     shouldStop: async () => {
       const current = await getRun(input.runId);
       return !current || !isActiveRun(current.status as RunStatus);
@@ -1280,7 +1288,7 @@ async function cliTurn<S extends AgentStage>(args: {
     }
     case "model_unavailable": {
       await rememberModelUnusable("claude", model);
-      const reason = `Your Claude plan doesn't include ${modelInfo(model).label}.`;
+      const reason = `Your Claude plan doesn't include ${catalogLabel(await getModelCatalog(), model)}.`;
       if (!providers.anthropic) return { kind: "stopped", reason: `${reason} Add an Anthropic key, or pick another model for ${AGENT_ROLES[row.key as AgentKey].name} on the AI Team page.` };
       await logRoute(input.runId, input.stage, round, turn, model, `${reason} Continued on the API key.`);
       return { kind: "restart", reason, forceApi: true };
@@ -1384,7 +1392,7 @@ async function outOfCredit(
 ): Promise<{ kind: "restart" | "stopped"; reason: string; failure?: RunFailure }> {
   const reason = `${PROVIDERS[broke].label} is out of credit.`;
   const current = await getAgentRow(ctx.workspace.id, key);
-  if (current && modelInfo(activeAgentModel(current)).provider !== broke) return { kind: "restart", reason };
+  if (current && modelProvider(activeAgentModel(current)) !== broke) return { kind: "restart", reason };
   if (failedOver) {
     return {
       kind: "stopped",

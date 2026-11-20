@@ -102,6 +102,11 @@ When none is possible, the run stops with `failure = { kind: "plan_limit", cli, 
 doesn't guess which models a plan includes (Pro runs Opus in Claude Code): a model the CLI refuses is remembered on
 this computer and the stage restarts on the key, or stops with the reason when there is none.
 
+The Claude models a plan can run are the Anthropic models of the model catalog (the same list as the API route, from
+OpenRouter's public `/models`: Claude Fable 5.2, Opus, Sonnet and Haiku 5.5 on 2026-11-21), under the same ids
+(`claude-fable-5-2`); Claude Code takes them as they are (`--model`). A new Claude model shows up in the picker after
+the next catalog refresh, with *Your plan* instead of a price.
+
 ## Two computers, one database
 
 Each computer runs its own app and Inngest Dev Server (`npm run dev`); a run executes on the computer whose Inngest

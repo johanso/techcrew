@@ -1,58 +1,49 @@
 import { describe, expect, it } from "vitest";
 
+import fixture from "@/lib/__fixtures__/openrouter-models.json";
 import {
   AGENT_KEYS,
-  AGENT_MODELS,
   AGENT_ROLES,
   PROVIDER_IDS,
   agentModel,
   agentModelFor,
-  closestModel,
   defaultProvider,
   fallbackProvider,
   formatMicros,
-  makersOf,
-  modelInfo,
-  modelsFor,
+  roleDefaultModel,
 } from "@/lib/agent-config";
+import { buildCatalog, findModel, modelProvider, parseCatalogResponse } from "@/lib/model-catalog-config";
+import { SEED_CATALOG } from "@/lib/model-seed";
 
-describe("models per provider", () => {
-  it("lists only that company's models", () => {
-    expect(modelsFor("openai").every((m) => m.provider === "openai")).toBe(true);
-    expect(modelsFor("anthropic").every((m) => m.provider === "anthropic")).toBe(true);
-    expect(modelsFor("openrouter").every((m) => m.provider === "openrouter")).toBe(true);
-    expect(PROVIDER_IDS.reduce((sum, provider) => sum + modelsFor(provider).length, 0)).toBe(AGENT_MODELS.length);
-  });
-
-  it("finds a closest model for every model on every other company", () => {
-    for (const model of AGENT_MODELS) {
-      for (const provider of PROVIDER_IDS) expect(modelInfo(closestModel(model.id, provider)!).provider).toBe(provider);
-    }
-  });
-
-  it("keeps the tier when there is one, else takes the more capable neighbor", () => {
-    expect(closestModel("gpt-6.1-sol", "openrouter")).toBe("deepseek/deepseek-v4-pro-0813");
-    expect(closestModel("claude-haiku-5-5", "openrouter")).toBe("deepseek/deepseek-v4.1-flash");
-    expect(closestModel("google/gemini-4-argon", "anthropic")).toBe("claude-opus-5-5");
-    expect(closestModel("x-ai/grok-build-0.1", "anthropic")).toBe("claude-sonnet-5-5");
-    expect(closestModel("gpt-6.1-terra", "anthropic")).toBe("claude-sonnet-5-5");
-  });
-
-  it("groups OpenRouter models by maker", () => {
-    expect(makersOf("openrouter")).toEqual(["Google", "xAI", "DeepSeek", "Z.ai", "Moonshot"]);
-    expect(makersOf("openai")).toEqual(["OpenAI"]);
-  });
-});
+const NOW = new Date("2026-11-21T00:00:00Z");
+// The trimmed real catalog of 2026-11-21: Claude Fable 5.2, GPT-6.2 Sol and Astra are current there.
+const live = buildCatalog(parseCatalogResponse(fixture, NOW), { now: NOW, fetchedAt: NOW.toISOString(), source: "stored" });
 
 describe("roles", () => {
-  it("defines every key with defaults on both companies", () => {
+  it("defines every key with a default model on every company, from the catalog", () => {
     for (const key of AGENT_KEYS) {
       const role = AGENT_ROLES[key];
       expect(role.id).toBe(key);
-      expect(modelInfo(role.defaults.models.openai).provider).toBe("openai");
-      expect(modelInfo(role.defaults.models.anthropic).provider).toBe("anthropic");
-      expect(modelInfo(role.defaults.models.openrouter).provider).toBe("openrouter");
+      for (const catalog of [SEED_CATALOG, live]) {
+        for (const provider of PROVIDER_IDS) {
+          const model = findModel(catalog, roleDefaultModel(catalog, key, provider));
+          expect(model?.provider, `${key} ${provider}`).toBe(provider);
+          expect(model?.current, `${key} ${provider}`).toBe(true);
+        }
+      }
     }
+  });
+
+  it("starts the Tester on a fast model and the others on a balanced one", () => {
+    expect(AGENT_ROLES.tester.defaults.tier).toBe("fast");
+    for (const key of AGENT_KEYS.filter((k) => k !== "tester")) expect(AGENT_ROLES[key].defaults.tier, key).toBe("balanced");
+    expect(roleDefaultModel(live, "developer", "anthropic")).toBe("claude-sonnet-5-5");
+    expect(roleDefaultModel(live, "tester", "anthropic")).toBe("claude-haiku-5-5");
+    expect(roleDefaultModel(live, "developer", "openai")).toBe("gpt-6.1-terra");
+    expect(roleDefaultModel(live, "tester", "openai")).toBe("gpt-6-luna");
+    // OpenRouter defaults look at DeepSeek first.
+    expect(roleDefaultModel(live, "developer", "openrouter")).toBe("deepseek/deepseek-v4-pro-0813");
+    expect(roleDefaultModel(live, "tester", "openrouter")).toBe("deepseek/deepseek-v4.1-flash-1017");
   });
 
   it("keeps the reviewers that gate a merge read-only by default", () => {
@@ -65,28 +56,33 @@ describe("roles", () => {
 
 describe("agentModelFor", () => {
   it("restores the model remembered for that company", () => {
-    expect(agentModelFor("developer", "anthropic", "gpt-6.1-sol", { anthropic: "claude-opus-5-5" })).toBe("claude-opus-5-5");
+    expect(agentModelFor(live, "developer", "anthropic", "gpt-6.1-sol", { anthropic: "claude-opus-5-5" })).toBe("claude-opus-5-5");
+  });
+
+  it("falls back to the same tier when the remembered model left the catalog", () => {
+    expect(agentModelFor(live, "tester", "anthropic", "gpt-6-luna", { anthropic: "claude-haiku-9-9" })).toBe("claude-haiku-5-5");
   });
 
   it("falls back to the closest equivalent the first time", () => {
-    expect(agentModelFor("tester", "anthropic", "gpt-6-luna", {})).toBe("claude-haiku-5-5");
+    expect(agentModelFor(live, "tester", "anthropic", "gpt-6-luna", {})).toBe("claude-haiku-5-5");
   });
 
-  it("keeps the current model when it's already on that company", () => {
-    expect(agentModelFor("reviewer", "openai", "gpt-6.1-terra", {})).toBe("gpt-6.1-terra");
+  it("keeps the current model when it's already on that company, even an older one", () => {
+    expect(agentModelFor(live, "reviewer", "openai", "gpt-6.1-terra", {})).toBe("gpt-6.1-terra");
+    expect(agentModelFor(live, "reviewer", "openai", "gpt-6.1-sol", {})).toBe("gpt-6.1-sol");
   });
 
-  it("uses the role default for an unknown model", () => {
-    expect(agentModelFor("analyst", "anthropic", "retired-model", {})).toBe("claude-sonnet-5-5");
+  it("uses the role default for an id no company takes", () => {
+    expect(agentModelFor(live, "analyst", "anthropic", "retired-model", {})).toBe("claude-sonnet-5-5");
   });
 
   it("moves to OpenRouter tier for tier", () => {
-    expect(agentModelFor("tester", "openrouter", "gpt-6-luna", {})).toBe("deepseek/deepseek-v4.1-flash");
-    expect(agentModelFor("lead", "openai", "z-ai/glm-5.3", {})).toBe("gpt-6.1-sol");
+    expect(findModel(live, agentModelFor(live, "tester", "openrouter", "gpt-6-luna", {}))?.tier).toBe("fast");
+    expect(agentModelFor(live, "lead", "openai", "claude-sonnet-5-5", {})).toBe("gpt-6.1-terra");
   });
 
   it("ignores a remembered model from the wrong company", () => {
-    expect(agentModelFor("developer", "openai", "claude-sonnet-5-5", { openai: "claude-opus-5-5" })).toBe("gpt-6.1-sol");
+    expect(agentModelFor(live, "developer", "openai", "claude-sonnet-5-5", { openai: "claude-opus-5-5" })).toBe("gpt-6.1-terra");
   });
 });
 
@@ -102,7 +98,9 @@ describe("agentModel", () => {
   it("keeps a saved model on either company, and falls back to the role's OpenAI default for a retired id", () => {
     expect(agentModel("developer", "claude-opus-5-5")).toBe("claude-opus-5-5");
     expect(agentModel("tester", "gpt-6-luna")).toBe("gpt-6-luna");
-    expect(agentModel("analyst", "retired-model")).toBe(AGENT_ROLES.analyst.defaults.models.openai);
+    expect(modelProvider(agentModel("analyst", "retired-model"))).toBe("openai");
+    // Any id shaped like a company's model is kept: the catalog decides what's offered, not what runs.
+    expect(agentModel("developer", "claude-fable-5-2")).toBe("claude-fable-5-2");
   });
 });
 
@@ -128,12 +126,9 @@ describe("fallbackProvider", () => {
 });
 
 describe("vision", () => {
-  it("is set on every model", () => {
-    for (const model of AGENT_MODELS) expect(typeof model.vision, model.id).toBe("boolean");
-  });
-
-  it("matches the providers' model pages", () => {
-    const blind = AGENT_MODELS.filter((m) => !m.vision).map((m) => m.id);
+  it("comes from the catalog's input modalities", () => {
+    for (const model of live.models) expect(typeof model.vision, model.id).toBe("boolean");
+    const blind = live.models.filter((m) => m.current && !m.vision).map((m) => m.id);
     // OpenAI and Claude models all take images; on OpenRouter, DeepSeek V4 Pro and GLM 5.3 are text only.
     expect(blind).toEqual(["deepseek/deepseek-v4-pro-0813", "z-ai/glm-5.3"]);
   });

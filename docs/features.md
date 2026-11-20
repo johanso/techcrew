@@ -412,8 +412,12 @@ card runs. Security and Lead are read-only by default (read the repository, issu
   README, the selected permissions and budget, plus an optional focus; **Undo** restores the previous text; nothing is
   saved until **Save changes**), **Permissions** by category with risk level and *Default* tags (**Reset to defaults**),
   **Company** (OpenAI, Anthropic or OpenRouter; one without a key says *No key* and links to Settings) and **Model**
-  (that company's models with prices — OpenRouter's grouped by maker: Google, xAI, DeepSeek, Z.ai, Moonshot; changing
-  company picks the closest tier, so each agent can work on a different company) and
+  (that company's **current models from the model catalog**, each with its price per 1M tokens in / out — or *Your
+  plan* when your Claude plan carries it on this computer — an eye when it sees images, and a hint: tier, *sees images*
+  or *text only*, context size; OpenRouter's grouped by maker: Google, xAI, DeepSeek, Z.ai, Moonshot; changing company
+  picks the closest model of the same tier, so each agent can work on a different company. New models appear on their
+  own after the daily refresh; an agent whose model is no longer offered keeps it, shown as *Older model* in the picker
+  and *older* on its card, until you pick another) and
   monthly budget (presets $25/$50/$100/$250). The side panel shows the **Trust Score** (ring,
   grade — Trusted ≥ 85, Needs review ≥ 70, At risk — summary, checks passed, findings, **Scan again**) and
   **Spending** for the month (spent, budget bar, remaining, projection, reset date, breakdown: task runs, AI drafting,
@@ -574,7 +578,11 @@ Your account:
   OpenRouter keys (OpenRouter: one key for Google, DeepSeek, Z.ai, xAI and Moonshot models), used by every project: a saved key shows in its field masked (first characters, dots, last four); **Replace
   key** opens an empty password field with a show/hide eye (**Save key**, checked with the provider first, or
   **Cancel**); **Remove** asks first. Without a key: Using the server's key, or Not connected. Every company with a key
-  is available: each agent picks its company and model on the AI Team page. Below, **This workspace only**:
+  is available: each agent picks its company and model on the AI Team page. **Models**: "Models updated 3 hours ago ·
+  24 current models from OpenRouter's public list" with **Refresh models** (no key, no spend): the list every model
+  picker offers, shared by all your projects, refreshed on its own when older than a day (the AI Team and Settings pages
+  check after they load) and kept as it was when OpenRouter doesn't answer. Before the first refresh the app offers its
+  built-in list. Below, **This workspace only**:
   **Switch automatically when out of credit** (toggle, off by default; needs both keys; see
   [Out of credit](#out-of-credit)) and **Workspace keys (optional)**, used only for a company your account has no key
   for (while the account has one, only "Using your account's key" shows). The AI Team's "No AI provider connected"

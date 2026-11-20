@@ -1,4 +1,5 @@
-import { PROVIDERS, modelInfo, type AgentKey, type AgentModelId, type AgentProvider } from "@/lib/agent-config";
+import { PROVIDERS, type AgentKey, type AgentModelId, type AgentProvider } from "@/lib/agent-config";
+import { modelProvider } from "@/lib/model-catalog-config";
 
 /**
  * Agents on the owner's plans through a local CLI (docs/cli-agents-plan.md): pure, client-safe vocabulary and rules.
@@ -48,7 +49,7 @@ export const cliOfRoute = (route: AgentRoute): CliKind | null => (route === "cla
 
 /** The CLI that can carry a model on its company's plan, or null (OpenRouter models, and OpenAI until Codex). */
 export function cliForModel(model: AgentModelId): CliKind | null {
-  const provider = modelInfo(model).provider;
+  const provider = modelProvider(model);
   return CLI_KINDS.find((kind) => CLI_META[kind].provider === provider) ?? null;
 }
 
@@ -174,6 +175,8 @@ export type RouteResolution =
  */
 export function resolveRoute(input: {
   model: AgentModelId;
+  /** The model's name for messages (the catalog's label); the id when absent. */
+  label?: string;
   hasKey: boolean;
   cli: CliMachineState | null;
   now?: Date;
@@ -181,26 +184,28 @@ export function resolveRoute(input: {
   forceApi?: boolean;
 }): RouteResolution {
   const { model, hasKey, cli } = input;
-  const info = modelInfo(model);
+  const label = input.label ?? model;
+  const provider = modelProvider(model);
+  if (!provider) return { route: null, problem: `${model} isn't a model TechTeam can run. Pick another one on the AI Team page.` };
   const kind = cliForModel(model);
   const api: RouteResolution | null = hasKey ? { route: "api", billing: "api", note: null } : null;
-  const noKey = `${info.label} needs an ${PROVIDERS[info.provider].label} API key. Add one in Settings → AI providers.`;
+  const noKey = `${label} needs an ${PROVIDERS[provider].label} API key. Add one in Settings → AI providers.`;
   if (!kind || !cli || !cli.installed || !cli.enabled || input.forceApi) return api ?? { route: null, problem: noKey };
 
   const plan = CLI_META[kind].plan;
-  const unusable = planUnusableReason(model, cli, input.now ?? new Date());
+  const unusable = planUnusableReason(model, label, cli, input.now ?? new Date());
   if (!unusable) return { route: CLI_META[kind].route, billing: "plan", note: null };
   if (api) return { ...api, note: `${unusable} Used the API key.` };
-  return { route: null, problem: `${unusable} Fix it in Settings → AI → Plans on this computer, or add an ${PROVIDERS[info.provider].label} key. (${info.label}, ${plan})` };
+  return { route: null, problem: `${unusable} Fix it in Settings → AI → Plans on this computer, or add an ${PROVIDERS[provider].label} key. (${label}, ${plan})` };
 }
 
 /** Why a switched-on plan can't carry this model right now, or null when it can. */
-function planUnusableReason(model: AgentModelId, cli: CliMachineState, now: Date): string | null {
+function planUnusableReason(model: AgentModelId, label: string, cli: CliMachineState, now: Date): string | null {
   const auth = cli.auth;
   if (!auth?.loggedIn) return "Claude Code isn't signed in for TechTeam.";
   if (!isPlanLogin(auth)) return "Claude Code is signed in without a Claude plan.";
   if (!accountMatches(auth, cli.confirmed)) return `Claude Code is signed in as ${describeAccount(auth)}, not the account you confirmed.`;
-  if (!planIncludesModel(auth.subscriptionType, model) || cli.unusable.includes(model)) return `Your Claude plan doesn't include ${modelInfo(model).label}.`;
+  if (!planIncludesModel(auth.subscriptionType, model) || cli.unusable.includes(model)) return `Your Claude plan doesn't include ${label}.`;
   if (cli.limitedUntil && new Date(cli.limitedUntil) > now) return `Your Claude plan is out of usage until ${cli.limitedUntil}.`;
   return null;
 }
