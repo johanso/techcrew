@@ -50,7 +50,8 @@ export function AgentAutomationForm({ workspaceId, autoPickup, mergeMode }: { wo
       <OptionCards name="merge" legend="Merging pull requests" options={MERGE} value={merge} onChange={setMerge} />
       <p className="flex items-start gap-2 text-xs text-muted-foreground">
         <GitPullRequestIcon className="mt-0.5 size-3.5 shrink-0" />
-        If a merge hits a conflict or a failing build, the Tester files a follow-up card in Todo with the details.
+        If a merge hits a conflict or a failing build, the Tester files a follow-up card in Todo with the details. Running
+        it continues on the same pull request: the Developer brings the default branch in and fixes it.
       </p>
       <FormMessage message={state.message} />
       <div className="flex items-center justify-end gap-3">

@@ -4,17 +4,7 @@ import { answerAnalyst, pipelineModelProblem, referenceModelProblem } from "@/li
 import { PROVIDERS, fallbackProvider } from "@/lib/agent-config";
 import { parseAnswer } from "@/lib/agent-run-config";
 import { getAIKeys, keyStatus } from "@/lib/ai-keys";
-import {
-  createRun,
-  finishRun,
-  getActiveRun,
-  getLatestRuns,
-  getTaskRunLog,
-  placeTask,
-  releaseTask,
-  replaceWaitingRuns,
-  type RunLog,
-} from "@/lib/agent-runs";
+import { finishRun, getActiveRun, getLatestRuns, getTaskRunLog, placeTask, releaseTask, type RunLog } from "@/lib/agent-runs";
 import { checkAgentCanRun, getAgent, logAgentActivity, moveAgentsToProvider, RUN_AGENT_ID, teamProviders } from "@/lib/agents";
 import {
   createTask,
@@ -33,7 +23,7 @@ import { requireUser } from "@/lib/current-user";
 import { inngest } from "@/lib/inngest/client";
 import { AGENT_TASK_CANCEL, AGENT_TASK_RUN, type AgentTaskRunData } from "@/lib/inngest/agent-run";
 import { logCardEdited, logCardRemoved, logCardsMoved, taskSnapshots } from "@/lib/task-events";
-import { adoptPullRequest, getRerunPullRequest, getTaskOpenPullRequest, mergeManually, refreshOpenPullRequests } from "@/lib/pull-requests";
+import { createCardRun, getTaskOpenPullRequest, mergeManually, refreshOpenPullRequests } from "@/lib/pull-requests";
 import { REFERENCE_UPLOAD_MAX_BYTES, formatReferenceBytes, type ReferenceView } from "@/lib/reference-config";
 import { addLinkReference, addTaskReference, listTaskReferences, removeTaskReference } from "@/lib/references";
 import { linkCaptureAvailable } from "@/lib/sandbox/capture";
@@ -157,19 +147,11 @@ async function startRun(auth: NonNullable<Awaited<ReturnType<typeof authorize>>>
   const visionProblem = current && (await referenceModelProblem(auth.workspace.id, taskId, current.key));
   if (visionProblem) return { ok: false, error: visionProblem, link: { href: `/dashboard/${auth.workspace.id}/ai-team`, label: "Open AI Team" } };
 
-  // A card run before whose pull request is still open: continue on that branch and PR instead of opening another.
-  const openPr = await getRerunPullRequest(auth.workspace, taskId);
-  const run = await createRun({
-    workspaceId: auth.workspace.id,
-    taskId,
-    trigger: "manual",
-    createdById: auth.user.id,
-    branch: openPr?.headBranch ?? null,
-  });
-  if (openPr) {
-    await adoptPullRequest(openPr.id, run.id);
-    await replaceWaitingRuns(taskId, run.id);
-  }
+  // A card run before whose pull request is still open, or the Tester's follow-up card of one that couldn't merge:
+  // continue on that branch and PR instead of opening another.
+  const created = await createCardRun(auth.workspace, { taskId, trigger: "manual", createdById: auth.user.id });
+  if (!created.ok) return created;
+  const run = { id: created.runId };
   try {
     const data: AgentTaskRunData = { workspaceId: auth.workspace.id, taskId, runId: run.id };
     await inngest.send({ name: AGENT_TASK_RUN, data });

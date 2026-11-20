@@ -179,3 +179,42 @@ describe("reference tools", () => {
     expect(toolStep("read_reference", JSON.stringify({ id: 99, offset: null }), "Error: no reference with id 99 on this card.").ok).toBe(false);
   });
 });
+
+describe("merge tools", () => {
+  const MERGE = ["merge_default_branch", "read_conflict", "resolve_conflict", "finish_merge"];
+  const names = (stage: Parameters<typeof toolsFor>[0]["stage"], permissions: Parameters<typeof toolsFor>[0]["permissions"], branch: string | null = "agent/acm-1-x") =>
+    toolsFor({ stage, permissions, branch }).map((tool) => tool.name);
+
+  it("go to the developer with Write code once the branch exists", () => {
+    expect(names("development", ["repo.read", "code.write"])).toEqual(expect.arrayContaining(MERGE));
+    expect(names("development", ["repo.read"])).not.toContain("merge_default_branch");
+    expect(names("development", ["repo.read", "code.write"], null)).not.toContain("merge_default_branch");
+    for (const stage of ["analysis", "review", "security", "approval", "testing"] as const) {
+      expect(names(stage, ["repo.read", "code.write", "deps.manage", "tests.run"]), stage).not.toContain("merge_default_branch");
+    }
+  });
+
+  it("have strict schemas", () => {
+    const tools = toolsFor({ stage: "development", permissions: ["code.write"], branch: "b" }).filter((t) => MERGE.includes(t.name));
+    expect(tools).toHaveLength(4);
+    for (const tool of tools) expect(tool.strict).toBe(true);
+    expect(tools.find((t) => t.name === "resolve_conflict")!.parameters).toMatchObject({ required: ["path", "content"], additionalProperties: false });
+    expect(JSON.stringify(tools.find((t) => t.name === "finish_merge")!.parameters)).toContain('"enum":["commit","abort"]');
+  });
+
+  it("log the file, never its content", () => {
+    expect(toolStep("read_conflict", JSON.stringify({ path: "src/app.ts", start_line: null, end_line: null }), "src/app.ts: 1 conflicting section …\n1: secret")).toEqual({
+      tool: "read_conflict",
+      target: "src/app.ts",
+      ok: true,
+      summary: null,
+    });
+    expect(toolStep("resolve_conflict", JSON.stringify({ path: "src/app.ts", content: "secret code" }), "Resolved src/app.ts: 1 conflict left.")).toEqual({
+      tool: "resolve_conflict",
+      target: "src/app.ts",
+      ok: true,
+      summary: "Resolved src/app.ts: 1 conflict left.",
+    });
+    expect(toolStep("finish_merge", JSON.stringify({ outcome: "commit" }), "Error: 1 conflict still unresolved: src/a.ts.")).toMatchObject({ ok: false, target: null });
+  });
+});

@@ -119,7 +119,10 @@ analysis ──ready──▶ development ──▶ PR ──┤                
   30 s apart (automatic merges only; up to 10 minutes, then the run waits for a manual merge).
 - **Merge** ([`lib/pull-requests.ts`](../lib/pull-requests.ts)): merges (squash) only when GitHub reports the PR mergeable
   and every check run / commit status passed. A conflict or failing build makes the Tester file a follow-up card in Todo
-  (and a GitHub issue with the **File issues** permission); the run ends `failed` with the reason.
+  (and a GitHub issue with the **File issues** permission); the run ends `failed` with the reason. Running the
+  follow-up card continues on the same PR: the Developer merges the default branch in (`merge_default_branch`,
+  [features.md](features.md#merging-the-default-branch)) and the pipeline reviews and tests it again; the merge moves
+  both cards to Done.
 - **Notifications** (`notify`, lib/notifications.ts; never throws, so it can't fail a step): PR ready to merge
   (manual merge, not low risk in "Automatic when low risk" — with the risk and its reasons — or auto merge timed out), merged (auto merge), merge blocked, analyst needs info, run stopped, out of
   credit, provider switched.
@@ -129,7 +132,8 @@ analysis ──ready──▶ development ──▶ PR ──┤                
 Every 2 minutes: for each workspace with **Settings → Agents → Task pickup: Automatic** and no `queued`/`running`
 run, creates a run for the top Todo card that **was never run** and sends `agent/task.run`. Skipped entirely without
 a provider (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `AGENTS_SIMULATED=true`), and per workspace while the Analyst is paused or over budget, or an agent's model has no provider key. Cards that were run before (failed,
-needs info) wait for a human to press Run (or Answer, for a question).
+needs info) wait for a human to press Run (or Answer, for a question). A never-run follow-up card the Tester filed
+for a blocked merge is picked up like any other and continues on that pull request (`createCardRun`).
 
 ## Local development
 

@@ -166,7 +166,8 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   auth.ts                 Hosted-auth client, session cookie; getSession reuses sessions validated in the last 60 s
                           (session-cache.ts: the auth service rate-limits the dashboard's polls).
   current-user.ts         getCurrentUser() / requireUser(returnTo).
-  github.ts               GitHub OAuth + REST + connection persistence; commitFiles (several files, one commit).
+  github.ts               GitHub OAuth + REST + connection persistence; commitFiles (several files, one commit); the
+                          merge's Git Data calls (mergeIntoBranch, getTreeEntries, getBlob / createBlob, commitTree).
   crypto.ts               encrypt / decrypt for secrets at rest.
   ai-keys.ts              AI provider keys: getAIKeys (owner's account key, else workspace key, else env; keyInUse),
                           getProviderKeyViews (masked), verifyProviderKey, saveProviderKey / removeProviderKey (account
@@ -256,12 +257,22 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           agent_run_messages, last-turn message);
                           modelUnavailableReason(), initialLoopState().
   agent-tools.ts          Agent tools on the GitHub API, filtered by stage + permissions; search_skill / read_skill when the
-                          agent has skills; list_references / read_reference when the card has references; protected
-                          paths, manifest gate;
+                          agent has skills; list_references / read_reference when the card has references; the
+                          Developer's merge tools (branch-merge.ts);
                           toolStep() (a call → agent log step; never stores file contents).
+  repo-paths.ts           Pure: which paths agents may write (protected paths, manifest gate, lockfiles), cleanRepoPath.
+  branch-merge.ts         merge_default_branch / read_conflict / resolve_conflict / finish_merge: GitHub's merge API,
+                          else a merge planned from the three trees, kept in agent_runs.pending_merge (shas only),
+                          committed with two parents, fast-forward only. mergeWriteBlock, clearPendingMerge.
+  merge-config.ts         Pure: planMerge (tree plan), routeConflict (agent / lockfile / refused), PendingMerge, the
+                          tools' answers, pickContinuedPullRequest (own PR, else the one a follow-up card is for),
+                          continuationNote (the brief of a run that continues a PR). Tested.
+  diff3.ts                Pure: mergeText (three-way line merge, Myers matching, zdiff3-style markers), matchLines,
+                          conflictMarkerLines. Tested, also against git (branch-merge.test.ts runs on a real repository).
   pull-requests.ts        Agent PRs: mergeAgentPullRequest (mergeable + CI green, else Tester follow-up card),
-                          mergeManually (user merge: card or PR page), refreshOpenPullRequests, getRerunPullRequest +
-                          adoptPullRequest (rerun on the same PR), listPullRequests.
+                          mergeManually (user merge: card or PR page), refreshOpenPullRequests, createCardRun (Run and
+                          auto pickup: getRerunPullRequest + adoptPullRequest, also for a follow-up card),
+                          listPullRequests.
   board-config.ts         Board vocabulary shared by server + client: columns, issue types, priorities, BoardCard.
   reference-config.ts     Card references vocabulary shared by server + client: kinds, limits, detectReferenceFormat (magic
                           bytes), imageDimensions, validateReference, ReferenceView, what agents read (list, paged text,
@@ -497,7 +508,12 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   the GitHub issue when the question was posted there) and runs the card again. Every later run of the card gets the
   last questions and answers in its analysis and development prompts (`earlierQuestionsBlock`).
   Running a card again while it has an open PR continues on that branch and PR (`adoptPullRequest`, verdicts reset;
-  earlier runs waiting on it end as replaced, `replaceWaitingRuns`); the developer's brief says so (`rerunBlock`).
+  earlier runs waiting on it end as replaced, `replaceWaitingRuns`); the analyst's and developer's briefs say so
+  (`continuationBlock`). The Tester's **follow-up card** of a PR that couldn't merge (`pull_requests.follow_up_task_id`)
+  does the same: its run (Run or auto pickup, both through `createCardRun`) takes that PR over, the brief names the
+  original card and the merge error, and for a conflict tells the Developer to start with `merge_default_branch`. The
+  follow-up card carries the run; the merge moves both cards to Done (`completeMerge`). Refused while another card's
+  run works on the same PR.
   The PR is re-checked on GitHub first (`getRerunPullRequest`), and every board sync applies merges/closes done on
   GitHub (`refreshOpenPullRequests` in `syncIssuesAction`), so cards never offer Merge on a closed PR. They render as siblings of the card inside
   the sortable wrapper (the card is only the drag *activator*), so they never start a drag or open the dialog.
@@ -669,8 +685,21 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     (closest viewport, light and dark; a clear mismatch is a test fail).
   - **Permissions are enforced as tools** (`toolsFor` in `lib/agent-tools.ts`). Adding a capability = a tool gated by a
     permission there, not a prompt instruction. ("Skills" are knowledge, not capabilities: see Agent skills below.) Agents never write `.github/workflows/`, `.env*` (except `.env.example`) or
-    `.git/`; manifests need `deps.manage` (adding a package: `add_dependency`). Tool output is untrusted data — the
-    stage protocol in `systemPrompt` says so.
+    `.git/`; manifests need `deps.manage` (adding a package: `add_dependency`). The rules live in `lib/repo-paths.ts`
+    and apply to merge resolutions too. Tool output is untrusted data — the stage protocol in `systemPrompt` says so.
+  - **Merging the default branch** (`lib/branch-merge.ts`, Developer with `code.write` on its branch): `merge_default_branch`
+    tries GitHub's merge API (`POST /merges`: a real merge commit); on a conflict it plans the merge from the merge base's,
+    the branch's and the default branch's trees (`planMerge`), merges overlapping-but-compatible files line by line
+    (`mergeText`), takes the default branch's lockfiles, and refuses (nothing changed, the owner merges) protected
+    paths, links/submodules, binary or > 200 KB files, manifests without `deps.manage` and more than 20 conflicts. The
+    rest wait in `agent_runs.pending_merge` (shas only; resolutions are blobs in the repository): `read_conflict` shows a
+    file with markers (recomputed, never stored), `resolve_conflict` refuses leftover markers and stores a blob,
+    `finish_merge` commits the default branch's tree + the branch's own changes + the resolutions with parents [branch
+    head, default head] and moves the ref fast-forward only; either head moving drops the merge (start over). While a
+    merge is open the write tools and `add_dependency` are refused; each development stage starts with none. The Tester's
+    pre-check **Merges cleanly** fails a PR GitHub reports as conflicting, so it goes back to the Developer. GitHub
+    refuses merges that bring in workflow changes without the `workflow` scope: the tool says so, the owner updates
+    the branch.
   - **Each agent picks its company and model** (AI Team → Configure: a Company select, then that company's models via
     `modelsFor`; changing company picks the closest tier, `agentModelFor`). `agents.model` is the model and its
     `provider` is the agent's company; read it with `activeAgentModel(row)`. Every company with a key is available

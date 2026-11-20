@@ -58,12 +58,15 @@ export async function updateRun(runId: number, patch: Partial<Omit<AgentRunRow, 
     .where(eq(agentRuns.id, runId));
 }
 
-/** A rerun replaces the card's earlier runs still waiting on a merge: their pull request now belongs to the new run. */
-export async function replaceWaitingRuns(taskId: number, newRunId: number) {
+/**
+ * A run that takes over a pull request replaces the earlier runs of these cards (the card, and the PR's own card when
+ * it's a follow-up) still waiting on a merge: their pull request now belongs to the new run.
+ */
+export async function replaceWaitingRuns(taskIds: number[], newRunId: number) {
   const replaced = await db
     .update(agentRuns)
     .set({ status: "cancelled", error: "Replaced by a new run on the same pull request.", finishedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(agentRuns.taskId, taskId), eq(agentRuns.status, "awaiting_merge"), ne(agentRuns.id, newRunId)))
+    .where(and(inArray(agentRuns.taskId, taskIds), eq(agentRuns.status, "awaiting_merge"), ne(agentRuns.id, newRunId)))
     .returning({ id: agentRuns.id });
   // The new run starts its own preview after its CI gate; the old one goes now, in the background.
   for (const { id } of replaced) void stopRunPreview(id, "Replaced by a new run on the same pull request.");
@@ -378,7 +381,7 @@ export type RunLog = {
   ci: CiResult[];
 };
 
-const WRITE_TOOLS = new Set(["write_file", "replace_in_file", "delete_file"]);
+const WRITE_TOOLS = new Set(["write_file", "replace_in_file", "delete_file", "resolve_conflict"]);
 
 /**
  * The card's latest run with what each stage did, grouped in the order the stages started (the parallel review and

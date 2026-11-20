@@ -49,8 +49,26 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   are refused with a message. The Developer's protocol says a font the card names is added as a bundled package
   (`@fontsource/…`) and imported, never linked from a font host, so it loads in the preview; agents don't pick fonts
   on their own. Draft with AI mentions the tool when the Developer has it.
+- **Agents fix merge conflicts**: the Developer brings the default branch into its pull request's branch with
+  `merge_default_branch`, as a real merge commit (two parents), so GitHub sees the pull request as mergeable again.
+  Without conflicts GitHub merges it in one call. With conflicts, files whose changes don't overlap merge
+  automatically, lockfiles take the default branch's version (re-add packages with `add_dependency`), and the rest
+  are resolved one by one: `read_conflict` shows the file with conflict markers (your branch, the merge base, the
+  default branch), `resolve_conflict` takes the whole merged file (leftover markers are refused) and `finish_merge`
+  commits the merge, only if neither branch moved meanwhile, or aborts it. Protected paths, links, submodules, binary
+  or large files, manifests without *Manage dependencies* and more than 20 conflicts are refused with a message for the
+  owner. Nothing is cloned and file contents are never stored: the open merge keeps only commit and blob shas.
+- **Running the Tester's follow-up card fixes the pull request** ("Fix merge of PR #n", filed when a merge is blocked by
+  a conflict or a failing build): the run continues on that PR's branch instead of opening a new one, its brief names
+  the original card and why the merge failed, and for a conflict the Developer starts with `merge_default_branch`.
+  Reviews, the Lead and the tests run again; the merge (manual or automatic) moves both cards to Done. Auto pickup does
+  the same. Running the original card again while its PR conflicts gets the same brief.
 
 ### Changed
+- The Tester's pre-checks include **Merges cleanly into the default branch**: a pull request GitHub reports as
+  conflicting fails the tests and goes back to the Developer (who can now merge), instead of failing later at merge.
+- The follow-up card's description and the "couldn't be merged" notification say that running the card fixes the
+  pull request. The pull request's last merge error stays until the run that took it over pushes its work.
 - The sandbox browser image is now `techteam-browser:1.64.1-3` (link captures, tablet, color scheme, and fonts with
   real bold weights): rebuild it on the sandbox host (docs/sandbox.md). `system-ui` and the usual UI font stacks render
   in Inter (100–900) and `serif` / `monospace` in Liberation Serif / Mono; before, `system-ui` headings and 700-weight
@@ -70,6 +88,7 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 - Migration `0013_card_references`: `task_references` (one small row per reference: kind, name, type, size, S3 keys,
   PDF pages and text length, image size; files and PDF text live in S3; additive).
 - Migration `0014_card_reference_links`: `task_references.source_url` and `mobile_key` for link references (additive).
+- Migration `0015_pending_merge`: `agent_runs.pending_merge` (jsonb), the Developer's open merge (additive).
 
 ## [0.5.0] — 2026-11-19
 

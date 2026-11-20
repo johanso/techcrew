@@ -8,13 +8,16 @@ import {
   CircleCheckIcon,
   ClockIcon,
   ExternalLinkIcon,
+  FileCheckIcon,
   FileDiffIcon,
   FilePenIcon,
   FilePlusIcon,
   FileTextIcon,
+  FileWarningIcon,
   FileXIcon,
   FlaskConicalIcon,
   FolderTreeIcon,
+  GitMergeIcon,
   GlobeIcon,
   HammerIcon,
   ListChecksIcon,
@@ -70,10 +73,14 @@ const TOOL_ICON: Record<string, LucideIcon> = {
   run_build: HammerIcon,
   run_command: SquareTerminalIcon,
   browse_preview: GlobeIcon,
+  merge_default_branch: GitMergeIcon,
+  read_conflict: FileWarningIcon,
+  resolve_conflict: FileCheckIcon,
+  finish_merge: GitMergeIcon,
 };
 
 // Tools whose outcome line is worth reading even when it went well ("Opened /: 200, 0 console errors …").
-const SHOW_SUMMARY = new Set(["browse_preview"]);
+const SHOW_SUMMARY = new Set(["browse_preview", "merge_default_branch", "finish_merge"]);
 
 function Step({ step, runId }: { step: RunLogStep; runId: number }) {
   const meta = { label: TOOL_LABEL[step.tool] ?? step.tool, icon: TOOL_ICON[step.tool] ?? WrenchIcon };

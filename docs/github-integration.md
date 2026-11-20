@@ -172,6 +172,9 @@ always with the owner's token and always on the linked repository:
 | --- | --- | --- |
 | Create branch `agent/<key>-<slug>` | Development starts (once per run) | `POST /git/refs` |
 | Commit a file change | Each Developer write/edit/delete | `PUT` / `DELETE /contents/{path}` |
+| Merge the default branch into the PR's branch | Developer's `merge_default_branch` when nothing conflicts | `POST /merges` (base = the branch, head = the default branch's head sha; 201 merged, 204 nothing to do, 409 conflict) |
+| Resolved file / automatically merged file | Developer's `resolve_conflict`, or `merge_default_branch` for files that merge line by line | `POST /git/blobs` (not in any commit until the merge is committed) |
+| Merge commit with resolved conflicts | Developer's `finish_merge` | `POST /git/trees` (on the default branch's tree), `POST /git/commits` (parents: branch head, default head), `PATCH /git/refs/heads/{branch}` (`force: false`, so only a fast-forward) |
 | Open pull request (`Closes #<issue>` for GitHub cards) | Development done | `POST /pulls` |
 | Review comment | Reviewer verdict (*Review pull requests*) | `POST /pulls/{n}/reviews` (event `COMMENT`) |
 | Test report comment | Tester verdict (*Comment on issues*) | `POST /issues/{n}/comments` |
@@ -181,7 +184,11 @@ always with the owner's token and always on the linked repository:
 | Follow-up issue | Merge blocked by conflict / failing build (*File issues*) | `POST /issues` (label `bug`) |
 
 Reads: tree, contents, code search (default branch only), compare, PR state and mergeability, check runs and commit
-statuses. The sandbox ([sandbox.md](sandbox.md)) also downloads the branch's latest commit as a tarball
+statuses; for a merge with conflicts also the merge base (`compare`), the three commits and their recursive trees
+(`GET /git/commits`, `GET /git/trees/{sha}?recursive=1`) and the conflicted files' blobs (`GET /git/blobs/{sha}`).
+GitHub refuses OAuth tokens without the `workflow` scope any commit that changes `.github/workflows/`, merge commits
+included: when the default branch changed a workflow, `merge_default_branch` says so and the owner uses **Update
+branch** on the pull request. The sandbox ([sandbox.md](sandbox.md)) also downloads the branch's latest commit as a tarball
 (`GET /tarball/{sha}`): the app follows GitHub's redirect without the token and pipes the archive (≤ 300 MB) to the
 container, so the token never leaves the app. Settings → Sandbox reads the root `package.json` and the root file list
 to suggest commands. A `401` stops the run with "Reconnect GitHub" instead of retrying.

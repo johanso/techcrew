@@ -108,8 +108,12 @@ lib/                         Server logic (most files start with `import "server
                              Chat Completions)
   agent-simulated.ts         Scripted agents for AGENTS_SIMULATED=true
   agent-tools.ts             Agent tools on the GitHub API, gated by stage and permissions; search_skill/read_skill;
-                             list_references/read_reference
-  pull-requests.ts           Agent PRs: merge, Tester follow-up on conflicts/failing builds, refresh, list
+                             list_references/read_reference; the merge tools
+  repo-paths.ts              Which paths agents may write (protected paths, manifests, lockfiles)
+  branch-merge.ts            merge_default_branch and conflict resolution through the Git Data API
+  merge-config.ts, diff3.ts  Pure: the merge's tree plan, rules, answers and briefs; the three-way line merge
+  pull-requests.ts           Agent PRs: merge, Tester follow-up on conflicts/failing builds, runs that continue a PR
+                             (createCardRun), refresh, list
   openai.ts                  OpenAI client and cost accounting
   anthropic.ts               Anthropic client, cost accounting, tool schema conversion
   openrouter.ts              OpenRouter client (Chat Completions), routing rules, reported cost, out-of-credit

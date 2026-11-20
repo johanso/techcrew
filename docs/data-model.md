@@ -109,6 +109,7 @@ erDiagram
         jsonb approval "Lead + final risk"
         jsonb test_report
         jsonb ci
+        jsonb pending_merge "open merge, shas only"
         int rework_rounds
     }
     agent_run_steps {
@@ -460,6 +461,7 @@ shows each card's latest run.
 | `approval` | jsonb | yes | | `LeadDecision`: decision (`approve` / `request_changes`), final risk (`low`/`medium`/`high`, already raised to `riskFloor`), risk reasons, summary, required changes (source, path, detail). |
 | `test_report` | jsonb | yes | | `TestReport`: verdict, summary, checks (failed pre-checks included). Cleared when the Lead requests changes (that round's tests never ran). |
 | `ci` | jsonb | yes | | `CiResult[]`, one per development round: state (waiting, passed, failed, none, timed_out), commit, number of checks, failing checks (name, conclusion, link) and those failing on the default branch too. Never logs. |
+| `pending_merge` | jsonb | yes | | `PendingMerge` (`lib/merge-config.ts`): the Developer's open `merge_default_branch` with conflicts left: branch and default branch, both heads, merge base, the default head's tree, the planned tree entries (path, mode, sha), automatically merged files, lockfiles taken from the default branch, and each conflict with its resolution (a blob sha, or null for a deletion). Shas only, never file contents. Cleared on `finish_merge` (commit or abort), when a head moved, and when a development stage starts. |
 | `rework_rounds` | integer | no | `0` | Development rounds after the first (max `MAX_REWORK_ROUNDS` = 2). |
 | `error` | text | yes | | Why it stopped, or the analyst's question (`needs_info`). Shown on the card. |
 | `answer` | text | yes | | The owner's answer to the analyst's question (`needs_info` runs, `answerCardAction`). Later runs of the card read it into their prompts. |
@@ -525,15 +527,15 @@ Pull requests the Developer opened. One per run; rework rounds push to the same 
 | --- | --- | --- | --- | --- |
 | `id` | serial | no | | Primary key. |
 | `workspace_id` | integer | no | | → `workspaces.id`, cascade. **Unique with `number`.** |
-| `task_id`, `run_id` | integer | yes | | → `tasks.id` / `agent_runs.id`, `SET NULL`. |
+| `task_id`, `run_id` | integer | yes | | → `tasks.id` / `agent_runs.id`, `SET NULL`. `task_id` is the card the PR was opened for; `run_id` the run working on it now (a rerun, or the run of its follow-up card, takes it over: `adoptPullRequest`). |
 | `number`, `github_id`, `url` | int / bigint / text | no | | The GitHub PR. |
 | `title`, `head_branch`, `base_branch` | text | no | | |
 | `state` | text | no | | `open`, `merged`, `closed`. Refreshed from GitHub on the Pull Requests page. |
 | `review_status` | text | no | `pending` | The Lead's decision: `pending`, `approved`, `changes_requested`. Reset to `pending` on rework. |
 | `risk` | text | yes | | The Lead's final risk: `low`, `medium`, `high`. Null until approval; reset on rework. |
 | `test_status` | text | no | `pending` | `pending`, `passed`, `failed`. |
-| `merge_error` | text | yes | | Why the last merge attempt was blocked; cleared on merge. |
-| `follow_up_task_id` | integer | yes | | → `tasks.id`, `SET NULL`. The Tester's card for a blocked merge (one per PR). |
+| `merge_error` | text | yes | | Why the last merge attempt was blocked; kept when a run takes the PR over (its brief says why), cleared once that run pushes its work and on merge. |
+| `follow_up_task_id` | integer | yes | | → `tasks.id`, `SET NULL`. The Tester's card for a blocked merge (one per PR). Running it continues on this PR; the merge moves it to Done with `task_id`'s card. |
 | `merged_at`, `created_at`, `updated_at` | timestamp | yes / no / no | | |
 
 ## Value vocabularies

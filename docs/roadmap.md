@@ -135,6 +135,12 @@ The owner designs and specifies outside TechTeam (a design tool, a document); th
    - Merge conflicts: the follow-up card a conflict files ("Fix merge of PR #n") can't be done by the agents. They have
      no tool to bring the default branch into a PR branch, and running that card starts a new branch instead of fixing
      the PR. Seen live 2026-11-19: SAN-2's PR #2 conflicted after SAN-3 and SAN-4 merged (SAN-5, issue #5).
+     Done in code (2026-11-20): running the follow-up card (or the original card again, or auto pickup) continues on
+     the conflicted PR, and the Developer's `merge_default_branch` / `read_conflict` / `resolve_conflict` /
+     `finish_merge` bring the default branch in as a two-parent merge commit through the GitHub API (pure diff3 in
+     `lib/diff3.ts`, no clone); the Tester's pre-check sends a conflicting PR back. Verified on a local git repository
+     in a unit test; not yet seen live (testing.md rows 73–78). Later: resolving one conflict section at a time
+     (today the Developer rewrites the whole file, costly for long files), and binary conflicts by picking a side.
    - `add_dependency` (gated by `deps.manage`): installs a package in the sandbox with network and commits the
      manifest and the lockfile to the branch. Today an agent can't add one: it can't regenerate the lockfile, so
      `npm ci` fails. First use: a font the owner names in the card (`@fontsource/…`), bundled into the build, so it

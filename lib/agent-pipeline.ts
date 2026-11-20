@@ -57,6 +57,7 @@ import {
   updateRun,
 } from "@/lib/agent-runs";
 import { getAgentSkills, promptSkills } from "@/lib/agent-skills";
+import { clearPendingMerge } from "@/lib/branch-merge";
 import { toolsFor, type ToolContext } from "@/lib/agent-tools";
 import {
   activeAgentModel,
@@ -89,6 +90,7 @@ import {
   getPullRequest,
   hasActionsWorkflows,
 } from "@/lib/github";
+import { continuationNote } from "@/lib/merge-config";
 import { agentLogHref, notify } from "@/lib/notifications";
 import { isOpenAIOutOfCredit } from "@/lib/openai";
 import { isOpenRouterOutOfCredit } from "@/lib/openrouter";
@@ -329,6 +331,7 @@ export type StageResult = {
 type StageAbilities = {
   canRun: boolean;
   canAddDependency: boolean;
+  canMerge: boolean;
   canBrowse: boolean;
   hasReferences: boolean;
   hasLinks: boolean;
@@ -341,6 +344,11 @@ type StageAbilities = {
  */
 const DEPENDENCY_GUIDANCE = `- add_dependency adds an npm package: npm resolves it in a sandbox and package.json and the lockfile are committed to your branch together. It's the only way to add a package: never edit dependencies in package.json or the lockfile by hand. Add one only when the card needs it, and prefer what the repository already uses.
 - A font the card names is added as a bundled package (e.g. @fontsource/<font>, or @fontsource-variable/<font> when the font has a variable version) and imported in the app's code, so it ships with the build. Never load fonts from a third-party host (a Google Fonts <link> or @import, next/font/google): previews have no internet and visitors shouldn't call a font host. Don't pick a font the card doesn't name.`;
+
+/** The Developer's merge tools (lib/branch-merge.ts): how a merge with conflicts goes, and what to keep. */
+const MERGE_GUIDANCE = (defaultBranch: string) => `- merge_default_branch brings ${defaultBranch}'s latest commits into your branch as a merge commit, so the pull request merges cleanly. Use it when the task says your branch conflicts with ${defaultBranch} or must catch up with it, before anything else; otherwise you don't need it. Without conflicts it commits right away. With conflicts it keeps the merge open and lists the files: read_conflict each one (your lines, the merge base and ${defaultBranch}'s lines between conflict markers), resolve_conflict it with the whole merged file, then finish_merge with outcome "commit".
+- Resolve by keeping both sides' intent: ${defaultBranch}'s changes are merged work, never drop them to keep yours; combine the two where they touch the same lines. Lockfiles take ${defaultBranch}'s version on their own. While a merge is open, writes to the branch are refused. If a conflict can't be resolved sensibly, finish_merge with outcome "abort" and say why in your summary.
+- After the merge, check that your work still fits what ${defaultBranch} changed (renamed functions, moved files) and fix it with the usual write tools.`;
 
 /**
  * The Tester with a browser on a card with images or links: compare the preview with them, at their size, light and
@@ -369,10 +377,10 @@ const STAGE_PROTOCOL: Record<AgentStage, (ctx: RunContext, can: StageAbilities) 
 - If the card can be implemented (make reasonable, stated assumptions for small gaps), decide "ready": the card goes to the Developer. Give acceptance criteria, an ordered plan, the relevant files and notes the developer needs.
 - Only if essential information is missing and no reasonable assumption exists, decide "needs_info" with one specific question for a human.
 - If the task lists earlier questions, treat the answers as requirements and don't ask the same question again.`,
-  development: (ctx, { canRun, canAddDependency }) => `Your job in this stage: implement the card on branch ${ctx.run.branch}, created from ${ctx.workspace.githubDefaultBranch}.
+  development: (ctx, { canRun, canAddDependency, canMerge }) => `Your job in this stage: implement the card on branch ${ctx.run.branch}, created from ${ctx.workspace.githubDefaultBranch}.
 - write_file, replace_in_file and delete_file each commit to that branch. You can't touch any other branch.
 - Read the code before changing it and follow the repository's conventions. Keep the change focused on the acceptance criteria.
-${canAddDependency ? `${DEPENDENCY_GUIDANCE}\n` : ""}${
+${canMerge ? `${MERGE_GUIDANCE(ctx.workspace.githubDefaultBranch)}\n` : ""}${canAddDependency ? `${DEPENDENCY_GUIDANCE}\n` : ""}${
   canRun
     ? "- run_tests, run_build and run_command run your branch's latest commit in a sandbox (dependencies are installed first; no network). After your changes, run the tests and the build and fix what you broke. If something still fails and isn't yours to fix, say so in your summary."
     : "- You can't run code or tests here, so read your changes back to check them."
@@ -591,14 +599,34 @@ async function reviewsBlock(ctx: RunContext) {
   return `\n\n${parts.join("\n\n")}`;
 }
 
-/** A rerun continues an earlier run's branch and pull request: say so, so the developer builds on that work. */
-async function rerunBlock(ctx: RunContext) {
+/**
+ * A run that continues an open pull request (a rerun of its card, or the run of the follow-up card the Tester filed
+ * when it couldn't merge): say whose it is and why it didn't merge, so the developer builds on that work and, for a
+ * conflict, starts with merge_default_branch. First round only; rework rounds have their own feedback.
+ */
+async function continuationBlock(ctx: RunContext, stage: "analysis" | "development") {
   if (ctx.run.reworkRounds > 0) return "";
   const pr = await runPullRequest(ctx.run.id);
   if (!pr) return "";
-  return `
-
-This card was run before. Branch ${pr.headBranch} already has that run's commits and pull request #${pr.number} is open. Read the changes first (they are on the branch), keep what fits the brief above, and fix or finish the rest. Don't start over.`;
+  const [origin] =
+    pr.taskId !== null && pr.taskId !== ctx.task.id
+      ? await db.select({ number: tasks.number, title: tasks.title, description: tasks.description }).from(tasks).where(eq(tasks.id, pr.taskId))
+      : [];
+  // GitHub's view now, in case the conflict came after the last merge attempt (or there was none).
+  const token = await requireToken(ctx.workspace.ownerId);
+  const live = await getPullRequest(token, ctx.workspace.githubRepoFullName, pr.number).catch((error) => {
+    if (error instanceof GithubError && error.status === 401) rethrowGithub(error);
+    return null;
+  });
+  return continuationNote({
+    stage,
+    prNumber: pr.number,
+    branch: pr.headBranch,
+    defaultBranch: ctx.workspace.githubDefaultBranch,
+    origin: origin ? { key: `${taskKeyPrefix(ctx.workspace.name)}-${origin.number}`, title: origin.title, description: origin.description } : null,
+    mergeError: pr.mergeError,
+    conflict: live?.mergeable === false,
+  });
 }
 
 // Older questions rarely matter once the newest are answered, and each one lengthens every prompt of the run.
@@ -651,13 +679,13 @@ async function stageBrief(ctx: RunContext, stage: AgentStage, work: WorkResult |
   const task = taskBlock(ctx) + (await referencesBlock(ctx));
   switch (stage) {
     case "analysis":
-      return task + (await earlierQuestionsBlock(ctx));
+      return task + (await earlierQuestionsBlock(ctx)) + (await continuationBlock(ctx, "analysis"));
     case "development":
       return (
         task +
         (await earlierQuestionsBlock(ctx)) +
         briefBlock(ctx.run.brief) +
-        (await rerunBlock(ctx)) +
+        (await continuationBlock(ctx, "development")) +
         // After a failed CI nobody reviewed the push: the failures are the whole feedback.
         ((await ciFeedbackBlock(ctx)) || feedbackBlock(ctx))
       );
@@ -709,6 +737,8 @@ export async function beginStage(runId: number, stage: AgentStage): Promise<Begi
 
   // Only while the run is still active: a parallel stage may have stopped it since the check above.
   if (!(await markStageRunning(runId, phase))) return { ok: false };
+  // A merge the developer left open in an earlier stage (it would block every write): each stage starts clean.
+  if (stage === "development") await clearPendingMerge(runId);
   if (PHASE_META[phase].agents[0] === key) await placeTask(ctx.workspace.id, ctx.task.id, PHASE_META[phase].column, key);
   const activityId = await startAgentActivity({
     workspaceId: ctx.workspace.id,
@@ -811,6 +841,7 @@ export async function runStageTurn<S extends AgentStage>(input: {
   const references = await getAgentReferences(ctx.task.id);
   const model: AgentModelId = input.state?.model ?? activeAgentModel(row);
   const toolContext: ToolContext = {
+    runId: input.runId,
     token,
     repo: ctx.workspace.githubRepoFullName,
     defaultBranch: ctx.workspace.githubDefaultBranch,
@@ -855,6 +886,7 @@ export async function runStageTurn<S extends AgentStage>(input: {
         {
           canRun: tools.some((tool) => tool.name === "run_command"),
           canAddDependency: tools.some((tool) => tool.name === "add_dependency"),
+          canMerge: tools.some((tool) => tool.name === "merge_default_branch"),
           canBrowse: tools.some((tool) => tool.name === "browse_preview"),
           hasReferences: tools.some((tool) => tool.name === "read_reference"),
           hasLinks: references.some((ref) => ref.kind === "link"),
@@ -1190,10 +1222,11 @@ export async function openPullRequest(runId: number, work: WorkResult): Promise<
 
     const [existing] = await db.select().from(pullRequests).where(and(eq(pullRequests.runId, runId), eq(pullRequests.state, "open")));
     if (existing) {
-      // Rework: new commits are already on the PR's branch. Reset the verdicts for the next approval and test.
+      // Rework (or a run that took the PR over): new commits are on its branch. Reset the verdicts for the next approval
+      // and test; the last merge error is history now (the developer had it in its brief).
       await db
         .update(pullRequests)
-        .set({ reviewStatus: "pending", testStatus: "pending", risk: null, updatedAt: new Date() })
+        .set({ reviewStatus: "pending", testStatus: "pending", risk: null, mergeError: null, updatedAt: new Date() })
         .where(eq(pullRequests.id, existing.id));
       return { ok: true, number: existing.number };
     }
@@ -1399,8 +1432,23 @@ async function testPrechecks(ctx: RunContext, work: WorkResult | null): Promise<
     checks.push({
       name: "Pull request open",
       passed: pr?.state === "open",
-      detail: pr ? `PR #${pr.number} is ${pr.merged ? "merged" : pr.state}${pr.mergeable === false ? " and has merge conflicts" : ""}.` : "No pull request found.",
+      detail: pr ? `PR #${pr.number} is ${pr.merged ? "merged" : pr.state}.` : "No pull request found.",
     });
+    // The Developer can bring the default branch in (merge_default_branch), so a conflict goes back to it now
+    // instead of blocking the merge later.
+    if (pr?.state === "open") {
+      const base = ctx.workspace.githubDefaultBranch;
+      checks.push({
+        name: `Merges cleanly into ${base}`,
+        passed: pr.mergeable !== false,
+        detail:
+          pr.mergeable === false
+            ? `PR #${pr.number} conflicts with ${base}. The Developer brings ${base} in with merge_default_branch and resolves the conflicts.`
+            : pr.mergeable === null
+              ? "GitHub is still checking; the merge checks again."
+              : `No conflicts with ${base}.`,
+      });
+    }
   } catch (error) {
     if (error instanceof GithubError && error.status === 404) {
       checks.push({ name: "Working branch", passed: false, detail: `${branch} was not found.` });

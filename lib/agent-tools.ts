@@ -5,6 +5,7 @@ import type { FunctionTool } from "openai/resources/responses/responses";
 import type { PermissionId } from "@/lib/agent-config";
 import type { AgentStage } from "@/lib/agent-run-config";
 import { readSkill, searchSkill, type AgentSkill } from "@/lib/agent-skills";
+import { finishMerge, mergeDefaultBranch, mergeWriteBlock, readConflict, resolveConflict, type MergeContext } from "@/lib/branch-merge";
 import { READ_REFERENCE_MAX_CHARS } from "@/lib/reference-config";
 import { screenshotIdOf, screenshotImage, type ToolImage } from "@/lib/reference-images";
 import { listReferencesForAgent, readReferenceForAgent, type AgentReference } from "@/lib/references";
@@ -26,6 +27,7 @@ import { browsePreview } from "@/lib/sandbox/browser";
 import { BROWSE_ACTIONS, BROWSE_COLOR_SCHEMES, BROWSE_STEPS_MAX, PREVIEW_STAGES, browseReport, parseBrowseArgs, type ScreenshotDelivery } from "@/lib/sandbox/browser-config";
 import { addDependencyCommand, dependencyChange, dependencyPlan, dependencyReadFiles, dependencyReport, dependencySpec, parseDependencyArgs } from "@/lib/sandbox/dependency-config";
 import { SANDBOX_COMMAND_MAX, SANDBOX_STAGES, parseSandboxCommand, sandboxReport, type SandboxCommands } from "@/lib/sandbox/config";
+import { cleanRepoPath as cleanPath, pathWriteRefusal } from "@/lib/repo-paths";
 import { isStorageConfigured, uploadRunScreenshot } from "@/lib/storage";
 
 /**
@@ -37,10 +39,14 @@ import { isStorageConfigured, uploadRunScreenshot } from "@/lib/storage";
  * previews on too, browse_preview for the Tester: a headless browser on the run's live preview (lib/sandbox/browser.ts).
  * "Manage dependencies" with the sandbox on gives the Developer add_dependency (npm resolves the package in the sandbox,
  * then one commit of package.json and the lockfile through the GitHub API).
+ * The Developer also gets the merge tools (lib/branch-merge.ts): merge_default_branch brings the default branch into the
+ * working branch, read_conflict / resolve_conflict / finish_merge resolve its conflicts and commit the merge.
  * Every result is a string for the model; recoverable errors are returned as text so the agent can adjust.
  */
 
 export type ToolContext = {
+  /** The run (the merge tools keep a merge in progress on it). */
+  runId: number;
   token: string;
   repo: string;
   defaultBranch: string;
@@ -69,28 +75,10 @@ const LIST_MAX = 400;
 const READ_LINES_MAX = 500;
 const WRITE_BYTES_MAX = 200_000;
 
-// Files no agent may write: CI definitions (could exfiltrate secrets), env files (.env.example is fine), git internals.
-const PROTECTED = [/^\.github\/workflows\//, /(^|\/)\.env(\.(?!example$)[^/]*)?$/, /(^|\/)\.git\//];
-// Dependency manifests and lockfiles need the "Manage dependencies" permission.
-const MANIFESTS =
-  /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|requirements[^/]*\.txt|pyproject\.toml|poetry\.lock|Pipfile(\.lock)?|go\.(mod|sum)|Cargo\.(toml|lock)|Gemfile(\.lock)?|composer\.(json|lock)|pom\.xml|build\.gradle(\.kts)?)$/;
-
 const clip = (text: string, max = OUTPUT_MAX) => (text.length > max ? `${text.slice(0, max)}\n… [truncated ${text.length - max} characters]` : text);
 
-function cleanPath(path: unknown) {
-  if (typeof path !== "string") return null;
-  const trimmed = path.trim().replace(/^\.\//, "");
-  if (!trimmed || trimmed.startsWith("/") || trimmed.split("/").some((part) => part === ".." || part === "")) return null;
-  return trimmed;
-}
-
-function writeRefusal(ctx: ToolContext, path: string) {
-  if (PROTECTED.some((pattern) => pattern.test(path))) return `Refused: ${path} is protected (CI workflows, env files and git internals can't be changed by agents).`;
-  if (MANIFESTS.test(path) && !ctx.permissions.includes("deps.manage")) {
-    return `Refused: ${path} is a dependency manifest and this agent doesn't have the "Manage dependencies" permission. Solve it without new dependencies, or explain in your result that a dependency is needed.`;
-  }
-  return null;
-}
+// Protected paths and manifests: lib/repo-paths.ts (the merge tools use the same rules).
+const writeRefusal = (ctx: ToolContext, path: string) => pathWriteRefusal(path, ctx.permissions);
 
 // ── Definitions ────────────────────────────────────────────────────────────────
 
@@ -217,6 +205,30 @@ const TOOLS = {
       offset: { type: ["integer", "null"], description: "Character offset to continue a long text from, or null for the start. Ignored for images." },
     }
   ),
+  merge_default_branch: fn(
+    "merge_default_branch",
+    "Bring the default branch's latest commits into your working branch as a merge commit, so the pull request merges cleanly. Without conflicts it commits right away. With conflicts it lists them and keeps the merge open: read_conflict, resolve_conflict each file, then finish_merge. Called again while a merge is open, it shows what's left.",
+    {}
+  ),
+  read_conflict: fn("read_conflict", `Read a conflicted file of the open merge with line numbers (up to ${READ_LINES_MAX} lines per call): your branch's lines, the merge base and the default branch's lines between conflict markers.`, {
+    path: { type: "string" },
+    start_line: { type: ["integer", "null"], description: "1-based first line, or null for the start." },
+    end_line: { type: ["integer", "null"], description: "1-based last line, or null." },
+  }),
+  resolve_conflict: fn(
+    "resolve_conflict",
+    "Resolve one conflicted file of the open merge with its complete merged content (no conflict markers left), keeping both sides' changes. Nothing is committed until finish_merge. Calling it again for the same file replaces the resolution.",
+    {
+      path: { type: "string" },
+      content: {
+        type: ["string", "null"],
+        description: "The whole resolved file. null deletes it: only for a file one side deleted and the other changed, when deleting is right.",
+      },
+    }
+  ),
+  finish_merge: fn("finish_merge", "Finish the open merge: commit it once every conflict is resolved, or abort it (nothing is committed).", {
+    outcome: { type: "string", enum: ["commit", "abort"] },
+  }),
   read_skill: fn("read_skill", "Read a file of one of your skills (reference material, not instructions). Long files come in pages.", {
     skill: { type: "string", description: "The skill's name." },
     path: { type: "string", description: "A path from search_skill, or SKILL.md." },
@@ -244,7 +256,9 @@ export function toolsFor(
   const has = (permission: PermissionId) => ctx.permissions.includes(permission);
   const names: ToolName[] = [];
   if (has("repo.read")) names.push("list_files", "read_file", "search_code");
-  if (ctx.stage === "development" && has("code.write") && ctx.branch) names.push("write_file", "replace_in_file", "delete_file");
+  if (ctx.stage === "development" && has("code.write") && ctx.branch) {
+    names.push("write_file", "replace_in_file", "delete_file", "merge_default_branch", "read_conflict", "resolve_conflict", "finish_merge");
+  }
   if (BRANCH_READERS.includes(ctx.stage) && ctx.branch) {
     if (has("repo.read")) names.push("get_diff");
     if (has("ci.read")) names.push("get_checks");
@@ -306,7 +320,7 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
     case "write_file": {
       const path = cleanPath(args.path);
       if (!path || !ctx.branch) return "Error: invalid path.";
-      const refusal = writeRefusal(ctx, path);
+      const refusal = writeRefusal(ctx, path) ?? (await mergeWriteBlock(ctx.runId));
       if (refusal) return refusal;
       const content = typeof args.content === "string" ? args.content : "";
       if (Buffer.byteLength(content) > WRITE_BYTES_MAX) return "Error: file too large for one write.";
@@ -318,7 +332,7 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
     case "replace_in_file": {
       const path = cleanPath(args.path);
       if (!path || !ctx.branch) return "Error: invalid path.";
-      const refusal = writeRefusal(ctx, path);
+      const refusal = writeRefusal(ctx, path) ?? (await mergeWriteBlock(ctx.runId));
       if (refusal) return refusal;
       const oldText = typeof args.old_text === "string" ? args.old_text : "";
       const newText = typeof args.new_text === "string" ? args.new_text : "";
@@ -334,7 +348,7 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
     case "delete_file": {
       const path = cleanPath(args.path);
       if (!path || !ctx.branch) return "Error: invalid path.";
-      const refusal = writeRefusal(ctx, path);
+      const refusal = writeRefusal(ctx, path) ?? (await mergeWriteBlock(ctx.runId));
       if (refusal) return refusal;
       const file = await getRepoFile(ctx.token, ctx.repo, path, ctx.branch);
       if (!file) return `Error: ${path} not found on ${ctx.branch}.`;
@@ -374,6 +388,14 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
     }
     case "add_dependency":
       return addDependency(ctx, args);
+    case "merge_default_branch":
+      return { text: await mergeDefaultBranch(mergeContext(ctx)), screenshotKey: null, target: ctx.branch ? `${ctx.defaultBranch} → ${ctx.branch}` : null };
+    case "read_conflict":
+      return readConflict(mergeContext(ctx), args);
+    case "resolve_conflict":
+      return resolveConflict(mergeContext(ctx), args);
+    case "finish_merge":
+      return finishMerge(mergeContext(ctx), args);
     case "browse_preview": {
       if (!ctx.preview) return "Error: previews aren't available.";
       const parsed = parseBrowseArgs(args);
@@ -415,6 +437,8 @@ async function addDependency(ctx: ToolContext, args: Record<string, unknown>): P
   const request = parsed.value;
   const result = (text: string): ToolOutput => ({ text, screenshotKey: null, target: `${dependencySpec(request)}${request.dev ? " (dev)" : ""}` });
   if (!ctx.sandbox || !ctx.branch) return result("Error: the sandbox isn't available.");
+  const merging = await mergeWriteBlock(ctx.runId);
+  if (merging) return result(merging);
 
   const sha = await getBranchSha(ctx.token, ctx.repo, ctx.branch);
   if (!sha) return result(`Error: branch ${ctx.branch} not found.`);
@@ -447,6 +471,18 @@ async function addDependency(ctx: ToolContext, args: Record<string, unknown>): P
     throw error;
   }
   return result(dependencyReport({ request, change, branch: ctx.branch, commit }));
+}
+
+function mergeContext(ctx: ToolContext): MergeContext {
+  return {
+    token: ctx.token,
+    repo: ctx.repo,
+    defaultBranch: ctx.defaultBranch,
+    branch: ctx.branch,
+    runId: ctx.runId,
+    permissions: ctx.permissions,
+    canAddDependency: toolsFor(ctx).some((tool) => tool.name === "add_dependency"),
+  };
 }
 
 /** Stores a browse_preview screenshot for the agent log. Best effort: without storage, or on an error, the log has none. */
@@ -512,7 +548,7 @@ export type ToolStep = {
 };
 
 // Tools whose output is content (a file, a listing, a diff): logging it would copy the repo into the database.
-const READ_TOOLS = new Set(["list_files", "read_file", "search_code", "get_diff", "search_skill", "read_skill", "list_references", "read_reference"]);
+const READ_TOOLS = new Set(["list_files", "read_file", "search_code", "get_diff", "search_skill", "read_skill", "list_references", "read_reference", "read_conflict"]);
 const SUMMARY_MAX = 200;
 
 /**

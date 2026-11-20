@@ -4,10 +4,11 @@ import { eq } from "drizzle-orm";
 
 import { db, tasks, workspaces } from "@/db";
 import { pipelineModelProblem, referenceModelProblem } from "@/lib/agent-pipeline";
-import { createRun, findAutoPickupCandidates, nextPickupTask } from "@/lib/agent-runs";
+import { findAutoPickupCandidates, nextPickupTask } from "@/lib/agent-runs";
 import { checkAgentCanRun, logAgentActivity, taskKeyPrefix } from "@/lib/agents";
 import { inngest } from "@/lib/inngest/client";
 import { AGENT_TASK_RUN, type AgentTaskRunData } from "@/lib/inngest/agent-run";
+import { createCardRun } from "@/lib/pull-requests";
 
 /**
  * Auto pickup (Settings → Agents): every two minutes, the analyst takes the top Todo card that was never run, in
@@ -33,24 +34,25 @@ export const agentAutoPickup = inngest.createFunction(
           pick.taskId = next;
         }
         const [card] = await db
-          .select({ number: tasks.number, title: tasks.title, workspace: workspaces.name })
+          .select({ number: tasks.number, title: tasks.title, workspace: workspaces })
           .from(tasks)
           .innerJoin(workspaces, eq(workspaces.id, tasks.workspaceId))
           .where(eq(tasks.id, pick.taskId));
-        const key = card ? `${taskKeyPrefix(card.workspace)}-${card.number}` : `#${pick.taskId}`;
-        const run = await createRun({ workspaceId: pick.workspaceId, taskId: pick.taskId, trigger: "auto" });
-        started.push({ workspaceId: pick.workspaceId, taskId: pick.taskId, runId: run.id });
+        if (!card) continue;
+        const key = `${taskKeyPrefix(card.workspace.name)}-${card.number}`;
+        // A follow-up card the Tester filed for a pull request that couldn't merge continues on that PR, like Run.
+        const run = await createCardRun(card.workspace, { taskId: pick.taskId, trigger: "auto" });
+        if (!run.ok) continue;
+        started.push({ workspaceId: pick.workspaceId, taskId: pick.taskId, runId: run.runId });
         // Like Run on the board, the activity feed says who took the card; here nobody clicked, so it says why.
-        if (card) {
-          await logAgentActivity({
-            workspaceId: pick.workspaceId,
-            agentId: allowed.row.id,
-            kind: "task_assigned",
-            title: `Picked up ${key}`,
-            detail: `${card.title} (auto pickup)`,
-            taskId: pick.taskId,
-          }).catch((error) => console.error("[pickup] activity not logged", error));
-        }
+        await logAgentActivity({
+          workspaceId: pick.workspaceId,
+          agentId: allowed.row.id,
+          kind: "task_assigned",
+          title: `Picked up ${key}`,
+          detail: `${card.title} (auto pickup)`,
+          taskId: pick.taskId,
+        }).catch((error) => console.error("[pickup] activity not logged", error));
       }
       return started;
     });

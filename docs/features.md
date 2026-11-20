@@ -270,7 +270,11 @@ in Todo and the reason shows above the board.
 
 Running a card again starts over from Analysis. If the card already has an open pull request, the new run continues on
 that branch and PR ("Run again on PR #n" in the menu) instead of opening another; the Developer is told to build on
-the existing commits, and review and tests start over. They sit beside the
+the existing commits, and review and tests start over. The Tester's follow-up card of a pull request that couldn't
+merge ("Fix merge of PR #n") works the same way: running it (or auto pickup) continues on that PR, the brief names the
+original card and the merge error, and for a conflict the Developer first merges the default branch into the PR's
+branch (see [Merging the default branch](#merging-the-default-branch)). The follow-up card carries the run; when the
+PR merges, both cards go to Done. While one card's run works on the PR, Run on the other is refused. They sit beside the
 card's drag area, so using them never starts a drag or opens the dialog.
 
 - **Run** starts the agent pipeline (see [Agent pipeline](#agent-pipeline)): the card moves to **Analysis**, the
@@ -317,7 +321,7 @@ Review, so the board still has six columns:
 | In Development (CI) | — | The **CI gate**: the card waits ("Waiting for CI on PR #n…") until every check on the pushed commit finishes, polling every 30 s for up to 15 minutes. A check the change broke sends the work straight back to the Developer with each failing check's annotations and the end of its job log; nobody reviews a red build. A check that fails on the default branch too doesn't block. No CI in the repository (no workflow in `.github/workflows/` and no check within about a minute): it moves on. Still running at 15 minutes: review starts and the merge waits for CI. |
 | In Review (review) | Reviewer + Security, in parallel | The **Reviewer** reads the diff for correctness and conventions against the acceptance criteria: approve or request changes with file-level findings. Only for what the developer can fix in code: checks that need a browser or device are listed as manual checks and never block. **Security** reads the same diff for leaked secrets, injection, missing auth checks, unsafe permissions and risky dependencies: each finding has a severity (critical, high, medium, low), a category, the file and the fix. Both post on the PR with *Review pull requests*. After rework each gets its earlier findings and checks those. |
 | In Review (approval) | Lead | Reads both reviews and the measured diff (files, changed lines) and decides: **approve** or **request changes** (a list of what must change, with its source). Rates the change's **risk** — low, medium or high — with reasons; the pipeline raises it to a floor it can't talk away (below). Posted on the PR. |
-| Testing | Tester | Verifies statically (no test runner): automated pre-checks (branch exists and has commits, reported files are in the diff, no conflict markers, PR open, the CI gate's result) plus its own review. |
+| Testing | Tester | Verifies statically (no test runner): automated pre-checks (branch exists and has commits, reported files are in the diff, no conflict markers, PR open, merges cleanly into the default branch, the CI gate's result) plus its own review. A PR GitHub reports as conflicting fails and goes back to the Developer. |
 | Done | — | After the merge. |
 
 - A failing CI, the Lead's requested changes or failed verification send the work back to the Developer (same branch
@@ -331,7 +335,8 @@ Review, so the board still has six columns:
   **Merge** button on the Pull Requests page; *Automatic when low risk* merges on its own only when the Lead's final
   risk is low (medium and high wait, and the notification says why); *Automatic* merges whatever the risk. Automatic
   merges happen as soon as GitHub says the PR is mergeable and CI is green (it waits up to 10 minutes for checks). A **conflict or failing build** makes the Tester file a follow-up bug
-  card on top of Todo (and a GitHub issue with *File issues*); the original run ends with the reason.
+  card on top of Todo (and a GitHub issue with *File issues*); the original run ends with the reason. Running that card
+  fixes the same pull request (above).
 - **Task pickup** (Settings → Agents): *Manual* = Run; *Automatic* = every 2 minutes the Analyst takes the top Todo
   card that was never run, one card at a time per workspace.
 - **Max turns** (per agent, AI Team → Configure): model calls allowed per stage. The last turn forces the agent to
@@ -344,6 +349,19 @@ Review, so the board still has six columns:
   package in the sandbox and package.json and the lockfile are committed together (npm repositories only;
   [sandbox.md](sandbox.md#adding-a-package)). A font the card names is added this way (`@fontsource/…`) and imported,
   never linked from a font host; agents don't pick fonts the card doesn't name.
+- **Merging the default branch** <a id="merging-the-default-branch"></a> (*Write code*, Developer, on the run's branch):
+  `merge_default_branch` brings the default branch's latest commits into the branch as a merge commit with two
+  parents, so the PR merges cleanly. GitHub merges it in one call when nothing conflicts. Otherwise files whose changes
+  don't overlap merge automatically, lockfiles take the default branch's version (with *Manage dependencies* and the
+  sandbox, the Developer re-adds its packages with `add_dependency`), and each remaining file is resolved by the
+  Developer: `read_conflict` (the file with `<<<<<<<` your branch / `|||||||` merge base / `=======` / `>>>>>>>`
+  default branch sections), `resolve_conflict` (the whole merged file; leftover markers are refused) and `finish_merge`
+  (commit, or abort). The commit lands only if neither branch moved since the merge started. Refused, with a message the
+  Developer passes on: protected paths, symbolic links and submodules, binary files or files over 200 KB, manifests
+  without *Manage dependencies*, more than 20 conflicting files, and (GitHub's rule) a merge that brings in workflow
+  changes, which TechTeam's GitHub connection may not push: use **Update branch** on the PR. While a merge is open, the
+  write tools are refused. The agent log shows *Merged the default branch*, each file read and resolved, and *Finished
+  the merge* with the outcome line, never file contents.
 - **Skills** (see [Agent skills](#agent-skills)): an agent with skills switched on sees them listed in its prompt and
   gets two read-only tools in every stage, `search_skill` and `read_skill`; always-loaded skills ride in the prompt.
 - **References** (see [Card references](#card-references)): on a card with references every agent gets

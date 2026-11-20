@@ -107,7 +107,16 @@ The pipeline acts on the repository with the workspace owner's token, so its gua
   the model invents them.
 - **Protected paths**: agents can't write `.github/workflows/*` (a workflow could exfiltrate repository secrets),
   `.env*` files (except `.env.example`) or `.git/`. Dependency manifests and lockfiles need *Manage dependencies*.
-  Paths with `..`, empty segments or a leading `/` are rejected.
+  Paths with `..`, empty segments or a leading `/` are rejected. The rules live in `lib/repo-paths.ts` and cover the
+  merge tools too.
+- **Merging the default branch** (`merge_default_branch`, `lib/branch-merge.ts`): the merge commit only moves the
+  run's own branch, fast-forward only (`force: false`), and only if neither head moved since the merge started. A
+  conflict on a protected path, a link or submodule, or a manifest without *Manage dependencies* refuses the whole
+  merge before anything is written; resolutions go through the same path rules and are refused while they still hold
+  conflict markers. Lockfiles always take the default branch's version (never agent-written). File contents are never
+  stored or logged: the open merge (`agent_runs.pending_merge`) keeps commit and blob shas, `read_conflict` recomputes
+  the markers from the blobs, and the agent log keeps paths and outcome lines. No clone, no container: the token never
+  leaves the app.
 - **Adding a package** (`add_dependency`: the Developer with *Write code* and *Manage dependencies*, sandbox on): the
   name and version are validated before anything runs (`lib/sandbox/dependency-config.ts`: npm names only; an exact
   version, one simple range or `latest`; no URLs, git, `file:`, `link:`, aliases or tags) and reach the shell single

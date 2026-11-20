@@ -6,6 +6,7 @@ import type { AnalystBrief, LeadDecision, ReviewReport, RunFailure, SecurityRepo
 import type { SkillScan } from "@/lib/agent-skills-config";
 import type { TrustReport } from "@/lib/agent-trust";
 import type { CiResult } from "@/lib/ci-gate";
+import type { PendingMerge } from "@/lib/merge-config";
 import type { RunPreview, StoredSandboxCommands } from "@/lib/sandbox/config";
 
 export const users = pgTable("users", {
@@ -511,6 +512,9 @@ export const agentRuns = pgTable(
     ci: jsonb("ci").$type<CiResult[]>(),
     // The run's live preview on the sandbox host (Settings → Sandbox → Previews), started after the CI gate.
     preview: jsonb("preview").$type<RunPreview>(),
+    // merge_default_branch waiting for the Developer to resolve conflicts (shas only, never file contents); cleared
+    // when the merge is committed or aborted, and when a development stage starts.
+    pendingMerge: jsonb("pending_merge").$type<PendingMerge>(),
     // Development rounds after the first one (the Lead or the tests sent the work back).
     reworkRounds: integer("rework_rounds").notNull().default(0),
     // Why the run stopped (failed / needs info / merge blocked), in words for the user.
