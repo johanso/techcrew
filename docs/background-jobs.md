@@ -93,8 +93,11 @@ analysis ──ready──▶ development ──▶ PR ──┤                
      The model is pinned on the stage's first turn. **OpenAI**: the conversation lives on OpenAI
      (`previous_response_id`); steps only carry pending tool outputs. **Anthropic** and **OpenRouter** (Chat
      Completions): the conversation is stored in `agent_run_messages` and steps only carry its length, so step output
-     stays small. The last allowed turn (the agent's **max turns**) forces the finish tool (OpenAI) or adds a "finish
-     now" message (Claude 5.5 models and many OpenRouter hosts reject forced tools), so a stage ends with a structured result or "ran out of turns". Each turn's tool calls go
+     stays small. Three turns before the agent's **max turns** a wrap-up note follows the tool results; the last turn
+     forces the finish tool (OpenAI), offers only it (OpenRouter) or adds a "finish now" system message (Claude 5.5
+     models reject forced tools), and asks the Developer to submit unfinished work with what's left. A stage that still
+     ends without a result goes to `<stage>-<round>-out-of-turns` → `settleOutOfTurns` (the Developer's commits and
+     missing reviews continue as unfinished results; otherwise the run stops). Each turn's tool calls go
      to `agent_run_steps` (the card's agent log), and the stage's end too. If the run stopped meanwhile (the parallel
      stage failed), the turn stops too and only this stage's log is closed.
   3. **Out of credit** (OpenAI `insufficient_quota` / billing codes, Anthropic "credit balance too low", OpenRouter

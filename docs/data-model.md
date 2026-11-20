@@ -454,7 +454,7 @@ shows each card's latest run.
 | `trigger` | text | no | | `manual` (Run) or `auto` (auto pickup). |
 | `status` | text | no | | `RUN_STATUSES`: `queued`, `running`, `awaiting_merge`, `completed`, `needs_info`, `failed`, `cancelled`. |
 | `stage` | text | yes | | The current phase, `RUN_STAGES`: `analysis`, `development`, `review` (Reviewer and Security in parallel), `approval` (Lead), `testing`, `merge`. |
-| `branch` | text | yes | | `agent/<key>-<slug>` (suffix `-r<id>` if a previous run left that name). |
+| `branch` | text | yes | | `agent/<key>-<slug>` (suffix `-r<id>` if a previous run left that name; a previous run's branch with commits and no PR is continued instead). |
 | `brief` | jsonb | yes | | `AnalystBrief`: decision, summary, acceptance criteria, plan, relevant files, the references to follow (from v0.7), notes, question. |
 | `review` | jsonb | yes | | `ReviewReport` (Reviewer): verdict, summary, findings. |
 | `security_report` | jsonb | yes | | `SecurityReport` (Security, same round as `review`): verdict `pass`/`issues`, summary, findings with severity (critical…low), category (secrets, injection, permissions, dependencies, other), path, detail. |

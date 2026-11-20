@@ -72,9 +72,13 @@ else a neighboring one.
 How each provider runs a stage (`lib/agent-loop.ts`):
 
 - **OpenAI** — Responses API; conversation kept by OpenAI (`previous_response_id`); last turn forces the finish tool.
+  Server-side compaction past 120K tokens (`context_management`); the Lead at `reasoning.effort: "low"`, stages other
+  than development at `text.verbosity: "low"`. A 400 on one of these optional parameters retries the turn without them.
 - **Anthropic** — Messages API, streamed; conversation stored in `agent_run_messages` (append-only, written at fixed
   positions so a retried Inngest step overwrites itself; thinking blocks are sent back unchanged). Prompt caching on
-  (`cache_control`), `effort: "medium"`, tool schemas converted for strict mode (`toClaudeSchema`). Claude 5.5 models
+  (`cache_control`), `effort: "medium"` (the Lead `"low"`), server-side context editing past 150K input tokens
+  (`clear_tool_uses_20250919`: oldest tool uses, inputs included, in steps of at least 40K tokens; never a client-side
+  edit, which would invalidate 5.5 models' thinking blocks), tool schemas converted for strict mode (`toClaudeSchema`). Claude 5.5 models
   reject forced tool choice, so the last turn adds a "call the finish tool now" system message instead. Opus and
   Sonnet send `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`): if a safety classifier declines, Anthropic
   retries on its recommended model and the cost is priced at the model that answered. A refusal or context overflow
@@ -83,8 +87,10 @@ How each provider runs a stage (`lib/agent-loop.ts`):
   `agent_run_messages` like Claude's, with tool calls and `reasoning_details` sent back unchanged. Routing
   (`OPENROUTER_ROUTING`): `data_collection: "deny"` (no host that keeps or trains on prompts), `require_parameters`
   (only hosts that support tools), no 4-bit quantized hosts. Many hosts reject a forced tool, so the last turn adds a
-  "call the finish tool now" message; strict schemas aren't enforced everywhere, so the finish call is checked
-  (`parseFinishArguments`) and sent back to the model when it's invalid. Cost = `usage.cost` from OpenRouter.
+  "call the finish tool now" message and offers only that tool; strict schemas aren't enforced everywhere, so the finish
+  call is checked (`parseFinishArguments`) and sent back to the model when it's invalid. Cost = `usage.cost` from
+  OpenRouter. Older turns are folded into a digest at send time (`compactChatHistory`, ~100K characters, last two turns
+  kept with their reasoning); `reasoning.effort` only where the model lists it (the Lead: `"low"`).
 - The model is **pinned per stage**: changing it mid-run applies from the next stage.
 
 ## Test plan and status
@@ -169,6 +175,10 @@ How each provider runs a stage (`lib/agent-loop.ts`):
 | 76 | Follow-up card fixes a conflicted PR | Workspace with a sandbox demo repo; a card's PR approved and tested, then a conflicting change pushed to `main` (by hand), **Merge**; then ▶ Run on the Tester's follow-up card ("Fix merge of PR #n") | The merge is blocked and the follow-up card filed as before; its run continues on the PR's branch (no new branch or PR), the analyst's and developer's briefs name the original card and the conflict; the Developer calls `merge_default_branch`, `read_conflict`, `resolve_conflict`, `finish_merge`; the agent log shows those steps with paths only; a two-parent merge commit on the branch; GitHub shows the PR mergeable; CI, reviews, the Lead and the Tester run again; Merge moves **both** cards to Done | ⬜ Not run (spends, writes to GitHub: needs the owner's OK). Adoption choice, brief text and the merge itself are unit-tested (rows 73–75) |
 | 77 | Rerun of a conflicting card, and the Tester's merge pre-check | A card whose open PR conflicts with `main`: ▶ Run again; separately, a run whose PR starts conflicting during review | The rerun's brief says the branch conflicts and to start with `merge_default_branch`; in the other run the Tester's pre-check **Merges cleanly into main** fails and the Developer gets it in a rework round | ⬜ Not run live; the pre-check is code-reviewed only |
 | 78 | Merge refusals | A conflict on `.github/workflows/*`, on `package.json` with a Developer without *Manage dependencies*, on an image; a `main` that changed a workflow (no `workflow` scope) | The tool refuses with a message for the owner and changes nothing; the Developer says so in its summary | 🟡 routing unit-tested (row 74); GitHub's workflow-scope refusal message not seen live (the tool matches "workflow" in GitHub's error) |
+| 79 | Turn limit and fold (no model) | Unit tests: `agent-turns.test.ts` (wrap-up note, last-turn message, `outOfTurnsOutcome` per stage, `continuableBranch`), `agent-context.test.ts` (fold point, digest, kept turns verbatim, prefix stable between folds, run 53's shape resends < ⅓), `agent-request-params.test.ts`, `riskFloor` with unfinished reviews | All pass; on run 53's stored conversation the fold cuts what 40 turns resend from 12.4M to 2.9M characters | ✅ unit tests and a script over the stored rows |
+| 80 | Developer runs out of turns with commits | A big card, Developer with low max turns (e.g. 8), real run | Turn 5's results end with the wrap-up note; the Developer submits `complete: false` with `remaining_work` (or, failing that, the stage ends "Ran out of turns … the Lead decides"); a PR opens with "Not finished yet"; the Lead requests changes with the remaining items; the rework round continues on the same branch | ⬜ needs a live run (spends) |
+| 81 | Rerun continues an unfinished branch | A card whose last run stopped in development with commits and no PR (Stop during development), ▶ Run again | `agent_runs.branch` is the earlier branch, no `-r<run>`; the Developer's brief says it continues run N with its files | ⬜ needs a live run |
+| 82 | Lighter turns per provider | One development stage per provider on a medium card | OpenRouter: requests after the fold carry the `<earlier-turns>` digest, cost per turn stops growing; Claude: `context_management` applied only past 150K tokens; OpenAI: no 400 on `context_management` / `text.verbosity`, compaction item past 120K; activity shows turns and tool calls | ⬜ needs live runs (spends; Anthropic needs credit) |
 | 38 | Skill toggle in the configure dialog | AI Team → Configure → Skills switch | Saves at once; trust rescanned; activity logged; Switch report flagged as older | 🟡 server path ✅ by script; switch not clicked in the browser |
 | 23 | Notifications | Trigger PR ready / needs info / stop / out of credit | Bell count, list newest first, opening marks read, Mark all as read | ✅ in the browser; `run_failed` produced by a real run stop |
 
@@ -211,7 +221,7 @@ pull request, request changes with at least one concrete, reasonable improvement
   row on the next request. Close the test browser before deleting users.
 - `.env` changes need a dev server restart; `AGENTS_SIMULATED=true` hides every provider problem (no key checks).
 - Agent branches are never deleted by the app. Reruns after a closed PR get a `-r<runId>` suffix when the old branch
-  still exists.
+  still exists; a rerun after a run that stopped with commits and no PR continues that run's branch.
 - Verify with `npm run check` (types, ESLint, Vitest) and `npm run build`. Unit tests cover pure logic only.
 - Playwright's screenshots inject `caret-color: transparent` into focused inputs, which shows up as a hydration
   warning in the dev overlay ("1 Issue"). It's the test tool, not the app.

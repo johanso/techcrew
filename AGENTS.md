@@ -253,9 +253,16 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   agent-simulated.ts      AGENTS_SIMULATED=true: scripted stand-in for the model (one real tool call, plus search_skill +
                           read_skill when the agent has skills, then a passing result).
   agent-loop.ts           One model turn with function tools, per provider: OpenAI Responses (previous_response_id, forced
-                          finish tool), Anthropic Messages or OpenRouter Chat Completions (both: history in
-                          agent_run_messages, last-turn message);
-                          modelUnavailableReason(), initialLoopState().
+                          finish tool, server-side compaction), Anthropic Messages (server-side context editing) or
+                          OpenRouter Chat Completions (both: history in agent_run_messages, last-turn message; OpenRouter
+                          folds older turns at send time); modelUnavailableReason(), initialLoopState().
+  agent-context.ts        Pure: compactChatHistory (OpenRouter: older turns folded into a digest once the unfolded turns
+                          pass a threshold, the last two kept verbatim with their reasoning), foldPoint, foldDigest. Tested
+                          on run 53's shape.
+  agent-turns.ts          Pure: the turn limit (turnsLeftNotice, lastTurnMessage), outOfTurnsOutcome (what a stage that
+                          ends without its finish tool becomes), continuableBranch (a rerun continues an unfinished branch).
+  agent-request-params.ts Pure: request knobs per model and stage (MODEL_EFFORTS, STAGE_EFFORT, openAIRequestParams,
+                          claudeEffort, openRouterRequestParams): only parameters a model is known to accept.
   agent-tools.ts          Agent tools on the GitHub API, filtered by stage + permissions; search_skill / read_skill when the
                           agent has skills; list_references / read_reference when the card has references; the
                           Developer's merge tools (branch-merge.ts);
@@ -642,8 +649,28 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     run running only while it's still active (`markStageRunning`), and `runStageTurn` stops when the run isn't
     active any more, so a stop in one stage ends the other at its next turn. `stopRun` takes the stage that stopped;
     a second stop only closes that stage's log and activity (one notification).
-  - Each stage is a tool loop of at most the agent's max turns, **one Inngest step per turn**; the last turn forces the
-    stage's finish tool (strict JSON schema). Step bodies reload state from the DB — never keep state in closures.
+  - Each stage is a tool loop of at most the agent's max turns, **one Inngest step per turn**; the last turn asks for the
+    stage's finish tool (strict JSON schema; OpenAI forces it, OpenRouter offers only it). Step bodies reload state from
+    the DB — never keep state in closures.
+  - **The turn limit never throws work away** (`lib/agent-turns.ts`): three turns before the end the agent gets a
+    wrap-up note after its tool results (`turnsLeftNotice`, stored, append-only); the last-turn message asks the
+    Developer for `complete: false` + `remaining_work` when unfinished. `submit_work` has both fields; an unfinished
+    `WorkResult` goes through PR, CI and reviews like any other, and the Lead sends it back with the remaining items. A
+    stage that still ends without its finish tool goes to `settleOutOfTurns` (`outOfTurnsOutcome`): the Developer's
+    commits continue with a written "ran out of turns" result (none, or a rework round without a new commit: the run
+    stops); a missing Reviewer or Security report becomes a failed check with `incomplete: true` (the Lead looks at the
+    diff itself, and `riskFloor` raises to medium); the Analyst, the Lead and the Tester stop the run. A rerun continues
+    the previous run's branch when that run stopped with commits and no PR (`prepareBranch` → `continuableBranch`,
+    `earlierBranchBlock` in the Developer's brief).
+  - **Context per turn**: every turn resends the conversation, so keep it small without breaking caches or reasoning.
+    OpenRouter: `compactChatHistory` at send time (stored rows stay verbatim; the fold point only moves at thresholds,
+    so the prefix stays cacheable; never drop reasoning from a kept turn: DeepSeek, Kimi and GLM require it back, Gemini
+    its signatures). Claude: never edit earlier turns client-side (5.5 models bind thinking blocks to the history they
+    were made in); server-side context editing (`clear_tool_uses_20250919`, beta `context-management-2025-06-27`) clears
+    in large steps on long stages. OpenAI: Responses `context_management` compaction, server-side, with
+    `previous_response_id`. Request knobs (`reasoning.effort`, `text.verbosity`, Claude's `output_config.effort`) come
+    only from `lib/agent-request-params.ts`, per model: never send OpenRouter a parameter its `/models` doesn't list
+    (`require_parameters` would leave no host); an OpenAI 400 on an optional knob retries the turn without it.
   - **Sandbox** (`lib/sandbox/`, [`docs/sandbox.md`](docs/sandbox.md)): with Settings → Sandbox on and `tests.run`, the
     Developer and the Tester get `run_tests` / `run_build` / `run_command` on the branch's latest commit. The repository
     goes in as a tarball (never a token); install has network, the command never does; one volume per run, removed in

@@ -339,8 +339,13 @@ Review, so the board still has six columns:
   fixes the same pull request (above).
 - **Task pickup** (Settings → Agents): *Manual* = Run; *Automatic* = every 2 minutes the Analyst takes the top Todo
   card that was never run, one card at a time per workspace.
-- **Max turns** (per agent, AI Team → Configure): model calls allowed per stage. The last turn forces the agent to
-  submit its result. Pausing an agent or reaching its budget stops the run at its next turn.
+- **Max turns** (per agent, AI Team → Configure): model calls allowed per stage. Three turns before the end the agent
+  is told to wrap up; the last turn asks for its result. A Developer that can't finish submits what's done with what's
+  left: the PR shows it under "Not finished yet" and the Lead sends it back for another round on the same branch. If
+  it still ends without a result but committed work, the pipeline carries on with that work marked unfinished; a
+  Reviewer or Security that runs out of turns becomes a missing check for the Lead (minimum risk medium). The Analyst,
+  the Lead and the Tester running out of turns stop the run. A rerun after a run that stopped with commits and no pull
+  request continues its branch. Pausing an agent or reaching its budget stops the run at its next turn.
 - **Permissions are enforced**: an agent only gets the tools its permissions allow (*Read repository* → list/read/search files,
   plus the branch diff for the Reviewer, Security, Lead and Tester; *Write code* → write/edit/delete on the run's
   branch, Developer only; *Read CI results* → checks). Dependency manifests need

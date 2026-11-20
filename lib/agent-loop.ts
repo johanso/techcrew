@@ -14,8 +14,12 @@ import type { FunctionTool, ResponseInput } from "openai/resources/responses/res
 
 import { agentRunMessages, db } from "@/db";
 import { PROVIDERS, modelInfo, type AgentModelId, type ProviderStatus } from "@/lib/agent-config";
+import { compactChatHistory } from "@/lib/agent-context";
+import { claudeEffort, openAIRequestParams, openRouterRequestParams } from "@/lib/agent-request-params";
+import type { AgentStage } from "@/lib/agent-run-config";
 import { isSimulatedAgents, simulatedTurn } from "@/lib/agent-simulated";
 import { callTool, type ToolContext, type ToolStep } from "@/lib/agent-tools";
+import { lastTurnMessage } from "@/lib/agent-turns";
 import { anthropicClient, messageCostMicros, toClaudeSchema } from "@/lib/anthropic";
 import { openAIClient, responseCostMicros } from "@/lib/openai";
 import { OPENROUTER_ROUTING, completionCostMicros, openRouterClient, parseFinishArguments } from "@/lib/openrouter";
@@ -45,8 +49,13 @@ import {
  * database or in step output.
  *
  * A stage ends when the agent calls its finish tool (structured result). On the last allowed turn the agent is
- * told to finish (OpenAI: the finish tool is forced; Claude 5.5 models and many OpenRouter hosts reject forced
- * tools, so there it's an instruction).
+ * told to finish, with what's left when the work isn't done (lib/agent-turns.ts); OpenAI also forces the finish
+ * tool, OpenRouter offers only it, and Claude 5.5 models reject forced tools, so there it's the instruction alone. A few
+ * turns before the end the agent is told to wrap up (`notice`, after that turn's tool results).
+ *
+ * Context per turn: OpenAI compacts server-side past a threshold; Claude clears old tool uses server-side (context
+ * editing, which keeps its thinking blocks valid); OpenRouter folds older turns into a digest at send time
+ * (lib/agent-context.ts). Request knobs per model and stage: lib/agent-request-params.ts.
  */
 
 export type LoopState = {
@@ -100,9 +109,10 @@ export async function initialLoopState(input: { brief: string; model: AgentModel
 }
 
 const NUDGE = "Continue working with your tools. When you're done, call the finish tool with your result.";
-const lastTurn = (finish: string) => `This is your last turn. Call ${finish} now with your result; do not call any other tool.`;
 
 type TurnInput = {
+  /** The agent stage: some request knobs differ per stage (lib/agent-request-params.ts). */
+  stage: AgentStage;
   /** The workspace's key for the state's provider (lib/ai-keys.ts). */
   apiKey: string | null;
   /** System prompt: the agent's configured instructions plus the stage protocol. */
@@ -112,6 +122,8 @@ type TurnInput = {
   toolContext: ToolContext;
   state: LoopState;
   forceFinish: boolean;
+  /** A note for the agent after this turn's tool results (turns left, lib/agent-turns.ts), or null. Stored with them. */
+  notice: string | null;
   /** Loads an image (a reference of the run's card, a screenshot of this run) as base64 for the request (null when gone). */
   loadImage: ImageLoader;
 };
@@ -127,23 +139,38 @@ export async function agentTurn<T>(input: TurnInput): Promise<TurnOutcome<T>> {
 
 // Agent turns read whole files and reason over them; give them longer than the client's default.
 const OPENAI_TURN_TIMEOUT_MS = 180_000;
+// Server-side compaction (Responses `context_management`, works with previous_response_id): past this many tokens the
+// server compacts the conversation into an opaque item that carries state and reasoning forward. High on purpose: cached
+// input is cheap on OpenAI, so it's a guard for the longest stages, not a step every few turns.
+const OPENAI_COMPACT_THRESHOLD = 120_000;
+// Request parameters that only tune cost; never worth failing a turn over.
+const OPTIONAL_OPENAI_PARAMS = ["context_management", "text", "reasoning"];
 
 async function openAITurn<T>(input: TurnInput, state: Extract<LoopState, { provider: "openai" }>): Promise<TurnOutcome<T>> {
   if (!input.apiKey) throw new NonRetriableError("The OpenAI API key was removed. Add it again in Settings → AI providers.");
   const openai = openAIClient(input.apiKey);
 
   const tools = [...input.tools, input.finish];
-  const response = await openai.responses.create(
-    {
-      model: state.model,
-      instructions: input.instructions,
-      input: await hydrateOpenAIInput(state.pending, memoLoader(input.loadImage)),
-      tools,
-      tool_choice: input.forceFinish ? { type: "function", name: input.finish.name } : "auto",
-      previous_response_id: state.previousResponseId,
-    },
-    { timeout: OPENAI_TURN_TIMEOUT_MS }
-  );
+  // The finish tool is forced on the last turn; the message says how to finish unfinished work (not stored: the stage ends).
+  const pending: ResponseInput = input.forceFinish ? [...state.pending, { role: "user", content: lastTurnMessage(input.finish.name) }] : state.pending;
+  const request = {
+    model: state.model,
+    instructions: input.instructions,
+    input: await hydrateOpenAIInput(pending, memoLoader(input.loadImage)),
+    tools,
+    tool_choice: input.forceFinish ? ({ type: "function", name: input.finish.name } as const) : ("auto" as const),
+    previous_response_id: state.previousResponseId,
+  };
+  const knobs = { context_management: [{ type: "compaction", compact_threshold: OPENAI_COMPACT_THRESHOLD }], ...openAIRequestParams(state.model, input.stage) };
+  let response: OpenAI.Responses.Response;
+  try {
+    response = await openai.responses.create({ ...request, ...knobs }, { timeout: OPENAI_TURN_TIMEOUT_MS });
+  } catch (error) {
+    // The knobs only save tokens: a model that rejects one still gets its turn, without them.
+    if (!(error instanceof OpenAI.BadRequestError && OPTIONAL_OPENAI_PARAMS.some((param) => error.param?.startsWith(param)))) throw error;
+    console.warn(`[agents] ${state.model} rejected ${error.param}; retrying the turn without the optional parameters`);
+    response = await openai.responses.create(request, { timeout: OPENAI_TURN_TIMEOUT_MS });
+  }
   const costMicros = responseCostMicros(state.model, response.usage);
   const next = (pending: ResponseInput): LoopState => ({ ...state, turn: state.turn + 1, previousResponseId: response.id, pending });
 
@@ -153,19 +180,20 @@ async function openAITurn<T>(input: TurnInput, state: Extract<LoopState, { provi
     // Strict schema: the arguments already match the finish tool's shape.
     return { state: next([]), costMicros, steps: [], result: JSON.parse(finish.arguments) as T };
   }
+  const notice: ResponseInput = input.notice ? [{ role: "user", content: input.notice }] : [];
   if (!calls.length) {
     // Text without a tool call: keep the agent moving instead of ending the stage on prose.
-    return { state: next([{ role: "user", content: NUDGE }]), costMicros, steps: [], result: null };
+    return { state: next([{ role: "user", content: NUDGE }, ...notice]), costMicros, steps: [], result: null };
   }
 
-  const pending: ResponseInput = [];
+  const outputs: ResponseInput = [];
   const steps: ToolStep[] = [];
   for (const call of calls) {
     const { output, step, images } = await callTool(input.toolContext, input.tools, call.name, call.arguments);
-    pending.push({ type: "function_call_output", call_id: call.call_id, output: openAIToolOutput(output, images) });
+    outputs.push({ type: "function_call_output", call_id: call.call_id, output: openAIToolOutput(output, images) });
     steps.push(step);
   }
-  return { state: next(pending), costMicros, steps, result: null };
+  return { state: next([...outputs, ...notice]), costMicros, steps, result: null };
 }
 
 // ── Anthropic (Messages API) ───────────────────────────────────────────────────
@@ -176,6 +204,26 @@ const CLAUDE_MAX_TOKENS = 32_000;
 // recommended fallback model server-side instead of failing the stage. Haiku has no server-side fallback.
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 const FALLBACK_MODELS: AgentModelId[] = ["claude-opus-5-5", "claude-sonnet-5-5"];
+
+/**
+ * Server-side context editing: past the trigger, Anthropic clears the oldest tool uses (results and inputs: file
+ * contents, test output, whole files written) and keeps the latest ones. Server-side, so the conversation we send stays
+ * append-only and Claude's thinking blocks stay valid (5.5 models check the history they were made in; a client-side
+ * trim would invalidate them). Each clear restarts the prompt cache from that point, so it clears in large steps
+ * (`clear_at_least`) and only on long stages: it guards the context window more than it saves.
+ */
+const CONTEXT_EDITING_BETA = "context-management-2025-06-27";
+const CLAUDE_CONTEXT_MANAGEMENT = {
+  edits: [
+    {
+      type: "clear_tool_uses_20250919" as const,
+      trigger: { type: "input_tokens" as const, value: 150_000 },
+      keep: { type: "tool_uses" as const, value: 8 },
+      clear_at_least: { type: "input_tokens" as const, value: 40_000 },
+      clear_tool_inputs: true,
+    },
+  ],
+};
 
 function claudeTools(tools: FunctionTool[]): BetaToolUnion[] {
   return tools.map((tool) => ({
@@ -212,7 +260,7 @@ async function claudeTurn<T>(input: TurnInput, state: Extract<LoopState, { provi
 
   const history = await hydrateClaudeMessages(await loadMessages<BetaMessageParam>(state.runId, state.conversation, state.length), memoLoader(input.loadImage));
   // The last-turn instruction rides as a mid-conversation system message: it isn't stored, and the stage ends here.
-  const messages: BetaMessageParam[] = input.forceFinish ? [...history, { role: "system", content: lastTurn(input.finish.name) }] : history;
+  const messages: BetaMessageParam[] = input.forceFinish ? [...history, { role: "system", content: lastTurnMessage(input.finish.name) }] : history;
   const fallback = FALLBACK_MODELS.includes(state.model);
 
   const response = await anthropic.beta.messages
@@ -225,9 +273,10 @@ async function claudeTurn<T>(input: TurnInput, state: Extract<LoopState, { provi
       tool_choice: { type: "auto" },
       // Caches the growing prefix (system, tools, history) so each turn pays full price only for what's new.
       cache_control: { type: "ephemeral" },
-      // Agentic coding and multi-step tool use do well at medium; it's also the 5.5 models' cost-sensible default.
-      output_config: { effort: "medium" },
-      ...(fallback ? { betas: [FALLBACK_BETA], fallbacks: "default" as const } : {}),
+      output_config: { effort: claudeEffort(state.model, input.stage) },
+      context_management: CLAUDE_CONTEXT_MANAGEMENT,
+      betas: fallback ? [CONTEXT_EDITING_BETA, FALLBACK_BETA] : [CONTEXT_EDITING_BETA],
+      ...(fallback ? { fallbacks: "default" as const } : {}),
     })
     .finalMessage();
   const costMicros = messageCostMicros(state.model, response.model, response.usage);
@@ -261,7 +310,10 @@ async function claudeTurn<T>(input: TurnInput, state: Extract<LoopState, { provi
     results.push({ type: "tool_result", tool_use_id: block.id, content: claudeToolResultContent(output, images) });
     steps.push(step);
   }
-  const reply: BetaMessageParam = results.length ? { role: "user", content: results } : { role: "user", content: NUDGE };
+  // The turns-left note goes after the tool results, as a text block in the same message (append-only, cache-safe).
+  const reply: BetaMessageParam = results.length
+    ? { role: "user", content: input.notice ? [...results, { type: "text", text: input.notice }] : results }
+    : { role: "user", content: input.notice ? `${NUDGE}\n\n${input.notice}` : NUDGE };
 
   // Stored verbatim (images as placeholders): thinking and fallback blocks must go back to the API unchanged.
   await saveMessages(state.runId, state.conversation, state.length, [{ role: "assistant", content: response.content }, reply]);
@@ -296,14 +348,19 @@ async function openRouterTurn<T>(input: TurnInput, state: Extract<LoopState, { p
   if (!input.apiKey) throw new NonRetriableError("The OpenRouter API key was removed. Add it again in Settings → AI providers.");
   const client = openRouterClient(input.apiKey);
 
-  const history = await hydrateChatMessages(await loadMessages<ChatCompletionMessageParam>(state.runId, state.conversation, state.length), memoLoader(input.loadImage));
+  // Older turns fold into a digest once they pile up (lib/agent-context.ts); the stored conversation stays verbatim.
+  const stored = await loadMessages<ChatCompletionMessageParam>(state.runId, state.conversation, state.length);
+  const history = await hydrateChatMessages(compactChatHistory(stored).messages, memoLoader(input.loadImage));
   // The last-turn instruction isn't stored: the stage ends here. A user message, since hosts differ on late system ones.
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: input.instructions },
     ...history,
-    ...(input.forceFinish ? [{ role: "user" as const, content: lastTurn(input.finish.name) }] : []),
+    ...(input.forceFinish ? [{ role: "user" as const, content: lastTurnMessage(input.finish.name) }] : []),
   ];
-  const body: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & { provider: typeof OPENROUTER_ROUTING } = {
+  const body: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & {
+    provider: typeof OPENROUTER_ROUTING;
+    reasoning?: { effort: string };
+  } = {
     model: state.model,
     messages,
     // Many hosts reject a forced tool, and models ignore the last-turn message (run 53: DeepSeek edited a file instead),
@@ -312,6 +369,7 @@ async function openRouterTurn<T>(input: TurnInput, state: Extract<LoopState, { p
     tool_choice: "auto",
     max_tokens: OPENROUTER_MAX_TOKENS,
     provider: OPENROUTER_ROUTING,
+    ...openRouterRequestParams(state.model, input.stage),
   };
   let response: OpenAI.Chat.Completions.ChatCompletion;
   try {
@@ -349,10 +407,12 @@ async function openRouterTurn<T>(input: TurnInput, state: Extract<LoopState, { p
     }
     replies.push({ role: "tool", tool_call_id: call.id, content: output });
   }
-  // Tool messages carry text only: this turn's images follow them in one user message.
+  // Tool messages carry text only: this turn's images follow them in one user message, with the turns-left note.
   const imagesMessage = chatImagesMessage(images);
+  if (imagesMessage && input.notice && Array.isArray(imagesMessage.content)) imagesMessage.content.push({ type: "text", text: input.notice });
   if (imagesMessage) replies.push(imagesMessage);
-  if (!replies.length) replies.push({ role: "user", content: NUDGE });
+  else if (input.notice && replies.length) replies.push({ role: "user", content: input.notice });
+  if (!replies.length) replies.push({ role: "user", content: input.notice ? `${NUDGE}\n\n${input.notice}` : NUDGE });
 
   const turnMessages = [assistantReply(choice.message), ...replies];
   await saveMessages(state.runId, state.conversation, state.length, turnMessages);

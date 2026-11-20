@@ -324,6 +324,15 @@ export async function savePreviewStep(runId: number, round: number, step: ToolSt
   await upsertSteps([{ runId, stage: "development", round, turn: last?.turn ?? 1, seq: END_SEQ + 1, model: null, ...step }]);
 }
 
+/** Tool calls an agent stage made in a round (its agent log rows below the end markers). */
+export async function countStageToolCalls(runId: number, stage: AgentStage, round: number) {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(agentRunSteps)
+    .where(and(eq(agentRunSteps.runId, runId), eq(agentRunSteps.stage, stage), eq(agentRunSteps.round, round), sql`${agentRunSteps.seq} < ${END_SEQ}`));
+  return row?.count ?? 0;
+}
+
 /** How a stage ended: its result (ok) or why it stopped, with the stage's model spend. */
 export async function saveStageEnd(runId: number, at: StepPosition, end: { ok: boolean; summary: string; costMicros: number }) {
   await upsertSteps([{ runId, ...at, seq: END_SEQ, tool: end.ok ? "result" : "stopped", target: null, ...end }]);

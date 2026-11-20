@@ -83,6 +83,13 @@ const report = (...severities: SecurityFinding["severity"][]): SecurityReport =>
 });
 
 describe("riskFloor", () => {
+  it("raises to medium when a review never finished (an agent ran out of turns)", () => {
+    const missing = { verdict: "issues" as const, summary: "", findings: [], incomplete: true };
+    expect(riskFloor(missing, null)).toEqual({ risk: "medium", reasons: ["The security review didn't finish."] });
+    expect(riskFloor(null, null, { verdict: "request_changes", summary: "", findings: [], incomplete: true }).risk).toBe("medium");
+    expect(riskFloor(null, null, { verdict: "approve", summary: "", findings: [] }).risk).toBe("low");
+  });
+
   it("is low for a small change with a clean security report", () => {
     expect(riskFloor(report(), { paths: ["src/footer.css"], changedLines: 4 })).toEqual({ risk: "low", reasons: [] });
     expect(riskFloor(report("low"), null).risk).toBe("low");

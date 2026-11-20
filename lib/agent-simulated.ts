@@ -76,6 +76,8 @@ function finishResult(finish: string, ctx: ToolContext): unknown {
         changed_files: [path],
         pull_request_title: "Simulated agent run",
         notes_for_reviewer: "",
+        complete: true,
+        remaining_work: [],
       };
     case "submit_review":
       return { verdict: "approve", summary: "Simulated review: approved without findings.", findings: [] };

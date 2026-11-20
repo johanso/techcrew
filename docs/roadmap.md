@@ -152,8 +152,11 @@ The owner designs and specifies outside TechTeam (a design tool, a document); th
      resolvers; the rules apply once `deploy/setup.sh` runs again on the host).
    - Done: fonts with real bold weights in the browser image (`techteam-browser:1.64.1-3`: Inter for `system-ui`
      stacks; run 52's screenshots showed `system-ui` headings and a 700-weight amount as regular).
-   - A run after one that stopped in development without a PR (out of turns, budget) starts over on a new branch
-     (`…-r<run>`): continuing the earlier branch would keep the work already paid for (run 53: 40 turns, $0.87).
+   - Done in code (not yet seen live): a run after one that stopped in development without a PR (out of turns,
+     budget) continues the earlier branch instead of starting over on `…-r<run>`, and a Developer that runs out of
+     turns with commits goes on to the Lead as unfinished work instead of failing (run 53: 40 turns, $0.87, no PR).
+     Requests per turn are lighter (OpenRouter folds older turns, Claude context editing, OpenAI compaction) and the
+     protocol asks for batched turns.
    - A Docker socket proxy for Caddy; an optional login in front of previews for private apps; a slimmer browser
      image pinned by digest; Draft with AI aware of the browser; git history inside the sandbox (`git diff` fails on a
      tarball checkout).

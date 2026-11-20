@@ -20,6 +20,7 @@ import {
   recordTestReport,
   runStageTurn,
   saveBrief,
+  settleOutOfTurns,
   startCiWait,
   startPreview,
   startRework,
@@ -48,7 +49,8 @@ const MERGE_ATTEMPTS = 20;
 
 /**
  * One agent's stage: open it, then one durable step per model turn until the agent submits its result.
- * The last allowed turn forces the finish tool, so a stage always ends with a result or a stop reason.
+ * The last allowed turn asks for the finish tool; an agent that still doesn't call it is settled by settleOutOfTurns
+ * (the Developer's commits go on unfinished, a missing review becomes a failed check; otherwise the run stops).
  * Step ids start with the stage, so two stages can run in parallel (Promise.all) without colliding.
  */
 async function runStage<S extends keyof StageResult>(
@@ -69,7 +71,7 @@ async function runStage<S extends keyof StageResult>(
     const current: LoopState | null = state;
     // Step output is JSON; every field of these results is plain JSON, so the round trip keeps the type.
     const out = (await step.run(`${id}-turn-${turn}`, () =>
-      runStageTurn({ runId, stage, activityId: begun.activityId, state: current, forceFinish, work, failedOver: restarted })
+      runStageTurn({ runId, stage, activityId: begun.activityId, state: current, forceFinish, work, failedOver: restarted, turn, maxTurns: begun.maxTurns })
     )) as unknown as TurnStepResult<S>;
     if (out.kind === "done") return out.result;
     if (out.kind === "stopped") {
@@ -90,10 +92,10 @@ async function runStage<S extends keyof StageResult>(
     }
     state = out.state;
   }
-  await step.run(`${id}-out-of-turns`, () =>
-    stopRun(runId, `Ran out of turns (${begun.maxTurns}) without a result.`, begun.activityId, "failed", null, stage)
-  );
-  return null;
+  const settled = await step.run(`${id}-out-of-turns`, () => settleOutOfTurns(runId, stage, begun.activityId, begun.maxTurns));
+  // Step output is JSON; the results are plain JSON, so the round trip keeps the type (a step memoized before
+  // settleOutOfTurns existed returns nothing).
+  return (settled ?? null) as StageResult[S] | null;
 }
 
 /**

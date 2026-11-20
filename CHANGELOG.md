@@ -64,7 +64,32 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   Reviews, the Lead and the tests run again; the merge (manual or automatic) moves both cards to Done. Auto pickup does
   the same. Running the original card again while its PR conflicts gets the same brief.
 
+- **A stage no longer loses its work to the turn limit.** Three turns before the end an agent is told to wrap up, and
+  the last-turn message (every provider) asks the Developer to submit what's done with `complete: false` and a precise
+  `remaining_work` list. An unfinished result opens or updates the pull request as usual; the Reviewer, Security and
+  the Lead see what's left (the PR body lists it under "Not finished yet"), and the Lead sends it back for another round
+  on the same branch with a full set of turns. A Developer that still ends its last turn without a result, with commits
+  on the branch, goes on the same way with a result the pipeline writes (files from GitHub's compare, "ran out of
+  turns"); without commits (or a rework round with no new commit) the run stops as before. A Reviewer or Security that
+  runs out of turns becomes a missing check for the Lead, and raises the minimum risk to medium; the Analyst, the Lead
+  and the Tester still stop the run (there's no decision to make up).
+- **A rerun continues an unfinished branch**: when the card's previous run stopped with commits on its branch and no
+  pull request (out of turns, budget, Stop), the next run works on that branch instead of a new `…-r<run>` one, and the
+  Developer's brief lists what's already there.
+- Stage activity shows tool calls next to turns ("12 turns, 31 tool calls"), so batching can be measured.
+
 ### Changed
+- **Lighter requests per turn.** OpenRouter agents fold older turns into a short digest (one line per tool call: what,
+  where, first line of the result) once the turns since the last fold pass ~100K characters, keeping the last two turns
+  verbatim with their reasoning; stored conversations stay verbatim. On run 53's stored conversation this cuts what the
+  40 turns resent by 76% (12.4M → 2.9M characters; two thirds of it was DeepSeek's reasoning, which its hosts require
+  sent back). Claude uses Anthropic's server-side context editing past 150K input tokens (clears old tool uses, keeps
+  thinking blocks valid); OpenAI uses the Responses API's server-side compaction past 120K tokens.
+- **Terser, batched turns**: the stage protocol asks every agent to batch independent tool calls in one turn, with no
+  prose in between; the Developer edits with `replace_in_file` rather than rewriting files, reads line ranges of big
+  files and runs tests after a batch of edits. The Lead runs at low reasoning effort on every model that accepts it;
+  OpenAI agents outside development ask for low verbosity. Parameters go only to models known to accept them
+  (`lib/agent-request-params.ts`): OpenRouter would otherwise find no host (`require_parameters`).
 - The Tester's pre-checks include **Merges cleanly into the default branch**: a pull request GitHub reports as
   conflicting fails the tests and goes back to the Developer (who can now merge), instead of failing later at merge.
 - The follow-up card's description and the "couldn't be merged" notification say that running the card fixes the
