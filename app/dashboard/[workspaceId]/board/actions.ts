@@ -35,7 +35,9 @@ import { AGENT_TASK_CANCEL, AGENT_TASK_RUN, type AgentTaskRunData } from "@/lib/
 import { logCardEdited, logCardRemoved, logCardsMoved, taskSnapshots } from "@/lib/task-events";
 import { adoptPullRequest, getRerunPullRequest, getTaskOpenPullRequest, mergeManually, refreshOpenPullRequests } from "@/lib/pull-requests";
 import { REFERENCE_UPLOAD_MAX_BYTES, formatReferenceBytes, type ReferenceView } from "@/lib/reference-config";
-import { addTaskReference, listTaskReferences, removeTaskReference } from "@/lib/references";
+import { addLinkReference, addTaskReference, listTaskReferences, removeTaskReference } from "@/lib/references";
+import { linkCaptureAvailable } from "@/lib/sandbox/capture";
+import { parseCaptureUrl } from "@/lib/sandbox/capture-config";
 import { isStorageConfigured } from "@/lib/storage";
 import { getOwnedWorkspace } from "@/lib/workspaces";
 
@@ -355,6 +357,31 @@ export async function uploadCardReferenceAction(
   } catch (error) {
     console.error("[board] reference upload failed", error);
     return { ok: false, error: `We couldn't add ${file.name}. Please try again.` };
+  }
+}
+
+/**
+ * Adds a link to a card: the sandbox browser captures the page once, now (desktop and mobile screenshots and an
+ * outline; lib/sandbox/capture.ts), and the capture is the reference. Takes 10–30 s. A failed capture stores nothing.
+ */
+export async function addCardLinkAction(
+  workspaceId: number,
+  cardId: string,
+  rawUrl: unknown
+): Promise<{ ok: true; reference: ReferenceView } | { ok: false; error: string }> {
+  const auth = await authorize(workspaceId);
+  if (!auth) return { ok: false, error: "Workspace not found." };
+  if (!isStorageConfigured()) return { ok: false, error: "File storage isn't set up on this server, so references can't be added." };
+  if (!linkCaptureAvailable()) return { ok: false, error: "Links need a sandbox host to be captured, and this server has none." };
+  const taskId = await boardTaskId(auth, cardId);
+  if (taskId === null) return { ok: false, error: "This card no longer exists." };
+  const url = parseCaptureUrl(rawUrl);
+  if (!url.ok) return url;
+  try {
+    return await addLinkReference({ workspaceId: auth.workspace.id, taskId, userId: auth.user.id, url: url.url });
+  } catch (error) {
+    console.error("[board] link capture failed", error);
+    return { ok: false, error: "We couldn't capture that link. Please try again." };
   }
 }
 

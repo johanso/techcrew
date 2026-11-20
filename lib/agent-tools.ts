@@ -6,7 +6,7 @@ import type { PermissionId } from "@/lib/agent-config";
 import type { AgentStage } from "@/lib/agent-run-config";
 import { readSkill, searchSkill, type AgentSkill } from "@/lib/agent-skills";
 import { READ_REFERENCE_MAX_CHARS } from "@/lib/reference-config";
-import type { ToolImage } from "@/lib/reference-images";
+import { screenshotIdOf, screenshotImage, type ToolImage } from "@/lib/reference-images";
 import { listReferencesForAgent, readReferenceForAgent, type AgentReference } from "@/lib/references";
 import {
   GithubError,
@@ -21,7 +21,7 @@ import {
 } from "@/lib/github";
 import { runRepoCommand } from "@/lib/sandbox";
 import { browsePreview } from "@/lib/sandbox/browser";
-import { BROWSE_ACTIONS, BROWSE_STEPS_MAX, PREVIEW_STAGES, browseReport, parseBrowseArgs } from "@/lib/sandbox/browser-config";
+import { BROWSE_ACTIONS, BROWSE_COLOR_SCHEMES, BROWSE_STEPS_MAX, PREVIEW_STAGES, browseReport, parseBrowseArgs, type ScreenshotDelivery } from "@/lib/sandbox/browser-config";
 import { SANDBOX_COMMAND_MAX, SANDBOX_STAGES, parseSandboxCommand, sandboxReport, type SandboxCommands } from "@/lib/sandbox/config";
 import { isStorageConfigured, uploadRunScreenshot } from "@/lib/storage";
 
@@ -47,8 +47,11 @@ export type ToolContext = {
   skills: AgentSkill[];
   /** The workspace's sandbox when it's switched on and the server has a host (Settings → Sandbox), else null. */
   sandbox: { runId: number; commands: SandboxCommands } | null;
-  /** The run's preview when the sandbox and previews are on (Settings → Sandbox), else null: browse_preview. */
-  preview: { workspaceId: number; runId: number } | null;
+  /**
+   * The run's preview when the sandbox and previews are on (Settings → Sandbox), else null: browse_preview. `vision`:
+   * the stage's model sees images, so each screenshot is also attached for it (as a placeholder, lib/reference-images.ts).
+   */
+  preview: { workspaceId: number; runId: number; vision: boolean } | null;
   /**
    * The card's references (lib/references.ts) and whether the stage's model can see images; null or empty: no
    * reference tools. read_reference returns an image only when `vision` is true.
@@ -151,7 +154,12 @@ const TOOLS = {
       type: "object",
       properties: {
         path: { type: "string", description: 'The path to open first, on the preview, e.g. "/" or "/settings?tab=team". Not a full URL.' },
-        viewport: { type: "string", enum: ["desktop", "mobile"], description: "desktop is 1280×800; mobile is 375×812 with touch." },
+        viewport: {
+          type: "string",
+          enum: ["desktop", "tablet", "mobile"],
+          description: "desktop is 1280×800; tablet is 768×1024 and mobile 375×812, both with touch. Pick the one closest to a reference image's width.",
+        },
+        color_scheme: { type: "string", enum: [...BROWSE_COLOR_SCHEMES], description: "The prefers-color-scheme the page sees: light or dark." },
         steps: {
           type: "array",
           description: `Up to ${BROWSE_STEPS_MAX} steps, run in order after the page loads; an empty list only opens the page. Name each element with exactly one of: role (with name), text or selector.`,
@@ -175,7 +183,7 @@ const TOOLS = {
           },
         },
       },
-      required: ["path", "viewport", "steps"],
+      required: ["path", "viewport", "color_scheme", "steps"],
       additionalProperties: false,
     },
   },
@@ -240,10 +248,11 @@ export function toolsFor(
 const ref = (ctx: ToolContext) => ctx.branch ?? ctx.defaultBranch;
 
 /**
- * What a tool returns: the text for the model, plus a screenshot's storage key for the agent log (browse_preview), an
- * image for the model (read_reference) and the log target when the arguments don't name it (a reference's name).
+ * What a tool returns: the text for the model, plus a screenshot's storage key for the agent log (browse_preview),
+ * images for the model (read_reference, and browse_preview's screenshot for a model that sees) and the log target when
+ * the arguments don't name it (a reference's name).
  */
-type ToolOutput = { text: string; screenshotKey: string | null; image?: ToolImage | null; target?: string | null };
+type ToolOutput = { text: string; screenshotKey: string | null; images?: ToolImage[]; target?: string | null };
 
 async function run(ctx: ToolContext, name: string, args: Record<string, unknown>): Promise<string | ToolOutput> {
   switch (name as ToolName) {
@@ -351,17 +360,24 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
       const browsed = await browsePreview(ctx.preview.runId, parsed.value);
       if (browsed.kind !== "done") return browseReport(parsed.value, browsed);
       const screenshotKey = await saveScreenshot(ctx.preview, browsed.screenshot);
-      return { text: browseReport(parsed.value, { kind: "done", output: browsed.output, screenshotSaved: screenshotKey !== null }), screenshotKey };
+      // The model sees the screenshot only as a placeholder of this run's own file; the agent log keeps the key.
+      const shotId = screenshotKey && ctx.preview.vision ? screenshotIdOf(screenshotKey) : null;
+      const delivery: ScreenshotDelivery = !screenshotKey ? "none" : shotId ? "attached" : ctx.preview.vision ? "saved" : "saved_no_vision";
+      return {
+        text: browseReport(parsed.value, { kind: "done", output: browsed.output, screenshot: delivery }),
+        screenshotKey,
+        images: shotId ? [screenshotImage(shotId)] : [],
+      };
     }
     case "search_skill":
       return searchSkill(ctx.skills, args.skill, args.query);
     case "read_skill":
       return readSkill(ctx.skills, args.skill, args.path, args.offset);
     case "list_references":
-      return listReferencesForAgent(ctx.references?.items ?? [], ctx.references?.vision ?? false);
+      return listReferencesForAgent(ctx.references?.items ?? [], ctx.references?.vision ?? false, Boolean(ctx.preview && PREVIEW_STAGES.includes(ctx.stage)));
     case "read_reference": {
       const read = await readReferenceForAgent(ctx.references?.items ?? [], args.id, args.offset, ctx.references?.vision ?? false);
-      return { text: read.text, screenshotKey: null, image: read.image, target: read.target };
+      return { text: read.text, screenshotKey: null, images: read.images, target: read.target };
     }
     default:
       return `Error: unknown tool ${name}.`;
@@ -403,18 +419,19 @@ async function executeTool(ctx: ToolContext, allowed: FunctionTool[], name: stri
 
 /**
  * Runs one tool call and returns its output for the model with its agent log step (toolStep, plus a screenshot key),
- * and the image to attach when it read an image reference (the provider loop sends it; the log never holds it).
+ * and the images to attach (a reference read, a browser screenshot): the provider loop sends them; the log never
+ * holds them.
  */
 export async function callTool(
   ctx: ToolContext,
   allowed: FunctionTool[],
   name: string,
   rawArgs: string
-): Promise<{ output: string; step: ToolStep; image: ToolImage | null }> {
-  const { text, screenshotKey, image, target } = await executeTool(ctx, allowed, name, rawArgs);
+): Promise<{ output: string; step: ToolStep; images: ToolImage[] }> {
+  const { text, screenshotKey, images, target } = await executeTool(ctx, allowed, name, rawArgs);
   let step = toolStep(name, rawArgs, text);
   if (target) step = { ...step, target };
-  return { output: text, step: screenshotKey ? { ...step, screenshotKey } : step, image: image ?? null };
+  return { output: text, step: screenshotKey ? { ...step, screenshotKey } : step, images: images ?? [] };
 }
 
 /** One tool call, for the card's agent log. */

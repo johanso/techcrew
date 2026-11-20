@@ -1450,6 +1450,33 @@
           "bytes": 8033
         }
       ]
+    },
+    {
+      "slug": "interface-design",
+      "name": "interface-design",
+      "description": "Craft-first interface design for dashboards, admin panels, SaaS apps, tools, settings pages, data interfaces, and interactive products. Use when designing, building, reviewing, auditing, or refining product UI where visual craft, layout hierarchy, tokens, states, visual direction, or design-system consistency matter. Not for marketing pages, landing pages, campaigns, or brand-only work.",
+      "type": "practice",
+      "load": "on_demand",
+      "roles": [
+        "developer",
+        "tester"
+      ],
+      "requires": [],
+      "license": "MIT",
+      "origin": "Dammyjay93/interface-design@2f9be32",
+      "url": "https://github.com/Dammyjay93/interface-design/tree/2f9be3206855bcb2d1d0af262c8bae25cba6658d/.claude/skills/interface-design",
+      "usage": "One file: read SKILL.md with read_skill before you build, restyle or test a page or component. The repository's own design system comes first (its tokens, components and conventions; the skill's \"Use What Exists\" section), and so does a direction the card or its references pin down. Treat a reference image or rough spec as the content, structure and intent, not as pixels to copy: keep what it asks for and fix its flaws (hierarchy, spacing on one scale, type scale, contrast, focus, hit areas, mobile width, dark mode when the app has one, and the loading, empty and error states it leaves out). You can't ask the owner mid-stage, so skip \"Suggest + Ask\": pick the reasonable reading and say what you assumed in your result. Skip the inline render tool, image generation, the slash commands and the offer to save .interface-design/system.md (read that file if the repository has one). Tester: use \"States are not optional\", the hit areas, \"Avoid\" and \"The checks\" as your checklist when you browse the preview, on desktop and on mobile.",
+      "version": "31459a7743bd",
+      "fileCount": 1,
+      "totalBytes": 29614,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "title": "interface-design",
+          "summary": "Craft-first interface design for dashboards, admin panels, SaaS apps, tools, settings pages, data interfaces, and interactive products. Use when designing, building, reviewing, auditing, or refining product UI where visual craft, layout hi…",
+          "bytes": 29614
+        }
+      ]
     }
   ]
 }

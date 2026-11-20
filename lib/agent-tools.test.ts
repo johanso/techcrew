@@ -52,7 +52,7 @@ describe("toolsFor", () => {
 });
 
 describe("browse_preview", () => {
-  const preview = { workspaceId: 1, runId: 9 };
+  const preview = { workspaceId: 1, runId: 9, vision: true };
   const has = (stage: Parameters<typeof toolsFor>[0]["stage"], permissions: Parameters<typeof toolsFor>[0]["permissions"], pv: typeof preview | null = preview, branch: string | null = "agent/acm-1-x") =>
     toolsFor({ stage, permissions, branch, preview: pv }).some((tool) => tool.name === "browse_preview");
 
@@ -70,7 +70,9 @@ describe("browse_preview", () => {
   it("has a strict schema every provider accepts", () => {
     const tool = toolsFor({ stage: "testing", permissions: ["tests.run"], branch: "b", preview }).find((t) => t.name === "browse_preview")!;
     expect(tool.strict).toBe(true);
-    expect(tool.parameters).toMatchObject({ required: ["path", "viewport", "steps"], additionalProperties: false });
+    expect(tool.parameters).toMatchObject({ required: ["path", "viewport", "color_scheme", "steps"], additionalProperties: false });
+    expect(JSON.stringify(tool.parameters)).toContain('"enum":["desktop","tablet","mobile"]');
+    expect(JSON.stringify(tool.parameters)).toContain('"enum":["light","dark"]');
   });
 
   it("logs the path and the report's first line, never the page", () => {

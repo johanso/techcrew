@@ -96,10 +96,13 @@ export function KanbanBoard({
   ai,
   openLogFor,
   referencesEnabled,
+  linksEnabled,
 }: {
   workspaceId: number;
   /** Whether the server has file storage for card references. */
   referencesEnabled: boolean;
+  /** Whether the server can capture links (a sandbox host). */
+  linksEnabled: boolean;
   initial: BoardData;
   repo: string;
   /** The team's provider and which companies have a key, for the out-of-credit notice. */
@@ -648,6 +651,7 @@ export function KanbanBoard({
         references={{
           workspaceId,
           enabled: referencesEnabled,
+          links: linksEnabled,
           onCountChange: (cardId, count) =>
             setCards((prev) => (prev[cardId] && prev[cardId].references !== count ? { ...prev, [cardId]: { ...prev[cardId], references: count } } : prev)),
         }}

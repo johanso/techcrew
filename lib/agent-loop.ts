@@ -40,8 +40,9 @@ import {
  *   agent_run_messages and the state only says how many of its messages are committed, so a retried turn overwrites
  *   its own rows instead of appending.
  *
- * Images an agent reads (read_reference) are kept as placeholders in the state and the stored history, and loaded
- * from private storage for each request (lib/reference-images.ts): no base64 in the database or in step output.
+ * Images an agent gets (read_reference, browse_preview screenshots) are kept as placeholders in the state and the
+ * stored history, and loaded from private storage for each request (lib/reference-images.ts): no base64 in the
+ * database or in step output.
  *
  * A stage ends when the agent calls its finish tool (structured result). On the last allowed turn the agent is
  * told to finish (OpenAI: the finish tool is forced; Claude 5.5 models and many OpenRouter hosts reject forced
@@ -111,7 +112,7 @@ type TurnInput = {
   toolContext: ToolContext;
   state: LoopState;
   forceFinish: boolean;
-  /** Loads a reference image of the run's card as base64 for the request (null when it was removed since). */
+  /** Loads an image (a reference of the run's card, a screenshot of this run) as base64 for the request (null when gone). */
   loadImage: ImageLoader;
 };
 
@@ -160,8 +161,8 @@ async function openAITurn<T>(input: TurnInput, state: Extract<LoopState, { provi
   const pending: ResponseInput = [];
   const steps: ToolStep[] = [];
   for (const call of calls) {
-    const { output, step, image } = await callTool(input.toolContext, input.tools, call.name, call.arguments);
-    pending.push({ type: "function_call_output", call_id: call.call_id, output: openAIToolOutput(output, image) });
+    const { output, step, images } = await callTool(input.toolContext, input.tools, call.name, call.arguments);
+    pending.push({ type: "function_call_output", call_id: call.call_id, output: openAIToolOutput(output, images) });
     steps.push(step);
   }
   return { state: next(pending), costMicros, steps, result: null };
@@ -256,8 +257,8 @@ async function claudeTurn<T>(input: TurnInput, state: Extract<LoopState, { provi
       results.push({ type: "tool_result", tool_use_id: block.id, is_error: true, content: "Your output was cut off before this call was complete. Send it again, in smaller pieces if needed." });
       continue;
     }
-    const { output, step, image } = await callTool(input.toolContext, input.tools, block.name, args);
-    results.push({ type: "tool_result", tool_use_id: block.id, content: claudeToolResultContent(output, image) });
+    const { output, step, images } = await callTool(input.toolContext, input.tools, block.name, args);
+    results.push({ type: "tool_result", tool_use_id: block.id, content: claudeToolResultContent(output, images) });
     steps.push(step);
   }
   const reply: BetaMessageParam = results.length ? { role: "user", content: results } : { role: "user", content: NUDGE };
@@ -341,7 +342,8 @@ async function openRouterTurn<T>(input: TurnInput, state: Extract<LoopState, { p
       const called = await callTool(input.toolContext, input.tools, name, args);
       output = called.output;
       steps.push(called.step);
-      if (called.image) images.push({ ...called.image, name: called.step.target ?? `reference ${called.image.referenceId}` });
+      const label = called.step.tool === "browse_preview" ? `screenshot of ${called.step.target ?? "the preview"}` : (called.step.target ?? "a reference");
+      called.images.forEach((image, i) => images.push({ image, name: called.images.length > 1 ? `${label} (${i === 0 ? "desktop" : "mobile"})` : label }));
     }
     replies.push({ role: "tool", tool_call_id: call.id, content: output });
   }

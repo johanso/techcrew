@@ -119,15 +119,21 @@ The owner designs and specifies outside TechTeam (a design tool, a document); th
    - Models that see images are flagged in `AGENT_MODELS`; Run warns when a card has images and the Developer's model
      can't see them (DeepSeek can't). Image input per provider (OpenAI, Anthropic, OpenRouter), also from tool results.
    - References are the owner's requirements but still data: they can't change the operating protocol or add tools.
+   - Done: files (phase 1) and links (`lib/sandbox/capture.ts`: a checking proxy keeps the browser off private
+     networks; the Tester also counts in the vision check while previews are on).
 2. **The Tester compares with the reference**: screenshots of the preview at the reference's size (375 / 768 / 1280 px,
    light and dark) seen next to it; a clear difference is a test fail and goes back to the Developer. Feeding the
    Tester's own screenshots to its model comes with this (today they only reach the agent log).
+   Done in code (tablet viewport, color scheme, screenshots as image input, the testing protocol); not yet seen live.
 3. **A UI/UX skill**: a built-in design skill (vendored with its license) for the Developer and the Tester, so a rough
    image becomes a good page (spacing, states, accessibility, mobile, dark mode) instead of a copy of its flaws.
+   Done: `interface-design` (Dammyjay93/interface-design, MIT), with a usage note for references and the preview.
 4. **Sandbox polish**
    - Sandbox numbers on the Metrics page; limits per workspace; cleanup of stale containers, previews, images and
      screenshot objects (they stay in S3 today).
    - Still unseen live: the Developer fixing a failure it found, and a preview stopping on merge.
+   - The capture network's private-range rules for the sandbox's install step too: it has network, and the provider's
+     private network (10.x) answered from containers when the capture was tested.
    - A Docker socket proxy for Caddy; an optional login in front of previews for private apps; a slimmer browser
      image pinned by digest; Draft with AI aware of the browser; git history inside the sandbox (`git diff` fails on a
      tarball checkout).

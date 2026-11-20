@@ -9,6 +9,8 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 - [GitHub tokens](#github-tokens)
 - [Agents](#agents)
 - [Agent skills](#agent-skills)
+- [Card references](#card-references)
+- [Link captures](#link-captures)
 - [File uploads](#file-uploads)
 - [Redirects and CSRF](#redirects-and-csrf)
 - [Known gaps](#known-gaps)
@@ -182,6 +184,36 @@ Files the owner attaches to a card for the agents ([features.md](features.md#car
 - **Prompt injection.** References are the owner's requirements, but the operating protocol lists them as data: they
   can't change the protocol, the agent's role or its tools, and read_reference frames their text as reference material.
 
+## Link captures
+
+A link reference is someone else's web page, opened once by the sandbox browser **with internet access**
+([sandbox.md](sandbox.md#link-captures)). The risk is SSRF: a link (or a redirect, an image, a script's request) that
+makes the browser reach something internal: the sandbox host, other containers, the provider's network or a cloud
+metadata service. What protects what:
+
+| Layer | Where | What it stops |
+| --- | --- | --- |
+| Link check | `parseCaptureUrl` (`deploy/browser/net-guard.mjs`), in the board action and again in the runner | Schemes other than http/https, user names and passwords, ports other than 80/443/8080/8443, private address literals in any spelling (`2130706433`, `0x7f.1`, `[::ffff:127.0.0.1]`), internal names (`localhost`, single labels, `.local`, `.internal`, `.lan`, `.home.arpa` …) |
+| App's DNS check | `lib/sandbox/capture.ts` | A name that resolves to a non-public address, before a container starts (fast, clear error) |
+| The runner's proxy | `deploy/browser/capture.mjs` | Every connection Chromium makes, the first page, redirects and subresources alike, goes through a proxy in the container. It resolves the name itself (public resolvers 1.1.1.1 / 8.8.8.8 / 9.9.9.9), refuses when **any** answer is non-public, and connects to the address it checked: a second, different answer (DNS rebinding) is never used. Chromium's implicit loopback bypass is off (`<-loopback>`); QUIC and non-proxied WebRTC UDP are off; WebSockets, media, service workers, downloads and popups are blocked. Caps: 60 MB, 400 connections, 20 s per page. |
+| No DNS of its own | gVisor + Docker | Docker's embedded resolver doesn't answer under gVisor, so the page can't resolve names except through the proxy. |
+| Network | `techteam-capture` (bridge, `172.31.253.0/24`, `enable_icc=false`) | Capture containers can't reach each other; Docker isolates the bridge from the preview and Caddy networks. |
+| Host firewall | `deploy/setup.sh` | ufw refuses anything from a Docker bridge to the host itself (SSH, the public IP, the bridge gateway). DOCKER-USER rules (in ufw's `after.rules`) reject traffic from the capture subnet to 0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.0.0/24, 192.0.2/24, 192.88.99/24, 192.168/16, 198.18/15, 198.51.100/24, 203.0.113/24, multicast and reserved: a second layer if anything slipped past the proxy. |
+| Container | The Tester's browser limits, with 2 CPUs | gVisor, no capabilities, `no-new-privileges`, read-only root, user `pwuser`, 2 CPUs, 1.5 GB, 256 processes, 100 s; no secrets inside (the URL is the only input, as JSON on stdin). |
+
+"Non-public" means: IPv4 0/8, 10/8, 100.64/10 (CGNAT), 127/8, 169.254/16 (link-local, metadata), 172.16/12,
+192.0.0/24, 192.0.2/24, 192.88.99/24, 192.168/16, 198.18/15, 198.51.100/24, 203.0.113/24, 224/4 and above; IPv6
+anything outside 2000::/3 (loopback, IPv4-mapped, NAT64, unique local, link-local, multicast) plus documentation,
+Teredo, 6to4, ORCHID and benchmarking ranges (`isPublicAddress`, tested). Checked on the VPS: links to and redirects
+toward `169.254.169.254`, `10.x`, `127.0.0.1`, the Caddy network and names resolving to them (`*.nip.io`,
+`localtest.me`) were refused, and so were page images pointing there.
+
+What the capture keeps: two JPEG screenshots and an outline (title, headings, landmarks, link and button labels, form
+field labels, main texts, fonts and colors) as plain text, cleaned of control characters and markup and capped at 8,000
+characters (`formatCaptureOutline`). No HTML or scripts. Agents get it framed as third-party content the owner wants
+something similar to: untrusted data, never instructions, and never to copy its logos, brand names, images or texts.
+The source URL is the owner's own; the dialog opens it with `rel="noopener noreferrer"`.
+
 ## File uploads
 
 - Workspace logos: PNG, JPEG, WebP or GIF only, ≤ 1 MB, checked on the client and again on the server. Card references:
@@ -206,6 +238,8 @@ Files the owner attaches to a card for the agents ([features.md](features.md#car
 | Agents can be steered by a malicious issue within their tools (e.g. a harmful code change on their branch). | A bad PR. Nothing merges without review + tests, and auto-merge is off by default. | Keep auto-merge off for repos that accept issues from outsiders; review agent PRs. |
 | An uploaded skill's guidance can be subtly wrong or steer code style without tripping the scan. | Worse code on an agent branch; reviews and the human gate still apply. | Review skills before assigning them; prefer built-ins; keep their findings visible. |
 | The agent log stores tool targets and the first line of tool answers (paths, error messages). | Repository paths and error text are kept in Postgres. File contents never are (reads store no summary). | Nothing needed; keep `toolStep` from summarizing read tools. |
+| A link capture is a real browser on the internet with the sandbox host's IP. | The owner can make the host fetch any public page (and what it loads), up to 60 MB per capture. Nothing internal is reachable (see [Link captures](#link-captures)). | Owner-only action, one capture at a time; per-user limits with the rate limiting below. |
+| The sandbox's install step has network without the capture network's private-range rules. | A repository's install scripts could reach the provider's private network (10.x answered from containers on the VPS). | The same DOCKER-USER rules for the install step's network (roadmap: sandbox polish). |
 | No rate limiting on Server Actions or route handlers. | Brute-force or abuse of create/sync endpoints. | Add per-user limits (e.g. Upstash Ratelimit) on sync, create and run. |
 | Workspaces have no members or roles. | Not a risk today, but anything shared later needs an access model. | Add memberships before any sharing feature. |
 | Disconnecting GitHub doesn't revoke the token on GitHub. | The (encrypted, deleted) token stays valid on GitHub's side until the user revokes it. | Call GitHub's "delete an app token" endpoint on disconnect. |

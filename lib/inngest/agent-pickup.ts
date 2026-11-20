@@ -25,10 +25,10 @@ export const agentAutoPickup = inngest.createFunction(
         if (!allowed.ok) continue;
         // No key for an agent's model (Settings → AI providers): don't start a run that would stop halfway.
         if (await pipelineModelProblem(pick.workspaceId)) continue;
-        // Images on the card and an Analyst or Developer that can't see them: like Run, that card waits for a model
-        // change, and the next card without images goes instead.
+        // Images or links on the card and an agent that must see them but can't: like Run, that card waits for a
+        // model change, and the next card without them goes instead.
         if (await referenceModelProblem(pick.workspaceId, pick.taskId, `#${pick.taskId}`)) {
-          const next = await nextPickupTask(pick.workspaceId, { withoutImages: true });
+          const next = await nextPickupTask(pick.workspaceId, { withoutVisual: true });
           if (next === null) continue;
           pick.taskId = next;
         }

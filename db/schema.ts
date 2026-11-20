@@ -368,9 +368,10 @@ export const taskEvents = pgTable(
 );
 
 /**
- * A file the owner attached to a card for the agents to build from (an image, a Markdown or text file, a PDF). The
- * file and a PDF's extracted text live in private S3 (lib/references.ts); this row only says what and where, so it
- * stays tiny. Deleted with its S3 objects when the card is removed (rows of a deleted workspace cascade).
+ * A file the owner attached to a card for the agents to build from (an image, a Markdown or text file, a PDF), or a
+ * link captured once when it was added (two screenshots and an outline). The files, a PDF's extracted text and a
+ * link's outline live in private S3 (lib/references.ts); this row only says what and where, so it stays tiny. Deleted
+ * with its S3 objects when the card is removed (rows of a deleted workspace cascade).
  */
 export const taskReferences = pgTable(
   "task_references",
@@ -382,7 +383,7 @@ export const taskReferences = pgTable(
     taskId: integer("task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
-    // REFERENCE_KINDS in lib/reference-config.ts: "image" | "text" | "pdf".
+    // REFERENCE_KINDS in lib/reference-config.ts: "image" | "text" | "pdf" | "link".
     kind: text("kind").notNull(),
     // Display name (the uploaded file's name, cleaned).
     name: text("name").notNull(),
@@ -391,13 +392,17 @@ export const taskReferences = pgTable(
     sizeBytes: integer("size_bytes").notNull(),
     // S3 key: card-references/<workspaceId>/<taskId>/<uuid>.<ext>. Never sent to a client.
     storageKey: text("storage_key").notNull(),
-    // PDFs: S3 key of the extracted text (null when the PDF had none), its length and the page count.
+    // PDFs: S3 key of the extracted text (null when the PDF had none), its length and the page count. Links: the
+    // outline's key and length.
     textKey: text("text_key"),
     textLength: integer("text_length"),
     pageCount: integer("page_count"),
-    // Images: pixel size.
+    // Images: pixel size. Links: the desktop screenshot's (storage_key).
     width: integer("width"),
     height: integer("height"),
+    // Links: the address the owner gave (http/https, checked) and the mobile screenshot's S3 key.
+    sourceUrl: text("source_url"),
+    mobileKey: text("mobile_key"),
     createdById: integer("created_by_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },

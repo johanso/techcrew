@@ -286,8 +286,8 @@ Indexes and constraints:
 
 ## task_references
 
-A file the owner attached to a card for the agents (an image, a Markdown or text file, a PDF): see
-[features.md](features.md#card-references). The file itself, and a PDF's extracted text, live in the private S3
+A file the owner attached to a card for the agents (an image, a Markdown or text file, a PDF), or a link captured once
+when it was added (two screenshots and an outline): see [features.md](features.md#card-references). The file itself, and a PDF's extracted text, live in the private S3
 bucket under `card-references/<workspace_id>/<task_id>/<uuid>.<ext>`; the row only says what and where, so it stays a
 few hundred bytes. Limits (10 per card, sizes per kind) are in [`lib/reference-config.ts`](../lib/reference-config.ts).
 
@@ -296,15 +296,17 @@ few hundred bytes. Limits (10 per card, sizes per kind) are in [`lib/reference-c
 | `id` | serial | no | | Primary key. The id agents use in `read_reference`. |
 | `workspace_id` | integer | no | | → `workspaces.id`, cascade. |
 | `task_id` | integer | no | | → `tasks.id`, cascade. Indexed. |
-| `kind` | text | no | | `image` \| `text` \| `pdf`. |
-| `name` | text | no | | The uploaded file's name, without a path or control characters, ≤ 120 characters. |
-| `content_type` | text | no | | Detected from the bytes: `image/png`, `image/jpeg`, `image/webp`, `text/markdown`, `text/plain` or `application/pdf`. |
+| `kind` | text | no | | `image` \| `text` \| `pdf` \| `link`. |
+| `name` | text | no | | The uploaded file's name, without a path or control characters, ≤ 120 characters. Links: the page's title, else its host and path. |
+| `content_type` | text | no | | Detected from the bytes: `image/png`, `image/jpeg`, `image/webp`, `text/markdown`, `text/plain` or `application/pdf`. Links: `image/jpeg` (the screenshots). |
 | `size_bytes` | integer | no | | |
-| `storage_key` | text | no | | S3 key of the file. Never sent to a client. |
-| `text_key` | text | yes | | PDFs: S3 key of the extracted text; null when the PDF had none (a scan). |
-| `text_length` | integer | yes | | PDFs: characters of extracted text (0 = none). |
+| `storage_key` | text | no | | S3 key of the file (links: the desktop screenshot). Never sent to a client. |
+| `text_key` | text | yes | | PDFs: S3 key of the extracted text; null when the PDF had none (a scan). Links: the outline. |
+| `text_length` | integer | yes | | PDFs: characters of extracted text (0 = none). Links: the outline's. |
 | `page_count` | integer | yes | | PDFs: pages in the document. |
-| `width`, `height` | integer | yes | | Images: pixel size, read from the file's header. |
+| `width`, `height` | integer | yes | | Images: pixel size, read from the file's header. Links: the desktop screenshot's. |
+| `source_url` | text | yes | | Links: the address the owner gave (checked: http/https, public). Migration 0014. |
+| `mobile_key` | text | yes | | Links: S3 key of the mobile screenshot. Never sent to a client. Migration 0014. |
 | `created_by_id` | integer | yes | | → `users.id`, set null. |
 | `created_at` | timestamp | no | `now()` | |
 

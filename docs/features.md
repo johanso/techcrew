@@ -190,7 +190,7 @@ Code: `components/board/*`, `lib/board.ts`, `lib/board-config.ts`, `app/dashboar
 ## Card references
 
 Files the owner attaches to a card so the agents build from them: a design exported from a design tool, a spec, a
-document. They're in the **References** section of the card dialog, for every saved card (GitHub cards too: references
+document, or a link to a page they want something similar to. They're in the **References** section of the card dialog, for every saved card (GitHub cards too: references
 belong to the board, not to the issue). A new card says "Save the card to add references."
 
 - **Add files** takes several at once: PNG, JPEG or WebP images (up to 5 MB and 8000 × 8000 px), Markdown or text
@@ -201,24 +201,42 @@ belong to the board, not to the issue). A new card says "Save the card to add re
   ("1280 × 800 · 240 KB", "12 pages · 2 MB", "no text found" for a scanned PDF). The trash button asks **Remove** /
   **Keep** in place before deleting.
 - The board card shows a paperclip and the count.
+- **Add a link** (under the files): paste an http(s) address and press **Add link** or Enter. The sandbox browser
+  captures the page once, now: a desktop (1280 px) and a mobile (375 px) screenshot, full page up to 2,400 px, plus a
+  short outline (title, headings, landmarks, navigation and button labels, main texts, fonts and colors). A row with a
+  spinner says "Capturing example.com…" (10–30 s). The reference shows the desktop thumbnail, the page's title (opens
+  the screenshot), the domain (opens the original page in a new tab) and **Mobile** (the mobile screenshot). Private
+  or internal addresses, names that don't resolve, slow pages and HTTP errors are refused with the reason, and nothing
+  is stored. Without a sandbox host the input is disabled and says why. Links count toward the 10.
 - **PDFs** are read once, at upload: the text of up to 100 pages (300,000 characters) is kept for the agents. A scanned
   PDF has no text; the agents are told so.
 - **Removing the card** deletes its references, files included. Without file storage on the server (`S3_*`), the
   section says references can't be added.
 
 **What the agents do with them.** Every agent gets `list_references` and `read_reference` on a card with references,
-like skills: Markdown, text and PDF text come back as text (in pages), images as the image itself. The task lists the
+like skills: Markdown, text and PDF text come back as text (in pages), images as the image itself, a link as its
+outline plus both screenshots. A link is framed as a third-party page the owner wants something similar to: untrusted
+content, structure and style only, never its logos, brand names, images or texts. The task lists the
 references by name; the Analyst names in its brief the ones the Developer must follow and what each is for; the
 Developer reads and follows them (the card's text wins where they disagree, and it says so); the Reviewer, the Lead and
 the Tester read them to check the work. References are the owner's requirements but still data: nothing in them can
 change the agents' rules or tools.
 
-**Models that can't see images.** Run is refused when the card has images and the **Analyst** or the **Developer** uses a
-model without vision (DeepSeek V4 Pro, GLM 5.3), with a link to the AI Team page; auto pickup leaves such a card in Todo
-and takes the next card without images. Models are never switched for you. Another agent on such a model that reads an image gets a note instead.
+**The Tester compares.** With previews on, the Tester browses each changed page at the reference's size (the
+`browse_preview` viewport closest to the image's width: desktop 1280, tablet 768, mobile 375; a link has desktop and
+mobile), in light and dark, looks at its screenshots next to the reference, and fails the card with the specific
+differences when the preview clearly doesn't match what the brief says to follow; the Developer gets them in a rework
+round like any test fail.
+
+**Models that can't see images.** Run is refused when the card has images or links and the **Analyst** or the
+**Developer** uses a model without vision (DeepSeek V4 Pro, GLM 5.3), or the **Tester** does while the workspace has
+previews on, with a link to the AI Team page; auto pickup leaves such a card in Todo and takes the next card without
+images or links. Models are never switched for you. Another agent on such a model that reads an image gets a note
+instead (a link: its outline only).
 
 Code: `components/board/card-references.tsx`, `lib/references.ts`, `lib/reference-config.ts`, `lib/reference-images.ts`,
-`lib/reference-pdf.ts`, `app/api/workspaces/[id]/references/[referenceId]/route.ts`.
+`lib/reference-pdf.ts`, `lib/sandbox/capture.ts` (+ `capture-config.ts`, `deploy/browser/capture.mjs`),
+`app/api/workspaces/[id]/references/[referenceId]/route.ts`.
 
 ## GitHub issues on the board
 
@@ -406,6 +424,12 @@ never executed. Not to be confused with **permissions**, which decide what an ag
   `chrome-extensions` (Manifest V3; off for everyone, for extension projects). Both Apache-2.0, pinned to a commit.
   Upstream tells agents to run `npx modern-web-guidance search/retrieve`; TechTeam agents can't run commands, so
   their prompt maps that to `search_skill` / `read_skill` instead (`usage` in `agent-skills/sources.json`).
+- **Built-in design skill (v0.7)**: `interface-design` (Dammyjay93/interface-design, MIT; one on-demand practice file
+  on visual hierarchy, spacing and type scales, tokens, states, hit areas, dark mode and "use what exists"; on for the
+  Developer and the Tester by default). Its usage note puts the repository's design system and the card's references
+  first, treats a rough image or spec as content and intent rather than pixels to copy (fix its spacing, contrast,
+  missing loading/empty/error states, mobile and dark mode), skips upstream's ask-the-user, render-tool and
+  save-`system.md` steps, and gives the Tester its states and checks as a checklist for the preview.
 - **How agents use them**: the system prompt lists the agent's enabled skills (name, type, load, description), framed
   as reference material that never overrides the operating protocol, and includes the body of always-loaded ones.
   `search_skill(skill, query)` ranks a skill's files by title, path and summary; `read_skill(skill, path, offset)`

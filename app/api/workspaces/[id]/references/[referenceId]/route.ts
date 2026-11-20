@@ -18,7 +18,8 @@ const SERVED_TYPES: Record<string, string> = {
 
 /**
  * Streams a card reference from private storage to the workspace owner: images and text inline (thumbnails, a quick
- * look), PDFs and `?download=1` as an attachment. Uploaded content is served sandboxed and never sniffed.
+ * look), PDFs and `?download=1` as an attachment. A link serves its desktop screenshot, or the mobile one with
+ * `?view=mobile`. Uploaded and captured content is served sandboxed and never sniffed.
  */
 export async function GET(request: NextRequest, ctx: RouteContext<"/api/workspaces/[id]/references/[referenceId]">) {
   const user = await getCurrentUser();
@@ -32,7 +33,10 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/workspac
   const file = await getOwnedReferenceFile(user.id, workspaceId, referenceId);
   if (!file) return new NextResponse(null, { status: 404 });
 
-  const object = await readObject(file.storageKey).catch((error) => {
+  const mobile = request.nextUrl.searchParams.get("view") === "mobile";
+  const key = mobile ? (file.kind === "link" ? file.mobileKey : null) : file.storageKey;
+  if (!key) return new NextResponse(null, { status: 404 });
+  const object = await readObject(key).catch((error) => {
     console.error("[storage] reference read failed", error);
     return null;
   });
@@ -41,11 +45,12 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/workspac
   const type = SERVED_TYPES[file.contentType] ?? "application/octet-stream";
   const download = request.nextUrl.searchParams.has("download") || type === "application/pdf" || type === "application/octet-stream";
   // RFC 6266: an ASCII fallback plus the UTF-8 name.
-  const asciiName = file.name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  const name = file.kind === "link" ? `${file.name} (${mobile ? "mobile" : "desktop"}).jpg` : file.name;
+  const asciiName = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
   return new NextResponse(Buffer.from(object.bytes), {
     headers: {
       "content-type": type,
-      "content-disposition": `${download ? "attachment" : "inline"}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+      "content-disposition": `${download ? "attachment" : "inline"}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(name)}`,
       "cache-control": "private, max-age=3600",
       "x-content-type-options": "nosniff",
       "content-security-policy": "default-src 'none'; sandbox",

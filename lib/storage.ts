@@ -56,8 +56,14 @@ export async function uploadWorkspaceLogo(ownerId: number, file: File) {
  * A browse_preview screenshot (the Tester's browser), under its workspace and run. Served only to the workspace owner
  * (app/api/runs/[runId]/steps/[stepId]/screenshot). The caller checked that the bytes are a PNG.
  */
+/**
+ * A run's screenshot key: run-screenshots/<workspaceId>/<runId>/<uuid>.png. Built from the run's own ids, so an id
+ * from a conversation (a screenshot placeholder, lib/reference-images.ts) can only name a file of that run.
+ */
+export const runScreenshotKey = (workspaceId: number, runId: number, id: string) => `run-screenshots/${workspaceId}/${runId}/${id}.png`;
+
 export async function uploadRunScreenshot(workspaceId: number, runId: number, png: Uint8Array) {
-  const key = `run-screenshots/${workspaceId}/${runId}/${randomUUID()}.png`;
+  const key = runScreenshotKey(workspaceId, runId, randomUUID());
   await s3().send(
     new PutObjectCommand({
       Bucket: process.env.S3_BUCKET,

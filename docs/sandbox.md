@@ -116,13 +116,15 @@ With previews on, the Tester (`testing` stage, `tests.run`) gets `browse_preview
 parts in `browser-config.ts`). One call = one throwaway browser container:
 
 ```
-browse_preview { path, viewport: desktop | mobile, steps: [click | fill | press | wait_for | goto …] }
+browse_preview { path, viewport: desktop | tablet | mobile, color_scheme: light | dark, steps: [click | fill | press | wait_for | goto …] }
   └─ docker network inspect techteam-preview-run-<id>: internal, preview container attached? else "No preview is running"
-  └─ techteam-browser:1.64.1 (Playwright + Chromium), on that network only, --add-host=<container>:<its address>
+  └─ techteam-browser:1.64.1-2 (Playwright + Chromium), on that network only, --add-host=<container>:<its address>
        opens internalUrl + path, runs the steps in order, returns status, console and page errors, failed requests,
        an outline of the page (≤ 6,000 characters) and a PNG screenshot
 ```
 
+- **Viewports**: desktop 1280×800, tablet 768×1024 and mobile 375×812 (both with touch and the meta viewport);
+  `color_scheme` sets `prefers-color-scheme` (Playwright's `colorScheme`), light by default.
 - **Stateless**: every call is a fresh browser; steps run in order and stop at the first that fails. At most 15 steps,
   10 s each, 60 s per call (the container is killed by name after that). Calls are serialized per run.
 - **Arguments are validated** (`parseBrowseArgs`): paths only (no absolute or protocol-relative URLs, no backslashes),
@@ -134,11 +136,49 @@ browse_preview { path, viewport: desktop | mobile, steps: [click | fill | press 
   `--disable-gpu`. The runner aborts requests to other origins, blocks service workers and downloads, closes popups.
 - **No internet**: the preview network is internal; Docker's DNS doesn't answer under gVisor, hence `--add-host`.
 - **What's kept**: the agent gets the text report. The agent log keeps the path and the report's first line ("Opened
-  /x: 200, 2 console errors, …"), which is built from our own data, never page text. The screenshot goes to private
-  S3 (`run-screenshots/<workspace>/<run>/<uuid>.png`, key in `agent_run_steps.screenshot_key`) and shows as a
-  thumbnail in the agent log, served by `/api/runs/<run>/steps/<step>/screenshot` to the workspace owner only.
+  /x on tablet in dark mode: 200, 2 console errors, …"), which is built from our own data, never page text. The
+  screenshot goes to private S3 (`run-screenshots/<workspace>/<run>/<uuid>.png`, key in
+  `agent_run_steps.screenshot_key`) and shows as a thumbnail in the agent log, served by
+  `/api/runs/<run>/steps/<step>/screenshot` to the workspace owner only.
+- **The Tester sees its screenshots** when its model has vision: the tool result carries a placeholder
+  (`techteam-screenshot:<uuid>`), and each model request loads that file as base64 from
+  `run-screenshots/<workspace>/<run>/<uuid>.png`, a key built from the run's own ids (`runScreenshotKey`), so a
+  placeholder can only ever name a screenshot of that run. No base64 in the database or the Inngest state. Without
+  vision the report says the screenshot is only in the agent log. Images in the history are sent again on every turn
+  for Claude and OpenRouter (OpenAI keeps them server-side), so each browse adds to the next turns' input.
+- **Comparing with the references**: on a card with image or link references, the Tester's protocol says to browse
+  each changed page at the viewport closest to the reference's width (`closestViewport`; `list_references` names it),
+  light and dark, and compare; a clear mismatch with what the brief says to follow is a test fail with the specific
+  differences, which goes back to the Developer like any test fail.
 - **The image** is built on the sandbox host from `deploy/browser/` (`SANDBOX_BROWSER_IMAGE` overrides the tag):
-  `docker --context <host> build --pull -t techteam-browser:1.64.1 deploy/browser` from a checkout of this repo.
+  `docker --context <host> build --pull -t techteam-browser:1.64.1-2 deploy/browser` from a checkout of this repo.
+  The tag is Playwright's version plus a revision of the scripts (`-2`: link captures, tablet, color scheme); bump the
+  revision whenever `run.mjs`, `capture.mjs` or `net-guard.mjs` change.
+
+## Link captures
+
+A link reference on a card (References → **Add a link**) is captured once, when it's added, by the same image in its
+`capture` mode (`lib/sandbox/capture.ts`, pure parts in `capture-config.ts`, runner `deploy/browser/capture.mjs`):
+
+```
+addCardLinkAction ─▶ parseCaptureUrl (net-guard.mjs: http/https, no credentials, ports 80/443/8080/8443,
+                     no private address literal or internal name) ─▶ the app resolves the name: every address public?
+                  ─▶ network techteam-capture (bridge, 172.31.253.0/24, icc off; created on first use)
+                  ─▶ techteam-browser:1.64.1-2, the Tester's browser limits with 2 CPUs, on that network
+                       Chromium ─▶ proxy in the container ─▶ resolves with public resolvers, checks every address,
+                                                              connects to the address it checked
+                       desktop 1280 px and mobile 375 px, full page up to 2,400 px, JPEG; outline of the page
+                  ─▶ S3: card-references/<workspace>/<card>/<uuid>.jpg ×2 + .txt (the outline), one task_references row
+```
+
+- **Once.** The capture is the reference: agents read the stored screenshots and outline (`read_reference`) and
+  never browse the internet. A failed capture stores nothing and the dialog shows why (private address, name not
+  found, too slow, HTTP error).
+- **Limits.** 100 s per capture (container included; the page work gets 80 s), 2 CPUs (the sandbox host needs at
+  least two), 20 s per page load, 60 MB downloaded and 400 connections per capture, screenshots ≤ 4 MB each, outline
+  ≤ 8,000 characters. One capture at a time per app process.
+- **What the page can reach**: see [security.md](security.md#link-captures).
+- Without a sandbox host (`SANDBOX_DOCKER_HOST` unset) the link input is disabled with the reason.
 
 ## Setting up a host
 
@@ -155,7 +195,8 @@ browse_preview { path, viewport: desktop | mobile, steps: [click | fill | press 
    domain>`. To try certificates without Let's Encrypt's rate limits first, run the script once with
    `CADDY_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory`, then again without it (Caddy is recreated
    when its CA changes and rejoins the running previews' networks).
-5. The Tester's browser: build `techteam-browser:1.64.1` on the host from `deploy/browser/` (see above).
+5. The sandbox browser (the Tester's browser and link captures): build `techteam-browser:1.64.1-2` on the host from
+   `deploy/browser/` (see above). `deploy/setup.sh` also creates the capture network and its firewall rules.
 
 ## Limits today
 
@@ -165,6 +206,8 @@ browse_preview { path, viewport: desktop | mobile, steps: [click | fill | press 
   limits and gVisor still apply, and nothing secret is inside.
 - **No disk quota per volume** yet; the sweep and the per-run removal keep the host clean.
 - **The browser sees only the preview**: no real devices, email or payments; the Tester names those as manual checks.
+- **Captures see the page as a first-time visitor**: no login, cookie banners included, no video; pages taller than
+  2,400 px are cut.
 - **Screenshots stay in S3** when a run or workspace is deleted (no cleanup yet).
 - **A certificate per preview.** Each preview host gets its own HTTP-01 certificate. Let's Encrypt allows 50 new
   certificates per registered domain per week (without CADDY_ACME_CA, Caddy falls back to ZeroSSL); a wildcard

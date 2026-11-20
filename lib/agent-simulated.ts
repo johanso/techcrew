@@ -13,7 +13,7 @@ import { callTool, type ToolContext, type ToolStep } from "@/lib/agent-tools";
  * An agent with skills switched on also searches its first skill and reads the top match in that first turn, so the
  * skill tools run for free too, and on a card with references it lists them and reads the first one (an image is read
  * from storage like for a model, then dropped: nothing looks at it). With the sandbox on, the Developer (after its commit) and the Tester also run the tests
- * and the build for real, and with previews on the Tester opens the preview's home page in the browser.
+ * and the build for real, and with previews on the Tester opens the preview's home page in the browser (tablet, dark).
  */
 
 export function isSimulatedAgents() {
@@ -131,14 +131,16 @@ async function referenceCalls(input: { toolContext: ToolContext; tools: Function
 
 /**
  * run_tests then run_build, each when the agent has it (lib/sandbox: real containers, no model); then browse_preview
- * on the preview's home page when the agent has it (the Tester with previews on: a real browser).
+ * on the preview's home page, at tablet size in dark mode, when the agent has it (the Tester with previews on: a real
+ * browser; its screenshot is attached like for a model that sees, then dropped).
  */
 async function sandboxCalls(input: { toolContext: ToolContext; tools: FunctionTool[] }): Promise<ToolStep[]> {
   const steps: ToolStep[] = [];
   const calls: [string, string][] = [
     ["run_tests", "{}"],
     ["run_build", "{}"],
-    ["browse_preview", JSON.stringify({ path: "/", viewport: "desktop", steps: [] })],
+    // The newer options (tablet, dark) on purpose: they're the ones the reference comparison uses.
+    ["browse_preview", JSON.stringify({ path: "/", viewport: "tablet", color_scheme: "dark", steps: [] })],
   ];
   for (const [name, args] of calls) {
     if (!input.tools.some((tool) => tool.name === name)) continue;

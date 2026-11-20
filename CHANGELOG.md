@@ -23,10 +23,33 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 - Every model in AI Team → Configure is marked as seeing images or not. **Run** (and auto pickup) refuses a card with
   images when the Analyst's or the Developer's model can't see them (DeepSeek V4 Pro, GLM 5.3), with a link to the AI
   Team page. Models are never switched for you.
+- **Links as references**: paste a public http(s) address under References → **Add a link**. The sandbox browser
+  captures the page once, right then (10–30 s): a desktop (1280 px) and a mobile (375 px) screenshot and a short
+  outline of the page (headings, navigation, buttons, main texts, fonts and colors). The row shows the desktop
+  thumbnail, the domain (opens the original page) and the mobile screenshot. Agents read the capture like any
+  reference, framed as a third-party page to take structure and style from, never its logos, brand names, images or
+  texts; they never browse the internet. Private and internal addresses are refused, including through redirects and
+  the page's own requests (see docs/security.md). Needs a sandbox host; without one the input is disabled.
+- **The Tester compares the preview with the references**: `browse_preview` gets a tablet viewport (768 px) and a
+  light or dark color scheme, and a Tester whose model sees images now gets its own screenshots as image input. On a
+  card with images or links it browses each changed page at the reference's size, light and dark, and fails the card
+  with the specific differences when the preview clearly doesn't match what the brief says to follow.
+- With previews on, Run's vision check also covers the **Tester** for cards with images or links.
+- **Built-in design skill `interface-design`** (Dammyjay93/interface-design, MIT, pinned to `2f9be32`; one on-demand
+  practice file), on for the Developer and the Tester in every workspace, new and existing (one you switch off stays
+  off). Visual hierarchy, spacing and type scales, tokens, interactive and data states, hit areas and dark mode, using
+  the project's own design system first. Its usage note tells agents to treat a rough image or spec as content and
+  intent, not pixels to copy, and gives the Tester its checks for the preview.
+
+### Changed
+- The sandbox browser image is now `techteam-browser:1.64.1-2` (link captures, tablet, color scheme): rebuild it on
+  the sandbox host (docs/sandbox.md). `deploy/setup.sh` creates the link-capture network and adds firewall rules that
+  keep it off private ranges: run it again on the host.
 
 ### Database
 - Migration `0013_card_references`: `task_references` (one small row per reference: kind, name, type, size, S3 keys,
   PDF pages and text length, image size; files and PDF text live in S3; additive).
+- Migration `0014_card_reference_links`: `task_references.source_url` and `mobile_key` for link references (additive).
 
 ## [0.5.0] — 2026-11-19
 

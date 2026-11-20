@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, isNull, max, min, ne, notExists, sql } fro
 
 import { agentRunSteps, agentRuns, db, pullRequests, taskReferences, tasks, workspaces, type AgentRunRow } from "@/db";
 import type { AgentKey, AgentModelId } from "@/lib/agent-config";
+import { VISUAL_REFERENCE_KINDS } from "@/lib/reference-config";
 import {
   ACTIVE_RUN_STATUSES,
   STAGE_META,
@@ -251,15 +252,15 @@ export async function findAutoPickupCandidates() {
 }
 
 /**
- * The top Todo card of a workspace that was never run, or null. `withoutImages` skips cards with image references (the
- * Analyst or the Developer can't see them), so such a card doesn't hold up the rest of the column.
+ * The top Todo card of a workspace that was never run, or null. `withoutVisual` skips cards with image or link
+ * references (an agent that must see them can't), so such a card doesn't hold up the rest of the column.
  */
-export async function nextPickupTask(workspaceId: number, { withoutImages = false } = {}) {
+export async function nextPickupTask(workspaceId: number, { withoutVisual = false } = {}) {
   const neverRun = db.select({ id: agentRuns.id }).from(agentRuns).where(eq(agentRuns.taskId, tasks.id));
-  const images = db
+  const visual = db
     .select({ id: taskReferences.id })
     .from(taskReferences)
-    .where(and(eq(taskReferences.taskId, tasks.id), eq(taskReferences.kind, "image")));
+    .where(and(eq(taskReferences.taskId, tasks.id), inArray(taskReferences.kind, [...VISUAL_REFERENCE_KINDS])));
   const [task] = await db
     .select({ id: tasks.id })
     .from(tasks)
@@ -269,7 +270,7 @@ export async function nextPickupTask(workspaceId: number, { withoutImages = fals
         eq(tasks.status, "todo"),
         isNull(tasks.removedAt),
         notExists(neverRun),
-        withoutImages ? notExists(images) : undefined
+        withoutVisual ? notExists(visual) : undefined
       )
     )
     .orderBy(tasks.position, tasks.id)

@@ -23,9 +23,11 @@ import { sandboxHost } from "@/lib/sandbox/docker";
  * read-only root, CPU, memory, process and time limits.
  */
 
-const image = () => process.env.SANDBOX_BROWSER_IMAGE?.trim() || BROWSER_IMAGE;
+export const browserImage = () => process.env.SANDBOX_BROWSER_IMAGE?.trim() || BROWSER_IMAGE;
+const image = browserImage;
 
-const LIMITS = [
+/** Every browser container's limits (browse_preview and link captures, lib/sandbox/capture.ts). */
+export const BROWSER_LIMITS = [
   "--runtime=runsc",
   "--cpus=1",
   "--memory=1536m",
@@ -48,13 +50,13 @@ const STDERR_KEEP = 4_000;
 const KILL_GRACE_MS = 15_000;
 const INSPECT_TIMEOUT_MS = 30_000;
 
-type CliResult = { code: number | null; stdout: string; stderr: string; timedOut: boolean };
+export type CliResult = { code: number | null; stdout: string; stderr: string; timedOut: boolean };
 
 /**
  * The docker CLI at SANDBOX_DOCKER_HOST, with stdout kept apart from stderr and a larger output cap than
  * docker.ts's helper (the screenshot travels on stdout). Same environment rule: only PATH, HOME and DOCKER_HOST.
  */
-function dockerCli(args: string[], options: { input?: string; timeoutMs: number; name?: string }): Promise<CliResult> {
+export function dockerCli(args: string[], options: { input?: string; timeoutMs: number; name?: string }): Promise<CliResult> {
   const host = sandboxHost();
   if (!host) return Promise.reject(new Error("No sandbox host: set SANDBOX_DOCKER_HOST."));
   return new Promise((resolve, reject) => {
@@ -157,7 +159,7 @@ export function browsePreview(runId: number, request: BrowseRequest): Promise<Br
         "--rm",
         "-i",
         `--name=${name}`,
-        ...LIMITS,
+        ...BROWSER_LIMITS,
         `--network=${target.network}`,
         // Docker's DNS doesn't answer under gVisor: give the browser the preview's address, and nothing else.
         `--add-host=${target.container}:${address}`,

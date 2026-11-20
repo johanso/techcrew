@@ -38,8 +38,11 @@ export type CardDialogMode =
 /** Resolves with an error message to show in the dialog, or nothing on success (the dialog closes). */
 export type CardDialogSubmit = (input: BoardCardInput) => Promise<string | void>;
 
-/** The References section's needs: the workspace, whether storage is set up, and where a card's new count goes. */
-export type CardDialogReferences = { workspaceId: number; enabled: boolean; onCountChange: (cardId: string, count: number) => void };
+/**
+ * The References section's needs: the workspace, whether storage is set up, whether links can be captured (a sandbox
+ * host), and where a card's new count goes.
+ */
+export type CardDialogReferences = { workspaceId: number; enabled: boolean; links: boolean; onCountChange: (cardId: string, count: number) => void };
 
 export function CardDialog({
   open,
@@ -299,6 +302,7 @@ function CardForm({ mode, onSubmit, references }: { mode: CardDialogMode; onSubm
           workspaceId={references.workspaceId}
           cardId={card?.id ?? null}
           enabled={references.enabled}
+          links={references.links}
           expected={card?.references ?? 0}
           onCountChange={card ? (count) => references.onCountChange(card.id, count) : undefined}
         />

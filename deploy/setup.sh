@@ -138,6 +138,36 @@ if [ "$(docker inspect -f '{{index .Config.Labels "techteam.caddy-config"}}' "$C
   done
 fi
 
+# Link references are captured by the sandbox browser with internet access (lib/sandbox/capture.ts), on their own
+# bridge network: containers there can't talk to each other (icc off), and the runner's proxy connects only to public
+# addresses (deploy/browser/net-guard.mjs). These rules are the second layer: whatever the browser does, traffic from
+# that subnet to private, loopback, link-local (cloud metadata), CGNAT, multicast and reserved ranges is refused in
+# DOCKER-USER, the chain Docker leaves to us (ufw's own rules never see containers' forwarded traffic). They live in
+# ufw's after.rules, so every `ufw reload` and boot puts them back; Docker keeps the chain's contents when it starts.
+# The ufw rule above already refuses traffic from any bridge to the host itself. The bridge has no IPv6.
+step "Capture network (link references)"
+CAPTURE_NAME=techteam-capture
+CAPTURE_SUBNET=172.31.253.0/24
+if [ "$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}} {{index .Options "com.docker.network.bridge.enable_icc"}}' "$CAPTURE_NAME" 2>/dev/null)" != "$CAPTURE_SUBNET false" ]; then
+  docker network rm "$CAPTURE_NAME" >/dev/null 2>&1 || true
+  docker network create --subnet "$CAPTURE_SUBNET" --opt com.docker.network.bridge.enable_icc=false --label techteam.capture=1 "$CAPTURE_NAME" >/dev/null
+fi
+sed -i '/^# BEGIN techteam capture$/,/^# END techteam capture$/d' /etc/ufw/after.rules
+{
+  echo "# BEGIN techteam capture"
+  echo "*filter"
+  echo ":DOCKER-USER - [0:0]"
+  for range in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.88.99.0/24 \
+    192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 224.0.0.0/4 240.0.0.0/4; do
+    echo "-A DOCKER-USER -s $CAPTURE_SUBNET -d $range -j REJECT --reject-with icmp-net-prohibited"
+  done
+  echo "-A DOCKER-USER -j RETURN"
+  echo "COMMIT"
+  echo "# END techteam capture"
+} >> /etc/ufw/after.rules
+ufw reload >/dev/null
+iptables -S DOCKER-USER | grep -q -- "-s $CAPTURE_SUBNET -d 169.254.0.0/16" || { echo "The capture rules aren't in DOCKER-USER."; exit 1; }
+
 # The app (and Docker over SSH from a dev machine) connects as this user, never as root. The docker group is
 # root-equivalent anyway, so passwordless sudo adds nothing an attacker with this account wouldn't already have.
 step "User $APP_USER"
@@ -147,8 +177,15 @@ echo "$APP_USER ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$APP_USER"
 chmod 440 "/etc/sudoers.d/$APP_USER"
 visudo -cf "/etc/sudoers.d/$APP_USER" >/dev/null
 install -d -m 700 -o "$APP_USER" -g "$APP_USER" "/home/$APP_USER/.ssh"
+# Root's keys are added, never copied over: keys added to this user later (another computer) survive a rerun.
 if [ -f /root/.ssh/authorized_keys ]; then
-  install -m 600 -o "$APP_USER" -g "$APP_USER" /root/.ssh/authorized_keys "/home/$APP_USER/.ssh/authorized_keys"
+  KEYS="/home/$APP_USER/.ssh/authorized_keys"
+  install -m 600 -o "$APP_USER" -g "$APP_USER" /dev/null "$KEYS.new"
+  [ -f "$KEYS" ] && cat "$KEYS" >> "$KEYS.new"
+  while IFS= read -r key; do
+    [ -n "$key" ] && ! grep -qxF -- "$key" "$KEYS.new" && printf '%s\n' "$key" >> "$KEYS.new"
+  done < /root/.ssh/authorized_keys
+  mv "$KEYS.new" "$KEYS"
 fi
 
 systemctl enable --now fail2ban >/dev/null
