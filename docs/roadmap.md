@@ -94,17 +94,6 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
 - The VPS: keys-only SSH, firewall, containers kept off the host's services.
 - Released as **v0.5.0** (2026-11-19); see [CHANGELOG.md](../CHANGELOG.md#050--2026-11-19).
 
-### v0.6 — Deploy and hardening
-Run TechTeam itself on the VPS, so nothing has to run on a laptop: open `https://app.<domain>` from any computer.
-- The app (Next.js standalone) and a self-hosted Inngest as services on the VPS behind the same Caddy, restarting on
-  boot; Postgres and auth stay on Cloudhike. A production GitHub OAuth App, `PUBLIC_APP_URL`, backups (`pg_dump`).
-- Weekly Switch scans in production, without a tunnel; GitHub webhooks instead of the 60 s issue sync.
-- The post-MVP rows of the [test plan](testing.md#test-plan-and-status): Anthropic live, mixed three-company run,
-  blocked merge, auto pickup and auto merge, pause or budget mid-run, Draft with AI, automatic provider switch.
-- Skill uploads out of a Server Action, so `serverActions.bodySizeLimit` goes back to the 1 MB default.
-- **Project skills**: read skills from the linked repository (e.g. `.agents/skills/`, `.claude/skills/`) as a third
-  source (`agent_skills.source = 'project'` is reserved), scanned like uploads.
-
 ### v0.7 — Card references and sandbox polish ✅
 The owner designs and specifies outside TechTeam (a design tool, a document); the agents build from it.
 - **References on cards**: images, Markdown, text and PDFs (files and PDF text in S3, removed with the card), and
@@ -122,11 +111,33 @@ The owner designs and specifies outside TechTeam (a design tool, a document); th
 - Not yet seen live: `add_dependency`, conflict resolution (testing.md rows 71–78).
 - Released as **v0.7.0** (2026-11-20, before v0.6); see [CHANGELOG.md](../CHANGELOG.md#070--2026-11-20).
 
-### v0.8 — Brain
+### v0.8 — Agents on your plans (local CLIs)
+TechTeam stays a web app; when it runs on the owner's own computer, agents can work on the owner's subscription through
+the official CLI installed there, next to API keys ([cli-agents.md](cli-agents.md), plan: [cli-agents-plan.md](cli-agents-plan.md)).
+- **Claude Code** first: Settings → AI → Plans on this computer (switch per computer, TechTeam's own login, confirmed
+  account), route resolution per stage (the model stays the agent's), TechTeam's tools over a local MCP endpoint,
+  chunks of turns resumed by session, plan usage instead of spend, the plan-limit choice (wait and resume, API key,
+  switch company), two computers on one database (one run per card, `AGENTS_AUTO_PICKUP`), Windows in CI.
+- To do before release: the isolation check and one live run with the owner's OK (the Developer on a Claude model
+  through the plan, the rest on OpenRouter; then on the Windows PC).
+- Next on the same rules: **Codex** for OpenAI models on a ChatGPT plan.
+
+### v0.9 — Brain
 - A project memory every agent reads before working: repository conventions, decisions, what earlier cards learned.
-  Kept per workspace, editable by the owner.
+  Markdown in the linked repository (`.techteam/memory/`), so both computers share it through GitHub; agents only
+  propose changes in their card's PR (see cli-agents-plan.md §6).
 
 ### Later
+- **Deploy and hardening** (was v0.6; moved here 2026-11-20, agents on local plans first):
+  Run TechTeam itself on the VPS, so nothing has to run on a laptop: open `https://app.<domain>` from any computer.
+  - The app (Next.js standalone) and a self-hosted Inngest as services on the VPS behind the same Caddy, restarting on
+    boot; Postgres and auth stay on Cloudhike. A production GitHub OAuth App, `PUBLIC_APP_URL`, backups (`pg_dump`).
+  - Weekly Switch scans in production, without a tunnel; GitHub webhooks instead of the 60 s issue sync.
+  - The post-MVP rows of the [test plan](testing.md#test-plan-and-status): Anthropic live, mixed three-company run,
+    blocked merge, auto pickup and auto merge, pause or budget mid-run, Draft with AI, automatic provider switch.
+  - Skill uploads out of a Server Action, so `serverActions.bodySizeLimit` goes back to the 1 MB default.
+  - **Project skills**: read skills from the linked repository (e.g. `.agents/skills/`, `.claude/skills/`) as a third
+    source (`agent_skills.source = 'project'` is reserved), scanned like uploads.
 - **Designer agent**: builds on v0.7's references and image input. Design QA first (the preview against the approved
   reference), then a Design phase before development: two or three directions from the card's prompt as HTML mockups,
   improved by looking at their own screenshots, and the owner picks one before the Developer starts.

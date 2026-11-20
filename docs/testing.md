@@ -29,6 +29,7 @@ testing practical. Written for the next developer or agent picking this up. Last
 | **Simulated** | `AGENTS_SIMULATED=true` in `.env` (overrides every model and key) | Nothing | The pipeline itself: columns, branch, commit, PR, review/test recording, merge, rerun. |
 | **Real, account key** | Settings → Your account → AI keys: save an OpenAI and/or Anthropic key once (every project uses it); choose the company per workspace in AI provider | Provider API usage, charged to each agent's monthly budget | Real agent behavior and prompt tuning. |
 | **Real, server key** | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` in `.env` | Same | Fallback when a workspace saved no key. |
+| **Real, your Claude plan** | Locally only: Settings → AI → Plans on this computer ([cli-agents.md](cli-agents.md)) | Your plan's usage (no API spend; ≈ API cost shown as a reference) | Claude models without an Anthropic key, on your own computer. |
 
 **Simulated agents** (`lib/agent-simulated.ts`): each stage takes two turns, one real tool call then a fixed passing
 result. Analyst: `list_files`, then ready. Developer: writes `agent-simulations/<branch>.md` on the branch. Reviewer:
@@ -36,8 +37,10 @@ result. Analyst: `list_files`, then ready. Developer: writes `agent-simulations/
 card move (the board polls every 10 s during a run). It **always takes the happy path**: it never asks for info,
 requests changes or fails tests.
 
-A Claude.ai / Pro subscription **can't** power the app: Anthropic only allows API keys from the Console for
-products (see code.claude.com/docs/en/legal-and-compliance). Use simulated mode to test for free.
+A Claude.ai subscription can't power TechTeam as a product for other people: Anthropic allows only Console API keys
+for that (see code.claude.com/docs/en/legal-and-compliance). Running Claude Code with your own login on your own
+computer, for yourself, is normal use: that's the local plan route, and it must stay local and owner-only. Use
+simulated mode to test the pipeline for free.
 
 ## Models and providers
 
@@ -179,6 +182,14 @@ How each provider runs a stage (`lib/agent-loop.ts`):
 | 80 | Developer runs out of turns with commits | A big card, Developer with low max turns (e.g. 8), real run | Turn 5's results end with the wrap-up note; the Developer submits `complete: false` with `remaining_work` (or, failing that, the stage ends "Ran out of turns … the Lead decides"); a PR opens with "Not finished yet"; the Lead requests changes with the remaining items; the rework round continues on the same branch | ⬜ needs a live run (spends) |
 | 81 | Rerun continues an unfinished branch | A card whose last run stopped in development with commits and no PR (Stop during development), ▶ Run again | `agent_runs.branch` is the earlier branch, no `-r<run>`; the Developer's brief says it continues run N with its files | ⬜ needs a live run |
 | 82 | Lighter turns per provider | One development stage per provider on a medium card | OpenRouter: requests after the fold carry the `<earlier-turns>` digest, cost per turn stops growing; Claude: `context_management` applied only past 150K tokens; OpenAI: no 400 on `context_management` / `text.verbosity`, compaction item past 120K; activity shows turns and tool calls | ⬜ needs live runs (spends; Anthropic needs credit) |
+| 83 | CLI agents: pure rules (no CLI) | Unit tests: `cli-agents-config.test.ts` (`cliAgentsAllowed`, auth parsing, account check, `planIncludesModel`, `resolveRoute` for every fallback, `planLimitAction`, usage summary), `cli/claude-config.test.ts` (arguments, stream reader, outcome classifier on 2.1.326's real "Not logged in" output), `mcp-protocol.test.ts`, `cli/stage-mcp.test.ts` (tools per stage and permissions), `db-errors.test.ts`, `agent-turns.test.ts` (`cliChunkPrompt`), `run-metrics.test.ts` (plan runs) | All pass | ✅ unit tests |
+| 84 | Claude Code accepts the flags and TechTeam's MCP server (no spend) | `claudeChunkArgs` run with an empty `CLAUDE_CONFIG_DIR` against a throwaway server using `lib/mcp-protocol.ts` | The init event lists exactly `mcp__techteam__*`, the server connected (bearer from the env), no foreign tools, skills or slash commands; the run ends "Not logged in" | ✅ by script (2026-11-20, Claude Code 2.1.326): `server/discover`, `initialize`, `notifications/initialized`, `tools/list` seen |
+| 85 | Separate login | `claude auth status --json` with an empty `CLAUDE_CONFIG_DIR` while the normal login is signed in | `loggedIn: false` | ✅ (2026-11-20, macOS); sign-in through Settings not tried yet; Windows ⬜ |
+| 86 | Isolation check with a signed-in plan | `npx tsx scripts/cli-isolation-check.mts` after signing in TechTeam's Claude Code | No foreign tools, no hook events, the model reports no CLAUDE.md, memory or skills; the normal login unchanged | ⬜ needs the owner's OK (uses the plan) |
+| 87 | Live run on the plan | "Sandbox demo", Developer on a Claude model routed through the plan, the rest on OpenRouter | Agent log: tool calls appear live, the result ends "Your Claude plan · N turns · K tokens (≈ $x)", no API spend for that stage; AI Team chip "Your Claude plan"; then the same on the Windows PC | ⬜ needs the owner's OK |
+| 88 | Plan limit | Simulate a limit (a classifier test, or a fake CLI that prints a rejected `rate_limit_event`) with each choice | Wait: card "Waiting for your Claude plan · resets …", one notification, resumes the same session; API: restart with a Route line; failover: agents moved; none possible: `plan_limit` failure | 🟡 rules unit-tested; the pipeline path ⬜ |
+| 89 | Two computers | Run the same card from both, auto pickup on both | The second start is refused ("already working on this card"); `AGENTS_AUTO_PICKUP=false` skips the cron | 🟡 constraint applied to the shared database (migration 0016) and unit-tested error mapping; not tried from two computers |
+| 90 | Deploy shows nothing | `NEXT_PUBLIC_APP_URL` public, or `VERCEL=1`, or `AGENTS_LOCAL_CLI=false` | No Plans group in Settings, no route chips, `/api/mcp/runs/*` 404, Run behaves as before | 🟡 unit-tested (`cliAgentsAllowed`); not checked in the browser |
 | 38 | Skill toggle in the configure dialog | AI Team → Configure → Skills switch | Saves at once; trust rescanned; activity logged; Switch report flagged as older | 🟡 server path ✅ by script; switch not clicked in the browser |
 | 23 | Notifications | Trigger PR ready / needs info / stop / out of credit | Bell count, list newest first, opening marks read, Mark all as read | ✅ in the browser; `run_failed` produced by a real run stop |
 

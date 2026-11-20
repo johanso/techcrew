@@ -68,5 +68,13 @@ describe("summarizeRuns", () => {
     expect(m.totalCostMicros).toBe(1_000_000);
     expect(m.costPerDeliveredMicros).toBe(500_000);
     expect(formatRate(m.successRate)).toBe("67%");
+    expect(m.planRuns).toBe(0);
+  });
+
+  it("counts runs on the owner's plans and keeps their usage out of the cost", () => {
+    const m = summarizeRuns([run({ costMicros: 0, onPlan: true }), run({ costMicros: 200_000 }), run({ status: "failed", costMicros: 40_000, onPlan: true })]);
+    expect(m.planRuns).toBe(2);
+    expect(m.totalCostMicros).toBe(240_000);
+    expect(m.costPerDeliveredMicros).toBe(120_000);
   });
 });

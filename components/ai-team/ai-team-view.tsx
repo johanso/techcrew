@@ -12,6 +12,7 @@ import { trustGrade } from "@/lib/agent-trust";
 import type { AgentTeamStats, AgentView, TeamOverview } from "@/lib/agents";
 import type { SkillView } from "@/lib/agent-skills-config";
 import { isPendingScan, type SwitchTrustStatus } from "@/lib/switch-trust-config";
+import type { AgentRoutes } from "@/lib/cli-agents-config";
 
 /** AI Team content. Presentational: the page loads the data. */
 export function AiTeamView({
@@ -23,6 +24,7 @@ export function AiTeamView({
   providers,
   switchTrust,
   skills,
+  routes,
 }: {
   workspace: { id: number; githubRepoFullName: string };
   agents: AgentView[];
@@ -34,7 +36,10 @@ export function AiTeamView({
   switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
+  /** Each agent's route on this computer (plan or API key); null when TechTeam isn't running locally. */
+  routes: AgentRoutes | null;
 }) {
+  const onPlan = routes ? Object.values(routes).filter((route) => route !== null && route !== "api").length : 0;
   const scanning = agents.filter((a) => a.scan && isPendingScan(a.scan.status)).length;
   const budgetMicros = stats.monthBudgetCents * (MICROS_PER_USD / 100);
   const usedPercent = budgetMicros > 0 ? (stats.monthSpendMicros / budgetMicros) * 100 : 0;
@@ -104,9 +109,11 @@ export function AiTeamView({
         />
         <StatTile
           icon={CoinsIcon}
-          label="Monthly spending"
+          label={routes ? "API spending this month" : "Monthly spending"}
           value={formatMicros(stats.monthSpendMicros)}
-          hint={`of ${formatCents(stats.monthBudgetCents)} budget · ${usedPercent > 0 && usedPercent < 1 ? "<1" : Math.round(usedPercent)}% used`}
+          hint={`of ${formatCents(stats.monthBudgetCents)} budget · ${usedPercent > 0 && usedPercent < 1 ? "<1" : Math.round(usedPercent)}% used${
+            onPlan ? ` · ${onPlan} agent${onPlan === 1 ? "" : "s"} on your plans` : ""
+          }`}
           tone={usedPercent >= 100 ? "text-error" : usedPercent >= 75 ? "text-warning" : "text-action"}
         />
       </section>
@@ -120,6 +127,7 @@ export function AiTeamView({
           providers={providers}
           switchTrust={switchTrust}
           skills={skills}
+          routes={routes}
         />
         <LiveProcess workspaceId={workspace.id} />
       </LiveTeamProvider>

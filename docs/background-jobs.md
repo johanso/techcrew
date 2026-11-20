@@ -84,11 +84,17 @@ analysis ──ready──▶ development ──▶ PR ──┤                
 - **Stages** (`runStage` in `agent-run.ts`): one per agent (`AGENT_STAGES`: analysis, development, review, security,
   approval, testing). Review and security run in **parallel** (`Promise.all` of two `runStage` calls): Inngest runs
   their steps side by side, each still one step per model turn, with ids prefixed by the stage so they never collide.
-  1. `<stage>-<round>-start` → `beginStage`: agent enabled + under budget (`checkAgentCanRun`), required permissions
+  1. `<stage>-<round>-start` → `beginStage`: agent enabled + under budget (`checkAgentCanRun`; no budget check when the
+     agent's stage takes the owner's plan on this computer), required permissions
      present (Developer: `code.write`, `pr.open`), run marked running in the stage's phase only if it's still active
      (`markStageRunning`), card moved to the phase's column and assigned (the phase's first agent only), a `task_run`
      activity row opened.
-  2. `<stage>-<round>-turn-<n>` → `runStageTurn`: one model call (`lib/agent-loop.ts`) plus its tool calls
+  2. `<stage>-<round>-turn-<n>` → `runStageTurn`: resolves the stage's route on its first turn (the owner's plan
+     through a local CLI, or the API key; [cli-agents.md](cli-agents.md)). On the **plan route** one step is a chunk of
+     up to 10 turns of Claude Code (`claude -p --resume <session>`, tools through `/api/mcp/runs/[runId]`), `<n>` jumps
+     by the turns it used, and when the plan runs out the stage sleeps (`<stage>-<round>-plan-wait-<k>`,
+     `step.sleepUntil` the reset) and resumes the same session in `…-turn-<n>-after-wait-<k>`, or restarts on the API
+     key. On the **API route**: one model call (`lib/agent-loop.ts`) plus its tool calls
      (`lib/agent-tools.ts`). Re-checks pause/budget each turn; adds the turn's cost to the activity row and the run.
      The model is pinned on the stage's first turn. **OpenAI**: the conversation lives on OpenAI
      (`previous_response_id`); steps only carry pending tool outputs. **Anthropic** and **OpenRouter** (Chat
@@ -134,7 +140,9 @@ analysis ──ready──▶ development ──▶ PR ──┤                
 
 Every 2 minutes: for each workspace with **Settings → Agents → Task pickup: Automatic** and no `queued`/`running`
 run, creates a run for the top Todo card that **was never run** and sends `agent/task.run`. Skipped entirely without
-a provider (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `AGENTS_SIMULATED=true`), and per workspace while the Analyst is paused or over budget, or an agent's model has no provider key. Cards that were run before (failed,
+a provider (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `AGENTS_SIMULATED=true`), and per workspace while the Analyst is paused or over budget (not on the owner's plan), or an agent's model has neither a key nor the plan on this computer. Every computer whose Inngest is up runs this cron
+(they share the database); `AGENTS_AUTO_PICKUP=false` turns it off on one, and a card can't get two runs in flight
+(unique index), so two computers never start the same card. Cards that were run before (failed,
 needs info) wait for a human to press Run (or Answer, for a question). A never-run follow-up card the Tester filed
 for a blocked merge is picked up like any other and continues on that pull request (`createCardRun`).
 

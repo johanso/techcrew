@@ -7,6 +7,9 @@ import { isMergeMode } from "@/lib/agent-run-config";
 import { UPLOAD_MAX_BYTES, formatBytes } from "@/lib/agent-skills-config";
 import { getOwnedSkill } from "@/lib/agent-skills";
 import { removeProviderKey, saveProviderKey, verifyProviderKey } from "@/lib/ai-keys";
+import { accountMatches, describeAccount, isPlanLimitPolicy, isPlanLogin, type ClaudePlanView } from "@/lib/cli-agents-config";
+import { cliAgentsAvailable, detectClaude, getCliSettings, saveCliSettings, signOutClaude, startClaudeSignIn } from "@/lib/cli";
+import { getClaudePlanView } from "@/lib/cli/plan-view";
 import { requireUser } from "@/lib/current-user";
 import {
   connectSwitch,
@@ -359,5 +362,64 @@ export async function deleteSkillAction(workspaceId: number, skillId: unknown): 
   const result = await deleteUploadedSkill(workspace.id, skillId);
   if (!result.ok) return result;
   refresh(workspaceId);
+  return { ok: true };
+}
+
+// ── Plans on this computer (docs/cli-agents-plan.md) ───────────────────────────
+
+const CLAUDE_PLAN_OPS = ["sign_in", "sign_out", "check", "confirm", "enable", "disable"] as const;
+type ClaudePlanOp = (typeof CLAUDE_PLAN_OPS)[number];
+const isClaudePlanOp = (value: unknown): value is ClaudePlanOp => CLAUDE_PLAN_OPS.includes(value as never);
+
+export type ClaudePlanResult = { ok: true; view: ClaudePlanView | null; message?: string } | { ok: false; error: string };
+
+/**
+ * Settings → AI → Plans on this computer: Claude Code under TechTeam's own config home. Sign in (opens the browser on
+ * this computer), sign out, check again, confirm the signed-in account, switch the plan on or off. Switching on needs a
+ * plan login on the confirmed account, checked fresh.
+ */
+export async function claudePlanAction(workspaceId: number, op: unknown): Promise<ClaudePlanResult> {
+  const workspace = await authorize(workspaceId);
+  if (!workspace) return { ok: false, error: "Workspace not found." };
+  if (!isClaudePlanOp(op)) return { ok: false, error: "Unknown action." };
+  if (!cliAgentsAvailable()) return { ok: false, error: "Plans run only when TechTeam runs on your computer." };
+  let message: string | undefined;
+
+  if (op === "sign_in") {
+    const started = await startClaudeSignIn();
+    if (!started.ok) return started;
+    message = "Claude Code opened your browser. Sign in with your personal account, then choose Check again.";
+  } else if (op === "sign_out") {
+    const out = await signOutClaude();
+    if (!out.ok) return out;
+    await saveCliSettings(workspace.ownerId, "claude", { enabled: false });
+  } else if (op === "disable") {
+    await saveCliSettings(workspace.ownerId, "claude", { enabled: false });
+  } else if (op === "confirm" || op === "enable") {
+    const detection = await detectClaude({ fresh: true });
+    const auth = detection.auth;
+    if (!detection.binary || detection.problem) return { ok: false, error: detection.problem ?? "Install Claude Code first." };
+    if (!auth?.loggedIn || !auth.email) return { ok: false, error: "Sign in to Claude Code first." };
+    if (!isPlanLogin(auth)) return { ok: false, error: "Claude Code is signed in without a Claude plan. Sign out and sign in with your Claude account." };
+    if (op === "confirm") {
+      await saveCliSettings(workspace.ownerId, "claude", { confirmed: { email: auth.email, orgName: auth.orgName } });
+    } else {
+      const settings = await getCliSettings(workspace.ownerId, "claude");
+      if (!accountMatches(auth, settings.confirmed)) return { ok: false, error: `Confirm the account first: Claude Code is signed in as ${describeAccount(auth)}.` };
+      await saveCliSettings(workspace.ownerId, "claude", { enabled: true });
+    }
+  }
+  refresh(workspaceId);
+  return { ok: true, view: await getClaudePlanView(workspace.ownerId, workspace.id, { fresh: op === "check" }), message };
+}
+
+/** Settings → AI → Plans on this computer: what a stage does when the Claude plan runs out. */
+export async function savePlanLimitAction(workspaceId: number, policy: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
+  const workspace = await authorize(workspaceId);
+  if (!workspace) return { ok: false, error: "Workspace not found." };
+  if (!isPlanLimitPolicy(policy)) return { ok: false, error: "Choose what happens when your plan runs out." };
+  if (!cliAgentsAvailable()) return { ok: false, error: "Plans run only when TechTeam runs on your computer." };
+  await saveCliSettings(workspace.ownerId, "claude", { onLimit: policy });
+  revalidatePath(`/dashboard/${workspaceId}/settings`);
   return { ok: true };
 }

@@ -30,6 +30,7 @@ erDiagram
     users ||--o| github_connections : "has (0..1)"
     users ||--o{ workspaces : owns
     users ||--o{ user_ai_keys : "AI keys (one per provider)"
+    users ||--o{ cli_settings : "local CLIs (per computer)"
     users ||--o{ tasks : "created (nullable)"
     workspaces ||--o{ tasks : contains
     workspaces ||--o{ agents : "has (6)"
@@ -406,6 +407,22 @@ A workspace's Switch Trust account (Settings → Switch Trust). See [switch-trus
 | `weekly_scans` | boolean | no | `true` | Settings → Switch Trust → Scan every week (`switch-weekly-scans` cron). |
 | `created_at`, `updated_at` | timestamp | no | `now()` | |
 
+## cli_settings
+
+A local CLI's settings for one user on one computer (Settings → AI → Plans on this computer). The database is shared by
+the owner's computers; each has its own CLI and login, identified by the machine id in TechTeam's CLI home.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | serial | no | | Primary key. |
+| `user_id` | integer | no | | → `users.id`, cascade. **Unique** with `machine_id` and `cli`. |
+| `machine_id` | text | no | | From `<CLI home>/state.json` on that computer. |
+| `cli` | text | no | | `CLI_KINDS`: `claude`. |
+| `enabled` | boolean | no | `false` | Route this CLI's company's models through the owner's plan on this computer. |
+| `on_limit` | text | yes | | `PLAN_LIMIT_POLICIES`: `wait`, `api`, `failover`; null = the default (`api` with a key, else `wait`). |
+| `confirmed_email`, `confirmed_org` | text | yes | | The account the owner confirmed; stages refuse to run on another one. |
+| `updated_at` | timestamp | no | `now()` | |
+
 ## trust_scans
 
 One SwitchAgent scan of one agent, advanced in the background by Cloudhike jobs.
@@ -437,7 +454,10 @@ month in UTC.
 | `agent_id` | integer | no | | → `agents.id`, cascade. |
 | `kind` | text | no | | `AGENT_ACTIVITY_KINDS`: `joined`, `configured`, `paused`, `resumed`, `generated`, `scan`, `task_assigned`, `task_run` (one pipeline stage; its cost grows each turn), `pull_request` (opened / merged), `issue_filed` (merge follow-up). |
 | `title`, `detail` | text | no / yes | | Display text, written at event time. |
-| `cost_micros` | integer | no | `0` | Model spend in micro-dollars (1e-6 USD), from the provider's reported token usage. |
+| `cost_micros` | integer | no | `0` | Model spend in micro-dollars (1e-6 USD), from the provider's reported token usage. API spend only: a stage on the owner's plan adds nothing here. |
+| `billing` | text | no | `api` | `plan` when the stage ran (at least partly) on the owner's plan through a local CLI ([cli-agents.md](cli-agents.md)). |
+| `equivalent_micros` | integer | no | `0` | Plan stages: the API-equivalent cost the CLI reported. A reference only: never spend, never counted toward a budget. |
+| `tokens` | integer | no | `0` | Plan stages: tokens used (input, output, cache). |
 | `task_id` | integer | yes | | → `tasks.id`, `SET NULL`. |
 | `created_at` | timestamp | no | `now()` | Indexed with `agent_id` and with `workspace_id`. |
 
@@ -466,9 +486,15 @@ shows each card's latest run.
 | `error` | text | yes | | Why it stopped, or the analyst's question (`needs_info`). Shown on the card. |
 | `answer` | text | yes | | The owner's answer to the analyst's question (`needs_info` runs, `answerCardAction`). Later runs of the card read it into their prompts. |
 | `failure` | jsonb | yes | | `RunFailure`, the stop as data the UI can act on: `{ kind: "out_of_credit", provider }` (board notice, switch and retry). Cleared when a stage starts. |
-| `cost_micros` | integer | no | `0` | Model spend of the whole run. Per-agent spend stays in `agent_activity`. |
+| `cost_micros` | integer | no | `0` | Model spend of the whole run (API only). Per-agent spend stays in `agent_activity`. |
+| `waiting` | jsonb | yes | | `RunWaiting` while the run sleeps until the owner's plan resets (`{ kind: "plan_limit", cli, until }`); cleared on wake and when the run ends. |
+| `cli_results` | jsonb | yes | | Stage results a CLI agent submitted through the MCP endpoint, by `"<stage>:<round>"`, until the stage's step reads them; cleared when the run ends. |
 | `created_by_id` | integer | yes | | → `users.id`, `SET NULL`. Null for auto pickup. |
 | `started_at`, `updated_at`, `finished_at` | timestamp | no / no / yes | `now()` | `finished_at` is set on terminal statuses (not `awaiting_merge`). |
+
+A unique partial index (`agent_runs_one_active_per_task` on `task_id` where `status in ('queued', 'running')`) allows
+one run in flight per card, so two computers sharing the database can't start the same card (`createRun` returns
+null).
 
 ## agent_run_messages
 

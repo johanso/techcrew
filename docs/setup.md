@@ -9,6 +9,8 @@ Everything you need to run TechTeam locally, and what each setting does.
 - [4. Create the database tables](#4-create-the-database-tables)
 - [5. Run](#5-run)
 - [6. First-run walkthrough](#6-first-run-walkthrough)
+- [Agents on your Claude plan (optional)](#agents-on-your-claude-plan-optional)
+- [A second computer (Windows)](#a-second-computer-windows)
 - [Production notes](#production-notes)
 - [Troubleshooting](#troubleshooting)
 
@@ -178,6 +180,37 @@ npm run dev            # http://localhost:3000 + the Inngest Dev Server (needed 
 4. You're on the workspace **Overview**. Open **Board** in the sidebar: it syncs the repository's open issues
    immediately ("Syncing with GitHub…").
 5. Create a card with **New**, drag cards between columns, click a card to edit it, or press ▶ to run it.
+
+## Agents on your Claude plan (optional)
+
+Only when TechTeam runs on your computer. Agents on Claude models can run on your Claude plan through Claude Code
+instead of an Anthropic key ([cli-agents.md](cli-agents.md)).
+
+1. Install Claude Code's native build: `curl -fsSL https://claude.ai/install.sh | bash` (macOS/Linux) or
+   `irm https://claude.ai/install.ps1 | iex` (Windows PowerShell).
+2. Settings → AI → **Plans on this computer** → **Sign in**. Claude Code opens your browser: sign in with your personal
+   account (TechTeam keeps this login in `~/.techteam/cli/claude`, apart from the one you use in your terminal). Then
+   **Check again**, **Confirm this account** and switch on **Use my Claude plan for Claude models**.
+3. Agents on Claude models now show **Your Claude plan** on the AI Team page.
+
+To turn the feature off on a computer, set `AGENTS_LOCAL_CLI=false` in its `.env`.
+
+## A second computer (Windows)
+
+The database and auth live on Cloudhike, so a second checkout shares everything (workspaces, cards, agents).
+
+1. Install Node.js 22+ and Git, then clone the repository and `npm install`.
+2. Copy `.env` from your first computer (same `DATABASE_URL`, `TOKEN_ENCRYPTION_KEY`, auth and GitHub values). Don't run
+   `npm run db:migrate` there for a shared database: the first computer already did.
+3. `npm run dev` starts the app and Inngest, as on macOS.
+4. Auto pickup runs on every computer whose Inngest is up: keep it on one by setting `AGENTS_AUTO_PICKUP=false` in the
+   other's `.env`. A card can't run on both at once either way.
+5. Optional: Claude Code's native build and the plan, as above (Settings shows the PowerShell install command). An
+   npm-installed `claude.cmd` is refused; use the native installer.
+
+Scripts in the docs written as `set -a && source .env && set +a && …` are for macOS/Linux shells. In PowerShell, load
+the variables with `Get-Content .env | Where-Object { $_ -match '^[A-Z_]+=.' } | ForEach-Object { $k, $v = $_ -split '=', 2; Set-Item "env:$k" $v }`
+first, or use `node --env-file=.env …`.
 
 ## Production notes
 

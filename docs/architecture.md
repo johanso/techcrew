@@ -174,6 +174,7 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `/api/inngest` | GET/POST/PUT | Inngest `serve()` endpoint (function registry and execution). |
 | `/api/switch-trust/scans/[scanId]` | POST | Cloudhike job target: advances one SwitchAgent scan (single-use bearer token). |
 | `/api/switch-trust/agents/[agentId]/v1/chat/completions` | POST | OpenAI-compatible endpoint Switch Trust evaluates an agent through (per-agent derived bearer credential; also at the base path and `/chat/completions`). |
+| `/api/mcp/runs/[runId]` | POST | TechTeam's MCP endpoint for a CLI agent's stage (local only; bearer derived per run, stage and round): the stage's tools over Streamable HTTP, stateless. See [cli-agents.md](cli-agents.md). |
 
 ### Server actions
 
@@ -306,3 +307,4 @@ The full design system — palette table, contrast rules, typography scale, layo
 | S3 | `lib/storage.ts` | Upload errors fail workspace creation with a generic message; read errors → 404 for the logo. |
 | Inngest | `lib/inngest/*`, `/api/inngest` | `send` failure → Run shows an error, the run is marked failed and nothing moves. See [background-jobs.md](background-jobs.md). |
 | Sandbox host (Docker over SSH) | `lib/sandbox/*` | Unset `SANDBOX_DOCKER_HOST` → Settings can't turn it on and agents get no run tools. An unreachable host or a timeout comes back to the agent as a failed run ("Failed while preparing the checkout", "Timed out…"), never as a stage error. See [sandbox.md](sandbox.md). |
+| Claude Code (local CLI) | `lib/cli/*`, `/api/mcp/runs/[runId]` | Only when TechTeam runs locally. Missing, signed out or on another account → the stage takes the API key or Run refuses with the fix; a crash retries the step and resumes the session; the plan running out follows the owner's choice. See [cli-agents.md](cli-agents.md). |

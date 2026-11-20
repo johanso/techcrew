@@ -28,7 +28,8 @@ cards from analysis to a merged pull request.
 | Pull Requests page | ✅ Real | Agent PRs with review/test verdicts and **Merge**. |
 | Settings → Agent automation | ✅ Real | Task pickup and merge mode per workspace. |
 | Agent skills | ✅ Real | Knowledge packs in the Agent Skills format that agents search and read (never run). Built-ins vendored at pinned commits (`modern-web-guidance`, `chrome-extensions`, the `interface-design` UI/UX skill; `npm run skills:sync`); upload your own `SKILL.md` or `.zip` in **Settings → Agent skills** (validated, security-scanned, AI-reviewed when a key exists, then assigned per agent); switch them per agent in AI Team → Configure. |
-| Settings → AI providers | ✅ Real | Encrypted OpenAI / Anthropic / OpenRouter keys on your account for every project (optional per-workspace keys), spending this month across projects, optional automatic switch when out of credit. Each agent picks its company and model on the AI Team page. |
+| Settings → AI | ✅ Real | Encrypted OpenAI / Anthropic / OpenRouter keys on your account for every project (optional per-workspace keys), API spending this month across projects, optional automatic switch when out of credit. Each agent picks its company and model on the AI Team page. |
+| Agents on your Claude plan | 🟡 Built, not run live yet | Running locally, agents on Claude models can use your Claude plan through Claude Code instead of an API key, with TechTeam's own login and the same tools and permissions ([docs/cli-agents.md](docs/cli-agents.md)). |
 | Activity page | ✅ Real | Workspace timeline (agent events + cards people created, moved, edited or removed), grouped by day. |
 | Notifications (header bell) | ✅ Real | PR ready to merge, analyst questions, stopped runs, out of credit, provider switched, merges and blocked merges. |
 | Landing page (`/`) | ➖ None yet | Redirects to the dashboard (signed in) or to sign-in. |
@@ -91,6 +92,7 @@ Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 | [docs/status.md](docs/status.md) | See what's real, dummy or placeholder, known limitations, and suggested next steps. |
 | [docs/roadmap.md](docs/roadmap.md) | See where the product goes next (phases toward an AI software factory) and how a version is released. |
 | [CHANGELOG.md](CHANGELOG.md) | See what each version added, what was verified live, and its known limitations. |
+| [docs/cli-agents.md](docs/cli-agents.md) | Agents on your Claude plan through a local Claude Code: routes, isolation, the MCP endpoint, plan limits, two computers. |
 | [docs/testing.md](docs/testing.md) | Test the AI agents: simulated mode, providers and models, the test plan with what's verified, techniques and gotchas. |
 | [AGENTS.md](AGENTS.md) | **Coding conventions and the design system** (colors, typography, components). Mandatory reading before changing code — for people and AI agents alike. |
 

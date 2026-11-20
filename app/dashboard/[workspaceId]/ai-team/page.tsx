@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { AiTeamView } from "@/components/ai-team/ai-team-view";
+import { agentRoutesHere } from "@/lib/agent-pipeline";
 import { getSkillLibrary } from "@/lib/agent-skills";
 import { getAIKeys, keyStatus } from "@/lib/ai-keys";
 import { getAgentTeam, getTeamOverview } from "@/lib/agents";
@@ -18,7 +19,7 @@ export default async function AiTeamPage({ params }: PageProps<"/dashboard/[work
   ]);
   const { agents, stats } = await getAgentTeam(workspace, scans);
   // After getAgentTeam, which creates missing agents and built-in skills: both then show their real rows.
-  const [team, skills] = await Promise.all([getTeamOverview(workspace), getSkillLibrary(workspace.id)]);
+  const [team, skills, routes] = await Promise.all([getTeamOverview(workspace), getSkillLibrary(workspace.id), agentRoutesHere(workspace)]);
   const providers = keyStatus(keys);
 
   return (
@@ -31,6 +32,7 @@ export default async function AiTeamPage({ params }: PageProps<"/dashboard/[work
       providers={providers}
       switchTrust={{ connected: switchConnection !== null, problem: switchScanProblem() }}
       skills={skills}
+      routes={routes}
     />
   );
 }

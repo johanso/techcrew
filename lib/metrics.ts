@@ -26,8 +26,10 @@ export type RecentRun = {
 export type WorkspaceMetrics = {
   days: MetricPeriod;
   summary: RunMetrics;
-  /** Pipeline spend per agent in the period (the agents' task_run activity), highest first; agents with none left out. */
+  /** Pipeline API spend per agent in the period (the agents' task_run activity), highest first; agents with none left out. */
   costByAgent: { agent: AgentKey; costMicros: number }[];
+  /** Pipeline usage on the owner's plans per agent (tokens), highest first; agents with none left out. */
+  planByAgent: { agent: AgentKey; tokens: number }[];
   recent: RecentRun[];
 };
 
@@ -69,16 +71,29 @@ export async function getWorkspaceMetrics(workspace: Pick<Workspace, "id" | "nam
           )
         )
     : [];
+  // Runs with a stage on the owner's plan: their stage results end with the plan's usage ("… · Your Claude plan · …").
+  const planned = runs.length
+    ? await db
+        .selectDistinct({ runId: agentRunSteps.runId })
+        .from(agentRunSteps)
+        .where(and(inArray(agentRunSteps.runId, runs.map((run) => run.id)), eq(agentRunSteps.tool, "result"), like(agentRunSteps.summary, "% · Your % plan · %")))
+    : [];
+  const plannedIds = new Set(planned.map((row) => row.runId));
   const metricRuns: MetricRun[] = runs.map((run) => ({
     status: run.status,
     reworkRounds: run.reworkRounds,
     costMicros: run.costMicros,
     ci: run.ci,
     leadSentBack: sentBack.filter((s) => s.runId === run.id).map((s) => s.round),
+    onPlan: plannedIds.has(run.id),
   }));
 
   const spend = await db
-    .select({ key: agents.key, costMicros: sql<number>`coalesce(sum(${agentActivity.costMicros}), 0)::int` })
+    .select({
+      key: agents.key,
+      costMicros: sql<number>`coalesce(sum(${agentActivity.costMicros}), 0)::int`,
+      tokens: sql<number>`coalesce(sum(${agentActivity.tokens}), 0)::float8`,
+    })
     .from(agentActivity)
     .innerJoin(agents, eq(agents.id, agentActivity.agentId))
     .where(and(eq(agentActivity.workspaceId, workspace.id), eq(agentActivity.kind, "task_run"), gte(agentActivity.createdAt, since)))
@@ -86,12 +101,16 @@ export async function getWorkspaceMetrics(workspace: Pick<Workspace, "id" | "nam
   const costByAgent = spend
     .flatMap((row) => ((AGENT_KEYS as readonly string[]).includes(row.key) && row.costMicros > 0 ? [{ agent: row.key as AgentKey, costMicros: row.costMicros }] : []))
     .sort((a, b) => b.costMicros - a.costMicros);
+  const planByAgent = spend
+    .flatMap((row) => ((AGENT_KEYS as readonly string[]).includes(row.key) && Number(row.tokens) > 0 ? [{ agent: row.key as AgentKey, tokens: Number(row.tokens) }] : []))
+    .sort((a, b) => b.tokens - a.tokens);
 
   const prefix = taskKeyPrefix(workspace.name);
   return {
     days,
     summary: summarizeRuns(metricRuns),
     costByAgent,
+    planByAgent,
     recent: runs.slice(0, RECENT_RUNS).map((run) => ({
       id: run.id,
       taskId: run.taskId,

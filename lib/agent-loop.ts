@@ -17,6 +17,7 @@ import { PROVIDERS, modelInfo, type AgentModelId, type ProviderStatus } from "@/
 import { compactChatHistory } from "@/lib/agent-context";
 import { claudeEffort, openAIRequestParams, openRouterRequestParams } from "@/lib/agent-request-params";
 import type { AgentStage } from "@/lib/agent-run-config";
+import type { CliKind } from "@/lib/cli-agents-config";
 import { isSimulatedAgents, simulatedTurn } from "@/lib/agent-simulated";
 import { callTool, type ToolContext, type ToolStep } from "@/lib/agent-tools";
 import { lastTurnMessage } from "@/lib/agent-turns";
@@ -76,6 +77,14 @@ export type LoopState = {
       /** Messages of the conversation committed so far (seq 0 … length-1). */
       length: number;
     }
+  | {
+      /** The owner's plan through a local CLI (lib/cli): the CLI keeps the conversation in its session. */
+      provider: "cli";
+      cli: CliKind;
+      sessionId: string;
+      /** The session exists (a later chunk resumes it). */
+      started: boolean;
+    }
 );
 
 export type TurnOutcome<T> = {
@@ -132,6 +141,8 @@ export async function agentTurn<T>(input: TurnInput): Promise<TurnOutcome<T>> {
   if (isSimulatedAgents()) return simulatedTurn<T>(input);
   const { state } = input;
   if (state.provider === "openai") return openAITurn<T>(input, state);
+  // Plan stages run whole chunks in the CLI (runStageTurn → lib/cli/claude-run.ts), never one API turn.
+  if (state.provider === "cli") throw new Error("A CLI stage can't take an API turn.");
   return state.provider === "anthropic" ? claudeTurn<T>(input, state) : openRouterTurn<T>(input, state);
 }
 

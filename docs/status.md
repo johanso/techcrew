@@ -23,6 +23,7 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | Logo upload to S3 | ✅ Real (needs S3 config) | `lib/storage.ts` |
 | Dashboard shell: sidebar, switcher, header, user menu | ✅ Real | `components/dashboard` |
 | Light / dark / system theme | ✅ Real | `app/layout.tsx`, `user-menu.tsx` |
+| Agents on the owner's Claude plan (local Claude Code, MCP endpoint, plan limits) | 🟡 Built and unit/integration-tested without spend; not run live yet | `lib/cli/`, `lib/cli-agents-config.ts`, `app/api/mcp`, [cli-agents.md](cli-agents.md) |
 | Kanban board: columns, create/edit, drag and drop, search, filters | ✅ Real, persisted | `components/board`, `lib/board.ts` |
 | GitHub issue sync (auto + Refresh, close → Done) | ✅ Real | `lib/github-issues.ts` |
 | Remove task (soft delete) | ✅ Real | `removeCardAction` |
@@ -102,8 +103,9 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 The plan lives in [roadmap.md](roadmap.md): smarter gates and the live process are done (v0.2), agent skills (v0.3), and
 CI in the loop with a Metrics page (v0.4), and the sandbox with PR previews, the Tester's browser, account keys and
-OpenRouter (v0.5), and references on cards with the sandbox's loose ends (v0.7). Next: v0.6, deploying TechTeam itself
-on the VPS so nothing runs on a laptop; then v0.8, a shared project memory.
+OpenRouter (v0.5), and references on cards with the sandbox's loose ends (v0.7). Next: v0.8, agents on the owner's
+plans through local CLIs (Claude Code built; the isolation check and a live run remain, then Codex); then v0.9, a
+shared project memory. Deploying TechTeam itself on the VPS moved to Later.
 
 ## History
 

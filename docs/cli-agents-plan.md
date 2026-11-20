@@ -1,6 +1,11 @@
 # Plan: agents on the owner's plans through local CLIs (Claude Code, Codex)
 
-Status: approved direction (2026-11-20), not started. Written for the agent that implements it. Read `AGENTS.md`
+Status: approved direction (2026-11-20). Claude Code implemented on branch `feat/cli-agents` (2026-11-20; see
+[cli-agents.md](cli-agents.md)); Codex comes later on the same rules. Owner decisions taken while implementing: Claude
+Code first, Codex after; the "This workspace only" keys stay. Differences from this plan: no separate CLI model name in
+`AGENT_MODELS` (the CLI takes the model id as is), account-level plan usage counts stages and tokens (no turns), and the
+AI Team cards don't show the plan wait (the board card does). Not done yet: the isolation check and the live runs (they
+use the owner's plan). Written for the agent that implements it. Read `AGENTS.md`
 and `CLAUDE.local.md` first; every rule there applies (branch first, noreply commit identity, `npm run check` +
 `npm run build`, docs current, **ask the owner before any live model run**, never print env values, no
 `isolation: "worktree"` while `npm run dev` runs).

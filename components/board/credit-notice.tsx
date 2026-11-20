@@ -35,8 +35,8 @@ export function CreditNotice({
   retrying: boolean;
   onRetry: () => void;
 }) {
-  const failure = cards.find((card) => card.run?.failure)?.run?.failure;
-  if (!failure) return null;
+  const failure = cards.map((card) => card.run?.failure).find((f) => f?.kind === "out_of_credit");
+  if (failure?.kind !== "out_of_credit") return null;
   const broke = failure.provider;
   const other = fallbackProvider(broke, connected);
   // No agent left on the broke company (moved by hand or auto failover): retrying just runs the cards again.

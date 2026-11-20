@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { TURNS_LEFT_NOTICE_AT, continuableBranch, lastTurnMessage, outOfTurnsOutcome, turnsLeftNotice, type OutOfTurnsFacts } from "@/lib/agent-turns";
+import { TURNS_LEFT_NOTICE_AT, cliChunkPrompt, continuableBranch, lastTurnMessage, outOfTurnsOutcome, turnsLeftNotice, type OutOfTurnsFacts } from "@/lib/agent-turns";
 
 const facts = (over: Partial<OutOfTurnsFacts>): OutOfTurnsFacts => ({
   stage: "development",
@@ -75,5 +75,23 @@ describe("continuableBranch", () => {
     expect(continuableBranch({ branch: null, status: "failed" }, [])).toBeNull();
     expect(continuableBranch({ branch: "agent/san-6-split", status: "failed" }, ["agent/san-6-split"])).toBeNull();
     expect(continuableBranch({ branch: "agent/san-6-split", status: "completed" }, [])).toBeNull();
+  });
+});
+
+describe("cliChunkPrompt", () => {
+  it("opens with the brief, then nudges", () => {
+    expect(cliChunkPrompt({ brief: "<task>…</task>", remaining: 40, chunkTurns: 10, finish: "submit_work" })).toBe("<task>…</task>");
+    expect(cliChunkPrompt({ brief: null, remaining: 30, chunkTurns: 10, finish: "submit_work" })).toMatch(/^Continue working/);
+  });
+
+  it("warns in the chunk that reaches the limit", () => {
+    const prompt = cliChunkPrompt({ brief: null, remaining: 6, chunkTurns: 6, finish: "submit_work" });
+    expect(prompt).toContain("You have 6 turns left");
+    expect(prompt).toContain("complete: false");
+    expect(cliChunkPrompt({ brief: null, remaining: 4, chunkTurns: 4, finish: "submit_review" })).toContain("what you left unchecked");
+  });
+
+  it("asks for the finish tool alone on the last turn", () => {
+    expect(cliChunkPrompt({ brief: null, remaining: 1, chunkTurns: 1, finish: "submit_test_report" })).toContain(lastTurnMessage("submit_test_report"));
   });
 });

@@ -31,3 +31,18 @@ jobs:
         run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+
+  # The owner also runs TechTeam from a Windows checkout (agents on their plan through Claude Code there): keep the
+  # checks passing on Windows too (paths, line endings, child processes).
+  check-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type check, lint, unit tests
+        run: npm run check

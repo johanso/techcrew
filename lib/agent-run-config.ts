@@ -1,6 +1,7 @@
 import type { AgentKey, AgentProvider } from "@/lib/agent-config";
 import type { BoardColumnId } from "@/lib/board-config";
 import type { CiState } from "@/lib/ci-gate";
+import type { CliKind, RunWaiting } from "@/lib/cli-agents-config";
 
 /**
  * Agent pipeline vocabulary shared by the server (runtime, persistence) and the client (board, PR page, live process).
@@ -83,6 +84,8 @@ export const TOOL_LABEL: Record<string, string> = {
   finish_merge: "Finished the merge",
   // Not an agent's call: the pipeline starts the PR's preview after the CI gate (lib/sandbox/preview.ts).
   preview: "Preview",
+  // Not an agent's call: why a stage took the API key although the owner's plan is switched on (lib/cli-agents-config.ts).
+  route: "Route",
   browse_preview: "Opened the preview",
 };
 
@@ -206,7 +209,10 @@ export type TestReport = {
 };
 
 /** Why a run stopped, as data the UI can act on (alongside the `error` text). */
-export type RunFailure = { kind: "out_of_credit"; provider: AgentProvider };
+export type RunFailure =
+  | { kind: "out_of_credit"; provider: AgentProvider }
+  /** The owner's plan ran out and the run couldn't wait or continue on a key (docs/cli-agents-plan.md). */
+  | { kind: "plan_limit"; cli: CliKind; resetsAt: string | null };
 
 /** What a board card shows about its latest run. */
 export type BoardCardRun = {
@@ -220,6 +226,8 @@ export type BoardCardRun = {
   ci: CiState | null;
   /** The public URL of the run's preview while it's running (Settings → Sandbox → Previews), else null. */
   preview: string | null;
+  /** What the run waits for outside itself (the owner's plan to reset), else null. */
+  waiting: RunWaiting | null;
 };
 
 // ── Risk and merging ───────────────────────────────────────────────────────────

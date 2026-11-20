@@ -17,6 +17,8 @@ export const NOTIFICATION_KINDS = [
   "run_failed",
   "out_of_credit",
   "provider_switched",
+  // The owner's plan ran out mid-run: waiting for its reset, or stopped (docs/cli-agents-plan.md).
+  "plan_limit",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

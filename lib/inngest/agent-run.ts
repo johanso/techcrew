@@ -48,9 +48,12 @@ type Step = GetStepTools<typeof inngest>;
 const MERGE_ATTEMPTS = 20;
 
 /**
- * One agent's stage: open it, then one durable step per model turn until the agent submits its result.
- * The last allowed turn asks for the finish tool; an agent that still doesn't call it is settled by settleOutOfTurns
- * (the Developer's commits go on unfinished, a missing review becomes a failed check; otherwise the run stops).
+ * One agent's stage: open it, then one durable step per model turn until the agent submits its result. A stage on the
+ * owner's plan (a local CLI) runs a chunk of turns per step and counts them all. The last allowed turn asks for the
+ * finish tool; an agent that still doesn't call it is settled by settleOutOfTurns (the Developer's commits go on
+ * unfinished, a missing review becomes a failed check; otherwise the run stops).
+ * When the owner's plan runs out, the stage sleeps until it resets (free while it waits; Stop still cancels it) and
+ * resumes the same CLI session, or starts over on the API key.
  * Step ids start with the stage, so two stages can run in parallel (Promise.all) without colliding.
  */
 async function runStage<S extends keyof StageResult>(
@@ -66,19 +69,42 @@ async function runStage<S extends keyof StageResult>(
 
   let state: LoopState | null = null;
   let restarted = false;
-  for (let turn = 1; turn <= begun.maxTurns; turn++) {
+  let forceApi = false;
+  let waits = 0;
+  for (let turn = 1; turn <= begun.maxTurns; ) {
     const forceFinish = turn === begun.maxTurns;
     const current: LoopState | null = state;
+    const waited = waits;
+    // A turn retried after a wait gets its own step id (ids must stay unique in the function).
+    const stepId = waited ? `${id}-turn-${turn}-after-wait-${waited}` : `${id}-turn-${turn}`;
     // Step output is JSON; every field of these results is plain JSON, so the round trip keeps the type.
-    const out = (await step.run(`${id}-turn-${turn}`, () =>
-      runStageTurn({ runId, stage, activityId: begun.activityId, state: current, forceFinish, work, failedOver: restarted, turn, maxTurns: begun.maxTurns })
+    const out = (await step.run(stepId, () =>
+      runStageTurn({ runId, stage, activityId: begun.activityId, state: current, forceFinish, work, failedOver: restarted, turn, maxTurns: begun.maxTurns, forceApi, waits: waited })
     )) as unknown as TurnStepResult<S>;
     if (out.kind === "done") return out.result;
     if (out.kind === "stopped") {
       await step.run(`${id}-stopped`, () => stopRun(runId, out.reason, begun.activityId, "failed", out.failure ?? null, stage));
       return null;
     }
+    if (out.kind === "wait") {
+      waits++;
+      await step.sleepUntil(`${id}-plan-wait-${waits}`, out.until);
+      state = out.state;
+      turn += out.turnsUsed ?? 0;
+      continue;
+    }
     if (out.kind === "restart") {
+      if (out.forceApi) {
+        // The owner's plan can't carry the stage: the same model starts over on the API key, once.
+        if (forceApi) {
+          await step.run(`${id}-stopped`, () => stopRun(runId, `${out.reason} The API key couldn't carry it either.`, begun.activityId, "failed", null, stage));
+          return null;
+        }
+        forceApi = true;
+        state = null;
+        turn++;
+        continue;
+      }
       // Once per stage: a second provider change in the same stage means neither can work right now.
       if (restarted) {
         await step.run(`${id}-stopped`, () =>
@@ -88,9 +114,11 @@ async function runStage<S extends keyof StageResult>(
       }
       restarted = true;
       state = null;
+      turn++;
       continue;
     }
     state = out.state;
+    turn += Math.max(1, out.turnsUsed ?? 1);
   }
   const settled = await step.run(`${id}-out-of-turns`, () => settleOutOfTurns(runId, stage, begun.activityId, begun.maxTurns));
   // Step output is JSON; the results are plain JSON, so the round trip keeps the type (a step memoized before
