@@ -1,7 +1,7 @@
 # Project status
 
-Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-19**
-(release **v0.5.0**: sandbox, PR previews with the Tester's browser, account keys, OpenRouter). For what has been tested and how to test the agents, see [testing.md](testing.md).
+Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-20**
+(release **v0.7.0**: references on cards, link captures, the Tester's comparison, add_dependency, agents fixing merge conflicts, leaner turns). For what has been tested and how to test the agents, see [testing.md](testing.md).
 
 - [Feature status](#feature-status)
 - [Dummy data and placeholders](#dummy-data-and-placeholders)
@@ -102,13 +102,14 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 The plan lives in [roadmap.md](roadmap.md): smarter gates and the live process are done (v0.2), agent skills (v0.3), and
 CI in the loop with a Metrics page (v0.4), and the sandbox with PR previews, the Tester's browser, account keys and
-OpenRouter (v0.5). Next: v0.7, references on cards (images, Markdown, PDFs, URLs) for the agents to build from, and the sandbox's loose ends (the owner's pick for the next session);
-v0.6, deploying TechTeam itself on the VPS so nothing runs on a laptop; then v0.8, a shared project memory.
+OpenRouter (v0.5), and references on cards with the sandbox's loose ends (v0.7). Next: v0.6, deploying TechTeam itself
+on the VPS so nothing runs on a laptop; then v0.8, a shared project memory.
 
 ## History
 
 | Commit | Change |
 | --- | --- |
+| `v0.7.0` | **Sixth release** (before v0.6): references on cards (files and captured links) for the agents, the Tester comparing the preview with them, the `interface-design` skill, the install step off private ranges, bold fonts in the browser image, `add_dependency`, agents fixing merge conflicts, leaner turns and no lost work at the turn limit (migrations 0013–0015; live runs 52–55). Next: v0.6 deploy. |
 | `v0.5.0` | **Fifth release**: the sandbox (PR #12), account keys and a company per agent (#13, #14), OpenRouter (#15, #16) and previews with the Tester's browser. Next: v0.7 card references and sandbox polish, or v0.6 deploy. |
 | `feat/sandbox-preview` | Sandbox milestone 2: PR previews over HTTPS on the sandbox host (Caddy, migrations 0011–0012), the Tester's headless browser (`browse_preview`) with screenshots in the agent log, a ufw rule keeping containers off the host's services. Built by two parallel agents on one shared contract. |
 | `feat/openrouter` | OpenRouter as a third AI company (Google, DeepSeek, Z.ai, xAI, Moonshot; 10 models, routed only to hosts that keep no data), model tiers so a company move keeps the tier, failover to the first other company with a key; live run 50 ($0.091). |
