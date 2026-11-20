@@ -31,6 +31,44 @@ export const SANDBOX_TIMEOUT_SECONDS = 300;
 /** Characters of output an agent gets back: the end, where test runners and compilers print their failures. */
 export const SANDBOX_OUTPUT_MAX = 12_000;
 
+/**
+ * The install step's bridge network (prepare containers: unpack + install, the only sandbox step with network):
+ * internet, no traffic between containers, and a fixed subnet that deploy/setup.sh's DOCKER-USER rules keep off
+ * private, loopback, link-local (cloud metadata), CGNAT, multicast and reserved ranges, as for link captures.
+ */
+export const SANDBOX_NETWORK = "techteam-sandbox";
+export const SANDBOX_SUBNET = "172.31.252.0/24";
+/**
+ * A small volume holding the install step's resolv.conf (public resolvers), mounted read-only over /etc/resolv.conf:
+ * on a user-defined network Docker points containers at its embedded resolver (127.0.0.11), which doesn't answer
+ * under gVisor, and `--dns` only changes that resolver's upstreams.
+ */
+export const SANDBOX_DNS_VOLUME = "techteam-sandbox-dns";
+export const SANDBOX_RESOLVERS = ["1.1.1.1", "8.8.8.8", "9.9.9.9"] as const;
+
+/** The resolv.conf the install step gets. */
+export function sandboxResolvConf() {
+  return `${SANDBOX_RESOLVERS.map((address) => `nameserver ${address}`).join("\n")}\noptions timeout:2 attempts:2\n`;
+}
+
+/** `docker network inspect --format` for bridgeNetworkProblem: internal flag, inter-container traffic, subnet. */
+export const BRIDGE_INSPECT_FORMAT = `{{.Internal}} {{index .Options "com.docker.network.bridge.enable_icc"}} {{range .IPAM.Config}}{{.Subnet}}{{end}}`;
+
+/**
+ * Whether an inspected network (BRIDGE_INSPECT_FORMAT) has the shape the host firewall expects: not internal (it
+ * needs a route out), icc off and exactly `subnet` (the DOCKER-USER rules match it). Null when it does, else what
+ * differs, for the server log.
+ */
+export function bridgeNetworkProblem(inspected: string, subnet: string): string | null {
+  // A missing option prints as "<no value>" (two words): the subnet is the last field, icc whatever sits between.
+  const fields = inspected.trim().split(/\s+/);
+  const internal = fields[0] ?? "";
+  const actual = fields.length > 2 ? fields[fields.length - 1] : "";
+  const icc = fields.slice(1, fields.length > 2 ? -1 : undefined).join(" ");
+  if (internal === "false" && icc === "false" && actual === subnet) return null;
+  return `internal=${internal} icc=${icc} subnet=${actual}; expected internal=false icc=false subnet=${subnet}`;
+}
+
 const NO_COMMANDS: SandboxCommands = { install: null, test: null, build: null, preview: null };
 
 // `npm init` writes this test script; it only ever fails.

@@ -24,6 +24,18 @@
       "load": "on_demand",
       "roles": [],
       "usage": "Only for Chrome extension projects (Manifest V3). Read SKILL.md first with read_skill, then the references/ file for the API you touch (search_skill finds it, e.g. \"side panel\", \"message passing\")."
+    },
+    {
+      "slug": "interface-design",
+      "repo": "Dammyjay93/interface-design",
+      "path": ".claude/skills/interface-design",
+      "ref": "2f9be3206855bcb2d1d0af262c8bae25cba6658d",
+      "license": "MIT",
+      "licenseFile": "LICENSE",
+      "type": "practice",
+      "load": "on_demand",
+      "roles": ["developer", "tester"],
+      "usage": "One file: read SKILL.md with read_skill before you build, restyle or test a page or component. The repository's own design system comes first (its tokens, components and conventions; the skill's \"Use What Exists\" section), and so does a direction the card or its references pin down. Treat a reference image or rough spec as the content, structure and intent, not as pixels to copy: keep what it asks for and fix its flaws (hierarchy, spacing on one scale, type scale, contrast, focus, hit areas, mobile width, dark mode when the app has one, and the loading, empty and error states it leaves out). You can't ask the owner mid-stage, so skip \"Suggest + Ask\": pick the reasonable reading and say what you assumed in your result. Skip the inline render tool, image generation, the slash commands and the offer to save .interface-design/system.md (read that file if the repository has one). Tester: use \"States are not optional\", the hit areas, \"Avoid\" and \"The checks\" as your checklist when you browse the preview, on desktop and on mobile."
     }
   ]
 }

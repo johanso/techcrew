@@ -11,8 +11,9 @@ import { callTool, type ToolContext, type ToolStep } from "@/lib/agent-tools";
  * commit, the diff and CI checks really happen), then the stage's finish tool with a fixed, passing result: the
  * Reviewer and Security approve with no findings and the Lead approves at low risk (the risk floor still applies).
  * An agent with skills switched on also searches its first skill and reads the top match in that first turn, so the
- * skill tools run for free too. With the sandbox on, the Developer (after its commit) and the Tester also run the tests
- * and the build for real, and with previews on the Tester opens the preview's home page in the browser.
+ * skill tools run for free too, and on a card with references it lists them and reads the first one (an image is read
+ * from storage like for a model, then dropped: nothing looks at it). With the sandbox on, the Developer (after its commit) and the Tester also run the tests
+ * and the build for real, and with previews on the Tester opens the preview's home page in the browser (tablet, dark).
  */
 
 export function isSimulatedAgents() {
@@ -65,6 +66,7 @@ function finishResult(finish: string, ctx: ToolContext): unknown {
         acceptance_criteria: ["A note file under agent-simulations/ exists on the working branch."],
         plan: ["Create agent-simulations/<branch>.md describing the run."],
         relevant_files: ["agent-simulations/"],
+        relevant_references: ctx.references?.items.length ? [`${ctx.references.items[0]!.name}: read in simulated mode, nothing to follow.`] : [],
         developer_notes: "",
         question: "",
       };
@@ -74,6 +76,8 @@ function finishResult(finish: string, ctx: ToolContext): unknown {
         changed_files: [path],
         pull_request_title: "Simulated agent run",
         notes_for_reviewer: "",
+        complete: true,
+        remaining_work: [],
       };
     case "submit_review":
       return { verdict: "approve", summary: "Simulated review: approved without findings.", findings: [] };
@@ -118,16 +122,27 @@ async function skillCalls(input: { finish: FunctionTool; toolContext: ToolContex
   return [found.step, read.step];
 }
 
+/** list_references, then read_reference on the card's first reference, when the agent has the reference tools. */
+async function referenceCalls(input: { toolContext: ToolContext; tools: FunctionTool[] }): Promise<ToolStep[]> {
+  const first = input.toolContext.references?.items[0];
+  if (!first || !input.tools.some((tool) => tool.name === "list_references")) return [];
+  const listed = await callTool(input.toolContext, input.tools, "list_references", "{}");
+  const read = await callTool(input.toolContext, input.tools, "read_reference", JSON.stringify({ id: first.id, offset: null }));
+  return [listed.step, read.step];
+}
+
 /**
  * run_tests then run_build, each when the agent has it (lib/sandbox: real containers, no model); then browse_preview
- * on the preview's home page when the agent has it (the Tester with previews on: a real browser).
+ * on the preview's home page, at tablet size in dark mode, when the agent has it (the Tester with previews on: a real
+ * browser; its screenshot is attached like for a model that sees, then dropped).
  */
 async function sandboxCalls(input: { toolContext: ToolContext; tools: FunctionTool[] }): Promise<ToolStep[]> {
   const steps: ToolStep[] = [];
   const calls: [string, string][] = [
     ["run_tests", "{}"],
     ["run_build", "{}"],
-    ["browse_preview", JSON.stringify({ path: "/", viewport: "desktop", steps: [] })],
+    // The newer options (tablet, dark) on purpose: they're the ones the reference comparison uses.
+    ["browse_preview", JSON.stringify({ path: "/", viewport: "tablet", color_scheme: "dark", steps: [] })],
   ];
   for (const [name, args] of calls) {
     if (!input.tools.some((tool) => tool.name === name)) continue;
@@ -153,6 +168,7 @@ export async function simulatedTurn<T>(input: {
     return { state: next, costMicros: 0, steps: [], result: finishResult(input.finish.name, input.toolContext) as T };
   }
   const skillSteps = await skillCalls(input);
+  const referenceSteps = await referenceCalls(input);
   const args = JSON.stringify(call.args);
   const { output, step } = await callTool(input.toolContext, input.tools, call.name, args);
   // A failed write must not pass as success: surface it the way a model's stage would fail.
@@ -160,5 +176,5 @@ export async function simulatedTurn<T>(input: {
     throw new Error(`Simulated developer couldn't write its file: ${output}`);
   }
   const sandboxSteps = input.finish.name === "submit_work" || input.finish.name === "submit_test_report" ? await sandboxCalls(input) : [];
-  return { state: next, costMicros: 0, steps: [...skillSteps, step, ...sandboxSteps], result: null };
+  return { state: next, costMicros: 0, steps: [...skillSteps, ...referenceSteps, step, ...sandboxSteps], result: null };
 }

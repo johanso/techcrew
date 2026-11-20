@@ -138,6 +138,51 @@ if [ "$(docker inspect -f '{{index .Config.Labels "techteam.caddy-config"}}' "$C
   done
 fi
 
+# Two kinds of sandbox containers have internet, each on its own bridge network: link captures (the sandbox browser,
+# lib/sandbox/capture.ts) and the install step of agent sandboxes and previews (unpack + install dependencies,
+# lib/sandbox/docker.ts). On both, containers can't talk to each other (icc off). The app creates either network on
+# first use with the same shape; this creates them too and recreates one whose shape is wrong (the rules below match
+# the subnets). The rules are the private-range layer: traffic from those subnets to private, loopback, link-local
+# (cloud metadata), CGNAT, multicast and reserved ranges is refused in DOCKER-USER, the chain Docker leaves to us
+# (ufw's own rules never see containers' forwarded traffic). For captures they back up the runner's proxy
+# (deploy/browser/net-guard.mjs); for installs they're the only layer, so a dependency's install script can't reach
+# the provider's private network. They live in ufw's after.rules, so every `ufw reload` and boot puts them back; Docker
+# keeps the chain's contents when it starts. The ufw rule above already refuses traffic from any bridge to the host
+# itself. The bridges have no IPv6. Installs resolve names through public resolvers (a resolv.conf the app mounts:
+# Docker's embedded DNS doesn't answer under gVisor), which these rules leave alone.
+step "Networks with internet: link captures and installs"
+ensure_bridge() { # name subnet label
+  if [ "$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}} {{index .Options "com.docker.network.bridge.enable_icc"}}' "$1" 2>/dev/null)" != "$2 false" ]; then
+    docker network rm "$1" >/dev/null 2>&1 || true
+    docker network create --subnet "$2" --opt com.docker.network.bridge.enable_icc=false --label "$3" "$1" >/dev/null
+  fi
+}
+CAPTURE_SUBNET=172.31.253.0/24
+INSTALL_SUBNET=172.31.252.0/24
+ensure_bridge techteam-capture "$CAPTURE_SUBNET" techteam.capture=1
+ensure_bridge techteam-sandbox "$INSTALL_SUBNET" techteam.install-network=1
+# The block's first version covered captures only, under its own markers.
+sed -i '/^# BEGIN techteam capture$/,/^# END techteam capture$/d' /etc/ufw/after.rules
+sed -i '/^# BEGIN techteam private ranges$/,/^# END techteam private ranges$/d' /etc/ufw/after.rules
+{
+  echo "# BEGIN techteam private ranges"
+  echo "*filter"
+  echo ":DOCKER-USER - [0:0]"
+  for subnet in "$CAPTURE_SUBNET" "$INSTALL_SUBNET"; do
+    for range in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 \
+      192.88.99.0/24 192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 224.0.0.0/4 240.0.0.0/4; do
+      echo "-A DOCKER-USER -s $subnet -d $range -j REJECT --reject-with icmp-net-prohibited"
+    done
+  done
+  echo "-A DOCKER-USER -j RETURN"
+  echo "COMMIT"
+  echo "# END techteam private ranges"
+} >> /etc/ufw/after.rules
+ufw reload >/dev/null
+for subnet in "$CAPTURE_SUBNET" "$INSTALL_SUBNET"; do
+  iptables -S DOCKER-USER | grep -q -- "-s $subnet -d 169.254.0.0/16" || { echo "The private-range rules for $subnet aren't in DOCKER-USER."; exit 1; }
+done
+
 # The app (and Docker over SSH from a dev machine) connects as this user, never as root. The docker group is
 # root-equivalent anyway, so passwordless sudo adds nothing an attacker with this account wouldn't already have.
 step "User $APP_USER"
@@ -147,8 +192,15 @@ echo "$APP_USER ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$APP_USER"
 chmod 440 "/etc/sudoers.d/$APP_USER"
 visudo -cf "/etc/sudoers.d/$APP_USER" >/dev/null
 install -d -m 700 -o "$APP_USER" -g "$APP_USER" "/home/$APP_USER/.ssh"
+# Root's keys are added, never copied over: keys added to this user later (another computer) survive a rerun.
 if [ -f /root/.ssh/authorized_keys ]; then
-  install -m 600 -o "$APP_USER" -g "$APP_USER" /root/.ssh/authorized_keys "/home/$APP_USER/.ssh/authorized_keys"
+  KEYS="/home/$APP_USER/.ssh/authorized_keys"
+  install -m 600 -o "$APP_USER" -g "$APP_USER" /dev/null "$KEYS.new"
+  [ -f "$KEYS" ] && cat "$KEYS" >> "$KEYS.new"
+  while IFS= read -r key; do
+    [ -n "$key" ] && ! grep -qxF -- "$key" "$KEYS.new" && printf '%s\n' "$key" >> "$KEYS.new"
+  done < /root/.ssh/authorized_keys
+  mv "$KEYS.new" "$KEYS"
 fi
 
 systemctl enable --now fail2ban >/dev/null

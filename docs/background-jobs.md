@@ -93,8 +93,11 @@ analysis ──ready──▶ development ──▶ PR ──┤                
      The model is pinned on the stage's first turn. **OpenAI**: the conversation lives on OpenAI
      (`previous_response_id`); steps only carry pending tool outputs. **Anthropic** and **OpenRouter** (Chat
      Completions): the conversation is stored in `agent_run_messages` and steps only carry its length, so step output
-     stays small. The last allowed turn (the agent's **max turns**) forces the finish tool (OpenAI) or adds a "finish
-     now" message (Claude 5.5 models and many OpenRouter hosts reject forced tools), so a stage ends with a structured result or "ran out of turns". Each turn's tool calls go
+     stays small. Three turns before the agent's **max turns** a wrap-up note follows the tool results; the last turn
+     forces the finish tool (OpenAI), offers only it (OpenRouter) or adds a "finish now" system message (Claude 5.5
+     models reject forced tools), and asks the Developer to submit unfinished work with what's left. A stage that still
+     ends without a result goes to `<stage>-<round>-out-of-turns` → `settleOutOfTurns` (the Developer's commits and
+     missing reviews continue as unfinished results; otherwise the run stops). Each turn's tool calls go
      to `agent_run_steps` (the card's agent log), and the stage's end too. If the run stopped meanwhile (the parallel
      stage failed), the turn stops too and only this stage's log is closed.
   3. **Out of credit** (OpenAI `insufficient_quota` / billing codes, Anthropic "credit balance too low", OpenRouter
@@ -119,7 +122,10 @@ analysis ──ready──▶ development ──▶ PR ──┤                
   30 s apart (automatic merges only; up to 10 minutes, then the run waits for a manual merge).
 - **Merge** ([`lib/pull-requests.ts`](../lib/pull-requests.ts)): merges (squash) only when GitHub reports the PR mergeable
   and every check run / commit status passed. A conflict or failing build makes the Tester file a follow-up card in Todo
-  (and a GitHub issue with the **File issues** permission); the run ends `failed` with the reason.
+  (and a GitHub issue with the **File issues** permission); the run ends `failed` with the reason. Running the
+  follow-up card continues on the same PR: the Developer merges the default branch in (`merge_default_branch`,
+  [features.md](features.md#merging-the-default-branch)) and the pipeline reviews and tests it again; the merge moves
+  both cards to Done.
 - **Notifications** (`notify`, lib/notifications.ts; never throws, so it can't fail a step): PR ready to merge
   (manual merge, not low risk in "Automatic when low risk" — with the risk and its reasons — or auto merge timed out), merged (auto merge), merge blocked, analyst needs info, run stopped, out of
   credit, provider switched.
@@ -129,7 +135,8 @@ analysis ──ready──▶ development ──▶ PR ──┤                
 Every 2 minutes: for each workspace with **Settings → Agents → Task pickup: Automatic** and no `queued`/`running`
 run, creates a run for the top Todo card that **was never run** and sends `agent/task.run`. Skipped entirely without
 a provider (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `AGENTS_SIMULATED=true`), and per workspace while the Analyst is paused or over budget, or an agent's model has no provider key. Cards that were run before (failed,
-needs info) wait for a human to press Run (or Answer, for a question).
+needs info) wait for a human to press Run (or Answer, for a question). A never-run follow-up card the Tester filed
+for a blocked merge is picked up like any other and continues on that pull request (`createCardRun`).
 
 ## Local development
 

@@ -1,12 +1,17 @@
-// The Tester's browser (browse_preview): opens one page of a run's preview, runs the steps in order and reports what
-// it saw. Input: one JSON object on stdin (BrowseInput in lib/sandbox/browser-config.ts, already validated by the app).
-// Output: one JSON line on stdout (RunnerOutput there). Nothing from the input is ever passed to a shell.
-// The container has no internet (it only joins the preview's internal network); requests to any other origin are
-// aborted here too, so they fail fast instead of waiting on DNS.
+// Two jobs, picked by the input's `mode` (one JSON object on stdin, already validated by the app; nothing from it is
+// ever passed to a shell; one JSON line out on stdout):
+// - "browse" (the default; browse_preview): opens one page of a run's preview, runs the steps in order and reports
+//   what it saw (RunnerInput / RunnerOutput in lib/sandbox/browser-config.ts). The container has no internet (it only
+//   joins the preview's internal network); requests to any other origin are aborted here too, so they fail fast.
+// - "capture" (a link reference): capture.mjs, with internet but only to public addresses.
 import { chromium } from "playwright-core";
 
+import { capture } from "./capture.mjs";
+
+// Kept in step with BROWSE_VIEWPORTS in lib/sandbox/browser-config.ts.
 const VIEWPORTS = {
   desktop: { viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false },
+  tablet: { viewport: { width: 768, height: 1024 }, isMobile: true, hasTouch: true },
   mobile: { viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true },
 };
 const STEP_TIMEOUT_MS = 10_000;
@@ -35,6 +40,9 @@ const errorText = (error) =>
     600
   );
 
+// Resolves once the line is handed to the pipe: process.exit right after a plain write can cut a large line short.
+const writeLine = (value) => new Promise((resolve) => process.stdout.write(`${JSON.stringify(value)}\n`, () => resolve()));
+
 async function readInput() {
   let text = "";
   for await (const chunk of process.stdin) text += chunk;
@@ -43,6 +51,10 @@ async function readInput() {
 
 async function main() {
   const input = await readInput();
+  if (input.mode === "capture") {
+    await writeLine(await capture(input, CHROMIUM_ARGS));
+    return;
+  }
   const base = new URL(input.baseUrl);
   const deadline = Date.now() + input.timeoutMs;
   const sameOrigin = (url) => {
@@ -84,7 +96,9 @@ async function main() {
   const browser = await chromium.launch({ args: CHROMIUM_ARGS, chromiumSandbox: true, timeout: 30_000 });
   try {
     const context = await browser.newContext({
-      ...VIEWPORTS[input.viewport === "mobile" ? "mobile" : "desktop"],
+      ...(Object.hasOwn(VIEWPORTS, input.viewport) ? VIEWPORTS[input.viewport] : VIEWPORTS.desktop),
+      // prefers-color-scheme for the page's CSS and matchMedia.
+      colorScheme: input.colorScheme === "dark" ? "dark" : "light",
       deviceScaleFactor: 1,
       serviceWorkers: "block",
       acceptDownloads: false,
@@ -171,7 +185,7 @@ async function main() {
     const png = await page.screenshot({ type: "png", timeout: 10_000, animations: "disabled", caret: "hide" }).catch(() => null);
     out.screenshot = png ? png.toString("base64") : null;
   } finally {
-    process.stdout.write(`${JSON.stringify(out)}\n`);
+    await writeLine(out);
     // Closing can hang on a wedged renderer; the container is thrown away anyway.
     await Promise.race([browser.close(), new Promise((resolve) => setTimeout(resolve, 3_000))]);
   }

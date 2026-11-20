@@ -126,3 +126,15 @@ describe("fallbackProvider", () => {
     expect(fallbackProvider("anthropic", { openai: false, anthropic: true, openrouter: false })).toBeNull();
   });
 });
+
+describe("vision", () => {
+  it("is set on every model", () => {
+    for (const model of AGENT_MODELS) expect(typeof model.vision, model.id).toBe("boolean");
+  });
+
+  it("matches the providers' model pages", () => {
+    const blind = AGENT_MODELS.filter((m) => !m.vision).map((m) => m.id);
+    // OpenAI and Claude models all take images; on OpenRouter, DeepSeek V4 Pro and GLM 5.3 are text only.
+    expect(blind).toEqual(["deepseek/deepseek-v4-pro-0813", "z-ai/glm-5.3"]);
+  });
+});

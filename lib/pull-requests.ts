@@ -1,19 +1,21 @@
 import "server-only";
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 
 import { agentRuns, db, pullRequests, tasks, workspaces, type PullRequestRow, type Workspace } from "@/db";
 import { RISK_LEVELS, isActiveRun, type RiskLevel, type RunStatus } from "@/lib/agent-run-config";
-import { finishRun, placeTask, runningPreviewUrl } from "@/lib/agent-runs";
+import { createRun, finishRun, placeTask, replaceWaitingRuns, runningPreviewUrl } from "@/lib/agent-runs";
 import { getAgentRow, logAgentActivity, taskKeyPrefix } from "@/lib/agents";
 import { createAgentTask } from "@/lib/board";
 import { GithubError, createIssue, getCommitChecks, getGithubToken, getPullRequest, mergePullRequest } from "@/lib/github";
+import { pickContinuedPullRequest } from "@/lib/merge-config";
 import { notify } from "@/lib/notifications";
 import { stopPullRequestPreviews } from "@/lib/sandbox/preview";
 
 /**
  * Agent pull requests: merging (automatically after review + tests, or from the Pull Requests page), the tester's
- * follow-up card when a merge is blocked by a conflict or a failing build, and keeping state in step with GitHub.
+ * follow-up card when a merge is blocked by a conflict or a failing build, carrying a pull request over to the next
+ * run (a rerun of its card, or the run of its follow-up card) and keeping state in step with GitHub.
  */
 
 type PrWorkspace = Pick<Workspace, "id" | "name" | "ownerId" | "githubRepoFullName">;
@@ -88,6 +90,8 @@ async function completeMerge(workspace: PrWorkspace, pr: PullRequestRow) {
     .where(eq(pullRequests.id, pr.id));
   await stopPullRequestPreviews(workspace.id, pr.number, "The pull request was merged.");
   if (pr.taskId) await placeTask(workspace.id, pr.taskId, "done", null);
+  // The Tester's follow-up card (conflict or failing build) was about this merge: it's done too.
+  if (pr.followUpTaskId && pr.followUpTaskId !== pr.taskId) await placeTask(workspace.id, pr.followUpTaskId, "done", null);
   if (pr.runId) await finishRun(pr.runId, "completed");
   const tester = await getAgentRow(workspace.id, "tester");
   if (tester) {
@@ -133,7 +137,7 @@ async function blockMerge(workspace: PrWorkspace, pr: PullRequestRow, reason: st
       `**Reason:** ${reason}`,
       details,
       `**Expected:** the branch merges cleanly into \`${pr.baseBranch}\` with every check passing.`,
-      "Resolve the problem on the same branch (rebase or fix the build), then merge the pull request.",
+      `Running this card continues on \`${pr.headBranch}\` and PR #${pr.number}: the Developer brings \`${pr.baseBranch}\` into the branch and resolves the conflicts (or fixes the build), and the pull request is reviewed and tested again. When it merges, ${originKey ?? "the original card"} and this card are done.`,
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -171,7 +175,7 @@ async function blockMerge(workspace: PrWorkspace, pr: PullRequestRow, reason: st
   await notify(workspace.id, {
     kind: "merge_blocked",
     title: `PR #${pr.number} couldn't be merged`,
-    body: `${reason}${followUpKey ? ` The Tester filed ${followUpKey} to fix it.` : ""}`,
+    body: `${reason}${followUpKey ? ` The Tester filed ${followUpKey}: run it and the agents fix this pull request.` : ""}`,
     href: `/dashboard/${workspace.id}/pull-requests`,
     taskId: pr.taskId,
   });
@@ -185,26 +189,60 @@ export async function getRunPullRequest(runId: number) {
 }
 
 /**
- * A rerun takes over the card's open pull request: the new run works on the same branch and PR, whose review and
- * test verdicts start over. (openPullRequest then finds it by run id and reuses it, as in a rework round.)
+ * A new run takes over an open pull request: it works on the same branch and PR, whose review and test verdicts start
+ * over. (openPullRequest then finds it by run id and reuses it, as in a rework round.) The last merge error stays
+ * until then: the new run's brief says why the merge failed.
  */
 export async function adoptPullRequest(pullRequestId: number, runId: number) {
   await db
     .update(pullRequests)
-    .set({ runId, reviewStatus: "pending", testStatus: "pending", risk: null, mergeError: null, updatedAt: new Date() })
+    .set({ runId, reviewStatus: "pending", testStatus: "pending", risk: null, updatedAt: new Date() })
     .where(eq(pullRequests.id, pullRequestId));
 }
 
-/** The newest open pull request of a board card (Merge on the card, reruns). */
+/**
+ * The open pull request a board card works on (Merge on the card, reruns): its own newest one, else the one it is the
+ * follow-up card of (pickContinuedPullRequest).
+ */
 export async function getTaskOpenPullRequest(workspaceId: number, taskId: number) {
   if (!Number.isSafeInteger(taskId)) return null;
-  const [row] = await db
+  const rows = await db
     .select()
     .from(pullRequests)
-    .where(and(eq(pullRequests.workspaceId, workspaceId), eq(pullRequests.taskId, taskId), eq(pullRequests.state, "open")))
-    .orderBy(desc(pullRequests.createdAt))
-    .limit(1);
-  return row ?? null;
+    .where(
+      and(
+        eq(pullRequests.workspaceId, workspaceId),
+        eq(pullRequests.state, "open"),
+        or(eq(pullRequests.taskId, taskId), eq(pullRequests.followUpTaskId, taskId))
+      )
+    );
+  return pickContinuedPullRequest(taskId, rows)?.pr ?? null;
+}
+
+/**
+ * Creates a run on a card (Run on the board, auto pickup). When the card has an open pull request, or is the
+ * follow-up card of one, the run continues on its branch and PR (getRerunPullRequest, adoptPullRequest) and earlier
+ * runs waiting on that PR end as replaced. Refused while another card's run works on the same PR.
+ */
+export async function createCardRun(
+  workspace: PrWorkspace,
+  input: { taskId: number; trigger: "manual" | "auto"; createdById?: number | null }
+): Promise<{ ok: true; runId: number; pullRequest: number | null } | { ok: false; error: string }> {
+  const openPr = await getRerunPullRequest(workspace, input.taskId);
+  if (openPr?.runId) {
+    const [current] = await db.select({ status: agentRuns.status, taskId: agentRuns.taskId }).from(agentRuns).where(eq(agentRuns.id, openPr.runId));
+    if (current && isActiveRun(current.status as RunStatus)) {
+      const [card] = await db.select({ number: tasks.number }).from(tasks).where(eq(tasks.id, current.taskId));
+      const key = card ? `${taskKeyPrefix(workspace.name)}-${card.number}` : "another card";
+      return { ok: false, error: `The agents are already working on PR #${openPr.number} (${key}). Wait for that run, or stop it first.` };
+    }
+  }
+  const run = await createRun({ workspaceId: workspace.id, ...input, branch: openPr?.headBranch ?? null });
+  if (openPr) {
+    await adoptPullRequest(openPr.id, run.id);
+    await replaceWaitingRuns([...new Set([input.taskId, openPr.taskId ?? input.taskId])], run.id);
+  }
+  return { ok: true, runId: run.id, pullRequest: openPr?.number ?? null };
 }
 
 /**
@@ -223,7 +261,7 @@ export async function mergeManually(pr: PullRequestRow): Promise<{ ok: true } | 
     case "pending":
       return { ok: false, error: `${outcome.reason} Try again in a moment.` };
     case "blocked":
-      return { ok: false, error: `${outcome.reason}${outcome.followUpKey ? ` The Tester filed ${outcome.followUpKey} in Todo.` : ""}` };
+      return { ok: false, error: `${outcome.reason}${outcome.followUpKey ? ` The Tester filed ${outcome.followUpKey} in Todo: run it and the agents fix this pull request.` : ""}` };
     case "error":
       return { ok: false, error: outcome.reason };
   }
@@ -273,8 +311,9 @@ export async function refreshOpenPullRequests(workspace: PrWorkspace) {
 }
 
 /**
- * The card's open pull request for a rerun to continue on — checked on GitHub first, since it may have been closed or
- * merged there (that change is applied, and null returned, so the rerun starts a fresh branch).
+ * The open pull request a run of the card continues on (its own, or the one it is the follow-up card of) — checked on
+ * GitHub first, since it may have been closed or merged there (that change is applied, and null returned, so the run
+ * starts a fresh branch).
  */
 export async function getRerunPullRequest(workspace: PrWorkspace, taskId: number) {
   const pr = await getTaskOpenPullRequest(workspace.id, taskId);

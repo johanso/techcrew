@@ -348,6 +348,134 @@ export async function putRepoFile(
   return result.commit.sha;
 }
 
+/**
+ * Commits several text files to `branch` as one commit on top of `parentSha` (Git Data API: blobs, a tree, a commit,
+ * then the ref). Returns the commit sha, or null when the files already have that content (nothing to commit). The ref
+ * only moves forward: if the branch moved past `parentSha` meanwhile, GitHub answers 422 and nothing changes.
+ */
+export async function commitFiles(
+  token: string,
+  fullName: string,
+  input: { branch: string; parentSha: string; message: string; files: { path: string; content: string }[] }
+): Promise<string | null> {
+  const parent = await githubRequest<{ tree: { sha: string } }>(token, `/repos/${fullName}/git/commits/${input.parentSha}`);
+  const entries = await Promise.all(
+    input.files.map(async (file) => ({ path: file.path, mode: "100644", type: "blob", sha: await createBlob(token, fullName, file.content) }))
+  );
+  const tree = await githubRequest<{ sha: string }>(token, `/repos/${fullName}/git/trees`, {
+    method: "POST",
+    body: { base_tree: parent.tree.sha, tree: entries },
+  });
+  if (tree.sha === parent.tree.sha) return null;
+  const commit = await githubRequest<{ sha: string }>(token, `/repos/${fullName}/git/commits`, {
+    method: "POST",
+    body: { message: input.message, tree: tree.sha, parents: [input.parentSha] },
+  });
+  await githubRequest(token, `/repos/${fullName}/git/refs/heads/${encodePath(input.branch)}`, {
+    method: "PATCH",
+    body: { sha: commit.sha, force: false },
+  });
+  return commit.sha;
+}
+
+/** Stores a text file as a blob in the repository (not yet in any commit) and returns its sha. */
+export async function createBlob(token: string, fullName: string, content: string) {
+  const blob = await githubRequest<{ sha: string }>(token, `/repos/${fullName}/git/blobs`, {
+    method: "POST",
+    body: { content: Buffer.from(content, "utf8").toString("base64"), encoding: "base64" },
+  });
+  return blob.sha;
+}
+
+/** A blob's bytes (any size GitHub serves through the API). */
+export async function getBlob(token: string, fullName: string, sha: string) {
+  const blob = await githubRequest<{ content: string; encoding: string }>(token, `/repos/${fullName}/git/blobs/${sha}`);
+  return blob.encoding === "base64" ? Buffer.from(blob.content, "base64") : Buffer.from(blob.content, "utf8");
+}
+
+/** A commit's tree and parents. */
+export async function getCommit(token: string, fullName: string, sha: string) {
+  const commit = await githubRequest<{ sha: string; tree: { sha: string }; parents: { sha: string }[] }>(token, `/repos/${fullName}/git/commits/${sha}`);
+  return { sha: commit.sha, treeSha: commit.tree.sha, parents: commit.parents.map((parent) => parent.sha) };
+}
+
+/**
+ * Every file (blob) and submodule in a tree, by path, with its mode and sha. `truncated` is true when GitHub cut the
+ * listing short (very large repositories): then it isn't complete.
+ */
+export async function getTreeEntries(token: string, fullName: string, treeSha: string) {
+  const tree = await githubRequest<{ tree: { path: string; mode: string; type: string; sha: string; size?: number }[]; truncated: boolean }>(
+    token,
+    `/repos/${fullName}/git/trees/${treeSha}?recursive=1`
+  );
+  const entries: Record<string, { mode: string; type: "blob" | "commit"; sha: string; size?: number }> = {};
+  for (const entry of tree.tree) {
+    if (entry.type === "blob" || entry.type === "commit") {
+      entries[entry.path] = { mode: entry.mode, type: entry.type, sha: entry.sha, ...(entry.size !== undefined ? { size: entry.size } : {}) };
+    }
+  }
+  return { entries, truncated: tree.truncated };
+}
+
+/** The merge base of two commits (the newest commit both have), or null when they share no history. */
+export async function getMergeBase(token: string, fullName: string, a: string, b: string) {
+  const result = await githubRequest<{ merge_base_commit?: { sha: string } | null }>(token, `/repos/${fullName}/compare/${a}...${b}?per_page=1`);
+  return result.merge_base_commit?.sha ?? null;
+}
+
+/**
+ * Merges `head` into the branch `base` on GitHub (a merge commit, like `git merge`): "merged" with its sha,
+ * "up_to_date" when the branch already has every commit of `head`, "conflict" when git can't merge them on its own.
+ */
+export async function mergeIntoBranch(
+  token: string,
+  fullName: string,
+  input: { base: string; head: string; message: string }
+): Promise<{ status: "merged"; sha: string } | { status: "up_to_date" } | { status: "conflict" }> {
+  try {
+    // 201 with the merge commit; 204 (no body) when there is nothing to merge.
+    const result = await githubRequest<{ sha?: string } | null>(token, `/repos/${fullName}/merges`, {
+      method: "POST",
+      body: { base: input.base, head: input.head, commit_message: input.message },
+    });
+    return result?.sha ? { status: "merged", sha: result.sha } : { status: "up_to_date" };
+  } catch (error) {
+    if (error instanceof GithubError && error.status === 409) return { status: "conflict" };
+    throw error;
+  }
+}
+
+/**
+ * Commits a tree built on `baseTreeSha` (entries with sha null delete their path) with these parents, and moves
+ * `branch` to it. The ref only moves forward: if the branch moved past the first parent meanwhile, GitHub answers 422
+ * and the branch stays where it is. Returns the commit sha.
+ */
+export async function commitTree(
+  token: string,
+  fullName: string,
+  input: {
+    branch: string;
+    baseTreeSha: string;
+    entries: { path: string; mode: string; type: "blob" | "commit"; sha: string | null }[];
+    parents: string[];
+    message: string;
+  }
+) {
+  const tree = await githubRequest<{ sha: string }>(token, `/repos/${fullName}/git/trees`, {
+    method: "POST",
+    body: { base_tree: input.baseTreeSha, tree: input.entries },
+  });
+  const commit = await githubRequest<{ sha: string }>(token, `/repos/${fullName}/git/commits`, {
+    method: "POST",
+    body: { message: input.message, tree: tree.sha, parents: input.parents },
+  });
+  await githubRequest(token, `/repos/${fullName}/git/refs/heads/${encodePath(input.branch)}`, {
+    method: "PATCH",
+    body: { sha: commit.sha, force: false },
+  });
+  return commit.sha;
+}
+
 export async function deleteRepoFile(token: string, fullName: string, input: { path: string; message: string; branch: string; sha: string }) {
   await githubRequest(token, `/repos/${fullName}/contents/${encodePath(input.path)}`, {
     method: "DELETE",

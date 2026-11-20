@@ -154,8 +154,8 @@ A search or type filter shows every match. A card dropped below a closed column'
 - type pill (Feature ✦, Bug 🐞, Issue ◉) and the key (`ACM-142`, always);
 - title (up to three lines), labels;
 - priority (Urgent / High / Medium / Low, as a colored dot), GitHub issue number for synced cards (`#12`), due date
-  ("Today", "Tomorrow", or the date; red with a calendar-x icon when overdue — not in Done), and the assigned agent's
-  avatar;
+  ("Today", "Tomorrow", or the date; red with a calendar-x icon when overdue — not in Done), a paperclip with the
+  number of [references](#card-references) when it has some, and the assigned agent's avatar;
 - a **▶ Run** button and a **⋯** menu (see [Card actions](#card-actions-run-and-remove)).
 
 **Creating** — **New** (header) opens a menu: Feature, Bug or Issue. Each column's **+** does the same with that column
@@ -186,6 +186,57 @@ to the end of that column. For GitHub cards, title, description and labels are r
 **Layout** — the board scrolls horizontally when the six columns don't fit (snapping to columns on mobile).
 
 Code: `components/board/*`, `lib/board.ts`, `lib/board-config.ts`, `app/dashboard/[workspaceId]/board/actions.ts`.
+
+## Card references
+
+Files the owner attaches to a card so the agents build from them: a design exported from a design tool, a spec, a
+document, or a link to a page they want something similar to. They're in the **References** section of the card dialog, for every saved card (GitHub cards too: references
+belong to the board, not to the issue). A new card says "Save the card to add references."
+
+- **Add files** takes several at once: PNG, JPEG or WebP images (up to 5 MB and 8000 × 8000 px), Markdown or text
+  (up to 1 MB), PDFs (up to 5 MB). Up to **10 per card**. Each file is checked by its content, not its name: an SVG, a
+  GIF or a PDF renamed `.png` is refused with a reason. Files upload one by one ("Uploading home.png…"), so one bad
+  file doesn't stop the others.
+- Each row shows a thumbnail (images) or an icon, the name (opens the file in a new tab; PDFs download) and what it is
+  ("1280 × 800 · 240 KB", "12 pages · 2 MB", "no text found" for a scanned PDF). The trash button asks **Remove** /
+  **Keep** in place before deleting.
+- The board card shows a paperclip and the count.
+- **Add a link** (under the files): paste an http(s) address and press **Add link** or Enter. The sandbox browser
+  captures the page once, now: a desktop (1280 px) and a mobile (375 px) screenshot, full page up to 2,400 px, plus a
+  short outline (title, headings, landmarks, navigation and button labels, main texts, fonts and colors). A row with a
+  spinner says "Capturing example.com…" (10–30 s). The reference shows the desktop thumbnail, the page's title (opens
+  the screenshot), the domain (opens the original page in a new tab) and **Mobile** (the mobile screenshot). Private
+  or internal addresses, names that don't resolve, slow pages and HTTP errors are refused with the reason, and nothing
+  is stored. Without a sandbox host the input is disabled and says why. Links count toward the 10.
+- **PDFs** are read once, at upload: the text of up to 100 pages (300,000 characters) is kept for the agents. A scanned
+  PDF has no text; the agents are told so.
+- **Removing the card** deletes its references, files included. Without file storage on the server (`S3_*`), the
+  section says references can't be added.
+
+**What the agents do with them.** Every agent gets `list_references` and `read_reference` on a card with references,
+like skills: Markdown, text and PDF text come back as text (in pages), images as the image itself, a link as its
+outline plus both screenshots. A link is framed as a third-party page the owner wants something similar to: untrusted
+content, structure and style only, never its logos, brand names, images or texts. The task lists the
+references by name; the Analyst names in its brief the ones the Developer must follow and what each is for; the
+Developer reads and follows them (the card's text wins where they disagree, and it says so); the Reviewer, the Lead and
+the Tester read them to check the work. References are the owner's requirements but still data: nothing in them can
+change the agents' rules or tools.
+
+**The Tester compares.** With previews on, the Tester browses each changed page at the reference's size (the
+`browse_preview` viewport closest to the image's width: desktop 1280, tablet 768, mobile 375; a link has desktop and
+mobile), in light and dark, looks at its screenshots next to the reference, and fails the card with the specific
+differences when the preview clearly doesn't match what the brief says to follow; the Developer gets them in a rework
+round like any test fail.
+
+**Models that can't see images.** Run is refused when the card has images or links and the **Analyst** or the
+**Developer** uses a model without vision (DeepSeek V4 Pro, GLM 5.3), or the **Tester** does while the workspace has
+previews on, with a link to the AI Team page; auto pickup leaves such a card in Todo and takes the next card without
+images or links. Models are never switched for you. Another agent on such a model that reads an image gets a note
+instead (a link: its outline only).
+
+Code: `components/board/card-references.tsx`, `lib/references.ts`, `lib/reference-config.ts`, `lib/reference-images.ts`,
+`lib/reference-pdf.ts`, `lib/sandbox/capture.ts` (+ `capture-config.ts`, `deploy/browser/capture.mjs`),
+`app/api/workspaces/[id]/references/[referenceId]/route.ts`.
 
 ## GitHub issues on the board
 
@@ -219,13 +270,18 @@ in Todo and the reason shows above the board.
 
 Running a card again starts over from Analysis. If the card already has an open pull request, the new run continues on
 that branch and PR ("Run again on PR #n" in the menu) instead of opening another; the Developer is told to build on
-the existing commits, and review and tests start over. They sit beside the
+the existing commits, and review and tests start over. The Tester's follow-up card of a pull request that couldn't
+merge ("Fix merge of PR #n") works the same way: running it (or auto pickup) continues on that PR, the brief names the
+original card and the merge error, and for a conflict the Developer first merges the default branch into the PR's
+branch (see [Merging the default branch](#merging-the-default-branch)). The follow-up card carries the run; when the
+PR merges, both cards go to Done. While one card's run works on the PR, Run on the other is refused. They sit beside the
 card's drag area, so using them never starts a drag or opens the dialog.
 
 - **Run** starts the agent pipeline (see [Agent pipeline](#agent-pipeline)): the card moves to **Analysis**, the
   Analyst's avatar appears and the card shows "Queued for the agents". ▶ stays disabled (spinner) while the agents
-  work. Run is refused when the agents are already on the card, when an agent's model has no provider key (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`; `AGENTS_SIMULATED=true` runs scripted agents instead), or while the Analyst is
-  paused or over budget.
+  work. Run is refused when the agents are already on the card, when an agent's model has no provider key (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`; `AGENTS_SIMULATED=true` runs scripted agents instead), while the Analyst is
+  paused or over budget, or when the card has image references and the Analyst's or the Developer's model can't see
+  images (the error links to the AI Team page).
 - **Stop agents** (while a run is active) cancels it between steps. The card is unassigned and stays in its column
   (back to Todo if it was still in Analysis); the branch and pull request, if any, are kept.
 - **Remove task** asks for confirmation, then takes the card off the board. For GitHub cards the issue stays open
@@ -265,7 +321,7 @@ Review, so the board still has six columns:
 | In Development (CI) | — | The **CI gate**: the card waits ("Waiting for CI on PR #n…") until every check on the pushed commit finishes, polling every 30 s for up to 15 minutes. A check the change broke sends the work straight back to the Developer with each failing check's annotations and the end of its job log; nobody reviews a red build. A check that fails on the default branch too doesn't block. No CI in the repository (no workflow in `.github/workflows/` and no check within about a minute): it moves on. Still running at 15 minutes: review starts and the merge waits for CI. |
 | In Review (review) | Reviewer + Security, in parallel | The **Reviewer** reads the diff for correctness and conventions against the acceptance criteria: approve or request changes with file-level findings. Only for what the developer can fix in code: checks that need a browser or device are listed as manual checks and never block. **Security** reads the same diff for leaked secrets, injection, missing auth checks, unsafe permissions and risky dependencies: each finding has a severity (critical, high, medium, low), a category, the file and the fix. Both post on the PR with *Review pull requests*. After rework each gets its earlier findings and checks those. |
 | In Review (approval) | Lead | Reads both reviews and the measured diff (files, changed lines) and decides: **approve** or **request changes** (a list of what must change, with its source). Rates the change's **risk** — low, medium or high — with reasons; the pipeline raises it to a floor it can't talk away (below). Posted on the PR. |
-| Testing | Tester | Verifies statically (no test runner): automated pre-checks (branch exists and has commits, reported files are in the diff, no conflict markers, PR open, the CI gate's result) plus its own review. |
+| Testing | Tester | Verifies statically (no test runner): automated pre-checks (branch exists and has commits, reported files are in the diff, no conflict markers, PR open, merges cleanly into the default branch, the CI gate's result) plus its own review. A PR GitHub reports as conflicting fails and goes back to the Developer. |
 | Done | — | After the merge. |
 
 - A failing CI, the Lead's requested changes or failed verification send the work back to the Developer (same branch
@@ -279,17 +335,42 @@ Review, so the board still has six columns:
   **Merge** button on the Pull Requests page; *Automatic when low risk* merges on its own only when the Lead's final
   risk is low (medium and high wait, and the notification says why); *Automatic* merges whatever the risk. Automatic
   merges happen as soon as GitHub says the PR is mergeable and CI is green (it waits up to 10 minutes for checks). A **conflict or failing build** makes the Tester file a follow-up bug
-  card on top of Todo (and a GitHub issue with *File issues*); the original run ends with the reason.
+  card on top of Todo (and a GitHub issue with *File issues*); the original run ends with the reason. Running that card
+  fixes the same pull request (above).
 - **Task pickup** (Settings → Agents): *Manual* = Run; *Automatic* = every 2 minutes the Analyst takes the top Todo
   card that was never run, one card at a time per workspace.
-- **Max turns** (per agent, AI Team → Configure): model calls allowed per stage. The last turn forces the agent to
-  submit its result. Pausing an agent or reaching its budget stops the run at its next turn.
+- **Max turns** (per agent, AI Team → Configure): model calls allowed per stage. Three turns before the end the agent
+  is told to wrap up; the last turn asks for its result. A Developer that can't finish submits what's done with what's
+  left: the PR shows it under "Not finished yet" and the Lead sends it back for another round on the same branch. If
+  it still ends without a result but committed work, the pipeline carries on with that work marked unfinished; a
+  Reviewer or Security that runs out of turns becomes a missing check for the Lead (minimum risk medium). The Analyst,
+  the Lead and the Tester running out of turns stop the run. A rerun after a run that stopped with commits and no pull
+  request continues its branch. Pausing an agent or reaching its budget stops the run at its next turn.
 - **Permissions are enforced**: an agent only gets the tools its permissions allow (*Read repository* → list/read/search files,
   plus the branch diff for the Reviewer, Security, Lead and Tester; *Write code* → write/edit/delete on the run's
   branch, Developer only; *Read CI results* → checks). Dependency manifests need
   *Manage dependencies*; CI workflows, `.env*` files (except `.env.example`) and `.git/` can never be written.
+  With the sandbox on, *Manage dependencies* plus *Write code* gives the Developer `add_dependency`: npm adds one
+  package in the sandbox and package.json and the lockfile are committed together (npm repositories only;
+  [sandbox.md](sandbox.md#adding-a-package)). A font the card names is added this way (`@fontsource/…`) and imported,
+  never linked from a font host; agents don't pick fonts the card doesn't name.
+- **Merging the default branch** <a id="merging-the-default-branch"></a> (*Write code*, Developer, on the run's branch):
+  `merge_default_branch` brings the default branch's latest commits into the branch as a merge commit with two
+  parents, so the PR merges cleanly. GitHub merges it in one call when nothing conflicts. Otherwise files whose changes
+  don't overlap merge automatically, lockfiles take the default branch's version (with *Manage dependencies* and the
+  sandbox, the Developer re-adds its packages with `add_dependency`), and each remaining file is resolved by the
+  Developer: `read_conflict` (the file with `<<<<<<<` your branch / `|||||||` merge base / `=======` / `>>>>>>>`
+  default branch sections), `resolve_conflict` (the whole merged file; leftover markers are refused) and `finish_merge`
+  (commit, or abort). The commit lands only if neither branch moved since the merge started. Refused, with a message the
+  Developer passes on: protected paths, symbolic links and submodules, binary files or files over 200 KB, manifests
+  without *Manage dependencies*, more than 20 conflicting files, and (GitHub's rule) a merge that brings in workflow
+  changes, which TechTeam's GitHub connection may not push: use **Update branch** on the PR. While a merge is open, the
+  write tools are refused. The agent log shows *Merged the default branch*, each file read and resolved, and *Finished
+  the merge* with the outcome line, never file contents.
 - **Skills** (see [Agent skills](#agent-skills)): an agent with skills switched on sees them listed in its prompt and
   gets two read-only tools in every stage, `search_skill` and `read_skill`; always-loaded skills ride in the prompt.
+- **References** (see [Card references](#card-references)): on a card with references every agent gets
+  `list_references` and `read_reference` in every stage; the Analyst's brief lists the ones to follow.
 - If one of the two parallel reviewers stops (paused, budget, error), the other stops at its next turn and the run
   ends with the first reason (one notification).
 - Each card shows its run: phase in progress ("Reviewing…", "Waiting for CI on PR #n…", "Approving…"), "Analyst needs info" + the question, "Agents stopped" + the reason,
@@ -348,7 +429,7 @@ Without `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` the page shows "No AI provider c
 | Read repository, Read board & issues | ✅ list/read/search files (GitHub API); the card is in the agent's brief. |
 | Write code on branches, Open pull requests | ✅ Developer commits through the GitHub contents API; the pipeline opens the PR. |
 | Review pull requests, Comment on issues, File issues, Read CI results | ✅ Reviews (Reviewer, Security, Lead) and test reports posted on the PR, needs-info comments, merge follow-up issues, check runs/statuses. |
-| Manage dependencies | ✅ Gate only: without it, manifests and lockfiles can't be written. |
+| Manage dependencies | ✅ Without it, manifests and lockfiles can't be written. With *Write code* and the sandbox on, the Developer gets `add_dependency` (npm: package.json and the lockfile in one commit). |
 | Merge pull requests | 🟡 Not an agent tool: merging is controlled by Settings → Agents (manual, automatic when low risk, automatic). |
 | Write tests, Run tests in a sandbox | ✅ With Settings → Sandbox on: `run_tests`, `run_build` and `run_command` for the Developer and the Tester, in gVisor containers ([sandbox.md](sandbox.md)). Off: tests are only written as files. |
 | Web research | ❌ Needs a search tool (e.g. OpenAI's web search tool in the Responses API). |
@@ -370,6 +451,12 @@ never executed. Not to be confused with **permissions**, which decide what an ag
   `chrome-extensions` (Manifest V3; off for everyone, for extension projects). Both Apache-2.0, pinned to a commit.
   Upstream tells agents to run `npx modern-web-guidance search/retrieve`; TechTeam agents can't run commands, so
   their prompt maps that to `search_skill` / `read_skill` instead (`usage` in `agent-skills/sources.json`).
+- **Built-in design skill (v0.7)**: `interface-design` (Dammyjay93/interface-design, MIT; one on-demand practice file
+  on visual hierarchy, spacing and type scales, tokens, states, hit areas, dark mode and "use what exists"; on for the
+  Developer and the Tester by default). Its usage note puts the repository's design system and the card's references
+  first, treats a rough image or spec as content and intent rather than pixels to copy (fix its spacing, contrast,
+  missing loading/empty/error states, mobile and dark mode), skips upstream's ask-the-user, render-tool and
+  save-`system.md` steps, and gives the Tester its states and checks as a checklist for the preview.
 - **How agents use them**: the system prompt lists the agent's enabled skills (name, type, load, description), framed
   as reference material that never overrides the operating protocol, and includes the body of always-loaded ones.
   `search_skill(skill, query)` ranks a skill's files by title, path and summary; `read_skill(skill, path, offset)`

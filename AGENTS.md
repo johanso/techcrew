@@ -80,6 +80,7 @@ app/
     github/connect/           Starts GitHub OAuth for repository access (state + PKCE).
     github/callback/          Finishes it; stores the encrypted token.
     workspaces/[id]/logo/     Streams a workspace logo from S3 to its owner.
+    workspaces/[id]/references/[referenceId]/  Streams a card reference from S3 to the workspace owner (sandboxed).
     inngest/                  Inngest handler (serves the agent pipeline and auto pickup).
     switch-trust/scans/[scanId]/  Cloudhike job target: advances one SwitchAgent scan (single-use bearer token).
     switch-trust/agents/[agentId]/  OpenAI-compatible endpoint Switch evaluates an agent through (+ v1/chat/completions,
@@ -100,7 +101,9 @@ app/
                           (auth + validation).
       board/actions.ts    createCardAction, updateCardAction, moveCardsAction, removeCardAction, runCardAction,
                           answerCardAction (answer the analyst + run again), stopCardAction, mergeCardAction, switchProviderAndRetryAction (out of credit), getRunLogAction
-                          (agent log), syncIssuesAction (also refreshes agent PRs) (auth + validation).
+                          (agent log), syncIssuesAction (also refreshes agent PRs), listCardReferencesAction /
+                          uploadCardReferenceAction (one file per call) / addCardLinkAction (captures a link) /
+                          removeCardReferenceAction (auth + validation).
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
       settings/           Your account: profile (#account), AI providers (#ai: account keys for every project, then "This
                           workspace only": automatic switch + optional workspace keys), spending this month across
@@ -119,6 +122,7 @@ components/
   auth/                   Auth-only UI (forms, social buttons, brand icons, FormMessage).
   workspace/              Workspace UI (avatar, create form, appearance + repo pickers, draft storage).
   board/                  Kanban: kanban-board (state + DndContext), board-column, board-card, card-dialog (create + edit),
+                          card-references (the dialog's References section: upload, add a link, list, remove),
                           board-toolbar (search + type tabs), board-filters (pure matching logic),
                           use-github-sync (polling hook), github-sync-controls (Refresh button, sync notice),
                           issue-meta (type/priority/column colors + PriorityBadge, IssueTypePill, DueDate — reuse everywhere),
@@ -162,18 +166,19 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   auth.ts                 Hosted-auth client, session cookie; getSession reuses sessions validated in the last 60 s
                           (session-cache.ts: the auth service rate-limits the dashboard's polls).
   current-user.ts         getCurrentUser() / requireUser(returnTo).
-  github.ts               GitHub OAuth + REST + connection persistence.
+  github.ts               GitHub OAuth + REST + connection persistence; commitFiles (several files, one commit); the
+                          merge's Git Data calls (mergeIntoBranch, getTreeEntries, getBlob / createBlob, commitTree).
   crypto.ts               encrypt / decrypt for secrets at rest.
   ai-keys.ts              AI provider keys: getAIKeys (owner's account key, else workspace key, else env; keyInUse),
                           getProviderKeyViews (masked), verifyProviderKey, saveProviderKey / removeProviderKey (account
                           or workspace scope, encrypted).
-  storage.ts              S3 uploads/reads, logo limits.
+  storage.ts              S3 uploads/reads/deletes (logos, screenshots, card references), logo limits.
   workspaces.ts           Workspace queries (always scoped by owner) + getDashboardContext().
   overview.ts             getOverviewData(): stats + upcoming tasks from getBoardData, recent work activity.
   activity.ts             getActivityFeed(): agent_activity + cards people created + task_events, newest first;
                           WORK_ACTIVITY_KINDS.
   agent-config.ts         AI Team vocabulary shared by server + client: roles + defaults (models per provider), PERMISSIONS,
-                          AGENT_MODELS (provider, maker, tier, pricing), PROVIDER_IDS / PROVIDERS, closestModel (same
+                          AGENT_MODELS (provider, maker, tier, vision, pricing), PROVIDER_IDS / PROVIDERS, closestModel (same
                           tier), agentModelFor, fallbackProvider, limits.
   agent-trust.ts          Trust Score: scanAgentRules() (deterministic; permissions, instructions, budget, enabled uploaded
                           skills' scan findings), trustGrade(). Pure.
@@ -198,13 +203,20 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   switch-eval.ts          answerEvaluation(): an agent answers one Switch test with its model + instructions (+ its
                           always-loaded skills), cost logged.
   sandbox/                Agent sandboxes (docs/sandbox.md). config.ts: pure, client-safe (commands, detectCommands,
-                          parseSandboxCommand, sandboxReport, outputTail). docker.ts: runInSandbox (prepare with network,
-                          command without, gVisor + limits), removeSandbox, hourly sweep. index.ts: sandboxAvailable,
-                          detectRepoCommands, runRepoCommand (one volume per run), removeRunSandbox, checkSandbox.
+                          parseSandboxCommand, sandboxReport, outputTail, the install network's constants,
+                          bridgeNetworkProblem). docker.ts: runInSandbox (prepare on the install network, command
+                          without network, gVisor + limits), ensureBridgeNetwork (install and capture networks),
+                          addPackageInSandbox, removeSandbox, hourly sweep. index.ts: sandboxAvailable,
+                          detectRepoCommands, runRepoCommand (one volume per run), addRepoDependency, removeRunSandbox,
+                          checkSandbox. dependency-config.ts: pure (add_dependency: parseDependencyArgs, dependencyPlan,
+                          addDependencyCommand, dependencyChange, dependencyReport).
                           preview.ts: PR previews (startRunPreview / pollRunPreview / stopRunPreview /
                           stopPullRequestPreviews / sweepPreviews, getRunPreviewEndpoint; state in agent_runs.preview).
                           browser.ts: browsePreview (the Tester's headless Chromium on the preview's network);
-                          browser-config.ts: pure (parseBrowseArgs, browseReport, PREVIEW_STAGES).
+                          browser-config.ts: pure (parseBrowseArgs, browseReport, PREVIEW_STAGES, viewports + color
+                          schemes, closestViewport). capture.ts: captureLink (a link reference: the same image with
+                          internet through a checking proxy, on the techteam-capture network); capture-config.ts: pure
+                          (parseCaptureUrl, parseCaptureOutput, formatCaptureOutline). Tested.
   jobs.ts                 Cloudhike Jobs: enqueueJob, getJobRun, publicAppUrl (null for local addresses).
   agent-ai.ts             Config AI (OpenAI if configured, else Anthropic, else OpenRouter): generateAgentConfig() (repo-aware, sandbox-aware instructions),
                           scanAgentWithAI(), reviewSkillWithAI() (upload review + type/load/roles), isConfigAIAvailable().
@@ -241,16 +253,47 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   agent-simulated.ts      AGENTS_SIMULATED=true: scripted stand-in for the model (one real tool call, plus search_skill +
                           read_skill when the agent has skills, then a passing result).
   agent-loop.ts           One model turn with function tools, per provider: OpenAI Responses (previous_response_id, forced
-                          finish tool), Anthropic Messages or OpenRouter Chat Completions (both: history in
-                          agent_run_messages, last-turn message);
-                          modelUnavailableReason(), initialLoopState().
+                          finish tool, server-side compaction), Anthropic Messages (server-side context editing) or
+                          OpenRouter Chat Completions (both: history in agent_run_messages, last-turn message; OpenRouter
+                          folds older turns at send time); modelUnavailableReason(), initialLoopState().
+  agent-context.ts        Pure: compactChatHistory (OpenRouter: older turns folded into a digest once the unfolded turns
+                          pass a threshold, the last two kept verbatim with their reasoning), foldPoint, foldDigest. Tested
+                          on run 53's shape.
+  agent-turns.ts          Pure: the turn limit (turnsLeftNotice, lastTurnMessage), outOfTurnsOutcome (what a stage that
+                          ends without its finish tool becomes), continuableBranch (a rerun continues an unfinished branch).
+  agent-request-params.ts Pure: request knobs per model and stage (MODEL_EFFORTS, STAGE_EFFORT, openAIRequestParams,
+                          claudeEffort, openRouterRequestParams): only parameters a model is known to accept.
   agent-tools.ts          Agent tools on the GitHub API, filtered by stage + permissions; search_skill / read_skill when the
-                          agent has skills; protected paths, manifest gate;
+                          agent has skills; list_references / read_reference when the card has references; the
+                          Developer's merge tools (branch-merge.ts);
                           toolStep() (a call → agent log step; never stores file contents).
+  repo-paths.ts           Pure: which paths agents may write (protected paths, manifest gate, lockfiles), cleanRepoPath.
+  branch-merge.ts         merge_default_branch / read_conflict / resolve_conflict / finish_merge: GitHub's merge API,
+                          else a merge planned from the three trees, kept in agent_runs.pending_merge (shas only),
+                          committed with two parents, fast-forward only. mergeWriteBlock, clearPendingMerge.
+  merge-config.ts         Pure: planMerge (tree plan), routeConflict (agent / lockfile / refused), PendingMerge, the
+                          tools' answers, pickContinuedPullRequest (own PR, else the one a follow-up card is for),
+                          continuationNote (the brief of a run that continues a PR). Tested.
+  diff3.ts                Pure: mergeText (three-way line merge, Myers matching, zdiff3-style markers), matchLines,
+                          conflictMarkerLines. Tested, also against git (branch-merge.test.ts runs on a real repository).
   pull-requests.ts        Agent PRs: mergeAgentPullRequest (mergeable + CI green, else Tester follow-up card),
-                          mergeManually (user merge: card or PR page), refreshOpenPullRequests, getRerunPullRequest +
-                          adoptPullRequest (rerun on the same PR), listPullRequests.
+                          mergeManually (user merge: card or PR page), refreshOpenPullRequests, createCardRun (Run and
+                          auto pickup: getRerunPullRequest + adoptPullRequest, also for a follow-up card),
+                          listPullRequests.
   board-config.ts         Board vocabulary shared by server + client: columns, issue types, priorities, BoardCard.
+  reference-config.ts     Card references vocabulary shared by server + client: kinds, limits, detectReferenceFormat (magic
+                          bytes), imageDimensions, validateReference, ReferenceView, what agents read (list, paged text,
+                          notes, LINK_FRAME + linkAttached), referenceVisionStages + referenceVisionProblem. Pure, tested.
+  references.ts           Card references persistence: addTaskReference (validate → S3 → PDF text → row under a card
+                          lock), addLinkReference (capture → 2 JPEGs + outline in S3 → row), listTaskReferences,
+                          removeTaskReference, deleteTaskReferences (card removed), getReferenceCounts,
+                          getOwnedReferenceFile (route); agents: getAgentReferences, readReferenceForAgent,
+                          taskHasVisualReferences, loadReferenceImage (image, or a link's desktop / mobile), loadImageObject.
+  reference-images.ts     Pure: images as model input per provider, as placeholders hydrated from S3 per request
+                          (`techteam-reference:<id>[:desktop|:mobile]`, `techteam-screenshot:<uuid>` for the run's own
+                          browser screenshots; OpenAI function_call_output, Anthropic tool_result, OpenRouter user
+                          message after the tool messages). Tested.
+  reference-pdf.ts        extractPdfText (unpdf, page and character caps) at upload.
   board.ts                Board persistence (tasks table): getBoardData (with latest runs), getBoardCard, createTask,
                           updateTask, reorderTasks, removeTask, assignTask, createAgentTask (agent-filed cards),
                           parseCardInput / parseBoardInput (server-side validation).
@@ -277,7 +320,10 @@ public/                   agents/<key>.webp: one face per agent role (256×256, 
 scripts/                  db-baseline.mjs (mark migrations applied on a pushed DB), sync-agent-skills.mjs (skills:sync).
 deploy/                   setup.sh: prepares a fresh Ubuntu 24.04 VPS (firewall, swap, Docker, gVisor for agent sandboxes,
                           `techteam` user, Caddy for previews, no host services for containers; `--lock-ssh` = keys
-                          only). Idempotent, so the next VPS runs the same script. browser/: the Tester's browser image.
+                          only; the link-capture and install networks and their DOCKER-USER private-range rules).
+                          Idempotent, so the next VPS runs the same script. browser/: the sandbox browser image (run.mjs:
+                          browse_preview; capture.mjs: link captures; net-guard.mjs: the public-address rules, also
+                          imported by the app; fonts.conf: fontconfig aliases so UI stacks render real bold).
 proxy.ts                  Optimistic cookie guard for /dashboard and /workspaces.
 ```
 
@@ -469,7 +515,12 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   the GitHub issue when the question was posted there) and runs the card again. Every later run of the card gets the
   last questions and answers in its analysis and development prompts (`earlierQuestionsBlock`).
   Running a card again while it has an open PR continues on that branch and PR (`adoptPullRequest`, verdicts reset;
-  earlier runs waiting on it end as replaced, `replaceWaitingRuns`); the developer's brief says so (`rerunBlock`).
+  earlier runs waiting on it end as replaced, `replaceWaitingRuns`); the analyst's and developer's briefs say so
+  (`continuationBlock`). The Tester's **follow-up card** of a PR that couldn't merge (`pull_requests.follow_up_task_id`)
+  does the same: its run (Run or auto pickup, both through `createCardRun`) takes that PR over, the brief names the
+  original card and the merge error, and for a conflict tells the Developer to start with `merge_default_branch`. The
+  follow-up card carries the run; the merge moves both cards to Done (`completeMerge`). Refused while another card's
+  run works on the same PR.
   The PR is re-checked on GitHub first (`getRerunPullRequest`), and every board sync applies merges/closes done on
   GitHub (`refreshOpenPullRequests` in `syncIssuesAction`), so cards never offer Merge on a closed PR. They render as siblings of the card inside
   the sortable wrapper (the card is only the drag *activator*), so they never start a drag or open the dialog.
@@ -490,6 +541,21 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   Collapsed columns show `COLUMN_PREVIEW` cards (`previewCards` in `board-filters.ts`, tested) plus the dragged and
   highlighted card, with **Show N more** / **Show less** (`expanded` in `KanbanBoard`, per visit); filters show all;
   a drop past the preview opens the column.
+- **References** (`CardReferences` in the card dialog, `lib/references.ts`, [`docs/features.md`](docs/features.md#card-references)):
+  files the owner attaches to a saved card (GitHub cards too: board-owned) for the agents. Rules:
+  - **Type by content**, never the name alone (`detectReferenceFormat`): PNG/JPEG/WebP, UTF-8 Markdown/text, PDF. No
+    SVG. Limits live in `lib/reference-config.ts` only (10 per card; image 5 MB, text 1 MB, PDF 5 MB). The dialog sends
+    one file per Server Action call so each fits `serverActions.bodySizeLimit` (6 MB).
+  - **Files and PDF text live in S3** (`card-references/<workspace>/<task>/<uuid>.<ext>`); `task_references` keeps a
+    small row. Never put file content or base64 in the database. Served only by the owner-checked route.
+  - **Removing a card deletes its references** (`removeTask` → `deleteTaskReferences`: rows, then S3 best effort, logged).
+  - The board card shows a paperclip + `BoardCard.references` (count); the dialog reports changes back to the board.
+  - **Links** (`kind: "link"`, [`docs/sandbox.md`](docs/sandbox.md#link-captures)): captured **once**, when added, by
+    the sandbox browser (`captureLink`): desktop and mobile JPEGs (`storage_key`, `mobile_key`) and an outline
+    (`text_key`), plus `source_url`. Agents never browse the internet. SSRF: every address goes through
+    `deploy/browser/net-guard.mjs` (link check in the app, then the runner's proxy resolves and checks every request,
+    redirects and subresources included, and connects to the checked address); never add a capture path that skips
+    the proxy. The input is disabled without `SANDBOX_DOCKER_HOST`. A failed capture stores nothing.
 - **Board filters** (`BoardToolbar` + `board-filters.ts`): a search box (title or key — "ACM-142", "acm142",
   "#142", "142"; `/` focuses it, Escape clears) and segmented type tabs (All / Features / Bugs / Issues, counts follow
   the search). Filters only *hide* cards — `columns` keeps the full order, so drag and drop stays consistent while
@@ -583,25 +649,84 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     run running only while it's still active (`markStageRunning`), and `runStageTurn` stops when the run isn't
     active any more, so a stop in one stage ends the other at its next turn. `stopRun` takes the stage that stopped;
     a second stop only closes that stage's log and activity (one notification).
-  - Each stage is a tool loop of at most the agent's max turns, **one Inngest step per turn**; the last turn forces the
-    stage's finish tool (strict JSON schema). Step bodies reload state from the DB — never keep state in closures.
+  - Each stage is a tool loop of at most the agent's max turns, **one Inngest step per turn**; the last turn asks for the
+    stage's finish tool (strict JSON schema; OpenAI forces it, OpenRouter offers only it). Step bodies reload state from
+    the DB — never keep state in closures.
+  - **The turn limit never throws work away** (`lib/agent-turns.ts`): three turns before the end the agent gets a
+    wrap-up note after its tool results (`turnsLeftNotice`, stored, append-only); the last-turn message asks the
+    Developer for `complete: false` + `remaining_work` when unfinished. `submit_work` has both fields; an unfinished
+    `WorkResult` goes through PR, CI and reviews like any other, and the Lead sends it back with the remaining items. A
+    stage that still ends without its finish tool goes to `settleOutOfTurns` (`outOfTurnsOutcome`): the Developer's
+    commits continue with a written "ran out of turns" result (none, or a rework round without a new commit: the run
+    stops); a missing Reviewer or Security report becomes a failed check with `incomplete: true` (the Lead looks at the
+    diff itself, and `riskFloor` raises to medium); the Analyst, the Lead and the Tester stop the run. A rerun continues
+    the previous run's branch when that run stopped with commits and no PR (`prepareBranch` → `continuableBranch`,
+    `earlierBranchBlock` in the Developer's brief).
+  - **Context per turn**: every turn resends the conversation, so keep it small without breaking caches or reasoning.
+    OpenRouter: `compactChatHistory` at send time (stored rows stay verbatim; the fold point only moves at thresholds,
+    so the prefix stays cacheable; never drop reasoning from a kept turn: DeepSeek, Kimi and GLM require it back, Gemini
+    its signatures). Claude: never edit earlier turns client-side (5.5 models bind thinking blocks to the history they
+    were made in); server-side context editing (`clear_tool_uses_20250919`, beta `context-management-2025-06-27`) clears
+    in large steps on long stages. OpenAI: Responses `context_management` compaction, server-side, with
+    `previous_response_id`. Request knobs (`reasoning.effort`, `text.verbosity`, Claude's `output_config.effort`) come
+    only from `lib/agent-request-params.ts`, per model: never send OpenRouter a parameter its `/models` doesn't list
+    (`require_parameters` would leave no host); an OpenAI 400 on an optional knob retries the turn without it.
   - **Sandbox** (`lib/sandbox/`, [`docs/sandbox.md`](docs/sandbox.md)): with Settings → Sandbox on and `tests.run`, the
     Developer and the Tester get `run_tests` / `run_build` / `run_command` on the branch's latest commit. The repository
     goes in as a tarball (never a token); install has network, the command never does; one volume per run, removed in
-    `finishRun`. Log the command and the outcome line only (`toolStep`), never the output. The stage protocol says
+    `finishRun`. The install step (and a preview's) runs on `techteam-sandbox` (`SANDBOX_NETWORK`, icc off, a fixed
+    subnet that `deploy/setup.sh` keeps off private ranges in DOCKER-USER) with public resolvers mounted over
+    `/etc/resolv.conf` (Docker's DNS doesn't answer under gVisor and `--dns` doesn't change that). Never add a container
+    with network outside a network those rules cover. Log the command and the outcome line only (`toolStep`), never the output. The stage protocol says
     "you can't run code" only to agents without the tools.
+  - **Adding a package** (`add_dependency`, [`docs/sandbox.md`](docs/sandbox.md#adding-a-package)): development stage,
+    `code.write` + `deps.manage`, sandbox on (not `tests.run`: it runs no code). Validated name/version
+    (`parseDependencyArgs`), npm only (`dependencyPlan`), `npm install --package-lock-only --ignore-scripts` in the
+    prepare container on its own volume (`addPackageInSandbox`), files read back without network, one commit through
+    `commitFiles` (Git Data API, fast-forward only). Never let an agent edit a lockfile by hand to add a package. The
+    protocol (`DEPENDENCY_GUIDANCE`) is shown only to a Developer with the tool: fonts the card names go in as bundled
+    packages (`@fontsource/…`), never a font host `<link>`; agents don't pick fonts.
   - **Previews** (Settings → Sandbox → Previews, `SANDBOX_PREVIEW_DOMAIN`): after the CI gate passes, a
     `preview-<round>-start` step and `-poll-<n>` steps run beside the reviews (the Lead waits for them, up to 8 min).
     A preview never fails the run; it logs one `preview` row. Stopped on merge/close (`completeMerge`,
     `closeWithoutMerge`), cancel or replace, and after 2 h (`preview-sweep`). Container, network and volume are all
     `previewTarget(runId).container`; the network is `--internal`.
   - **Browser** (`browse_preview`): offered in `PREVIEW_STAGES` (testing) with `tests.run` and previews on. One
-    container per call on the preview's network (`--add-host`: Docker's DNS doesn't work under gVisor). The agent log
-    keeps the path and the first line (`browseReport`, never page text) plus the screenshot key; the client only gets
-    `RunLogStep.screenshot: boolean`. Tool call sites use `callTool` (output + log step).
+    container per call on the preview's network (`--add-host`: Docker's DNS doesn't work under gVisor). Viewports
+    desktop / tablet / mobile, `color_scheme` light / dark. The agent log keeps the path and the first line
+    (`browseReport`, never page text) plus the screenshot key; the client only gets `RunLogStep.screenshot: boolean`.
+    A model with vision also gets the screenshot, as a `techteam-screenshot:<uuid>` placeholder resolved only under
+    the run's own key (`runScreenshotKey`). Tool call sites use `callTool` (output + log step + images). The image tag
+    (`BROWSER_IMAGE`) carries a scripts revision: bump it when anything in `deploy/browser/` changes.
+  - **References** (`list_references`, `read_reference`): offered in every stage when the card has references, read-only,
+    loaded every turn. Text and PDF text come back paged; images as image input, **never stored**: the conversation
+    (and OpenAI's pending outputs) keep a placeholder that `lib/reference-images.ts` hydrates from S3 per request (a
+    removed reference becomes a note). Keep the fixed-position rules of `agent_run_messages`. A model without `vision`
+    gets a note instead of the image. The agent log keeps the reference's name only. The protocol frames references as
+    the owner's requirements but data; the Analyst's brief lists the ones to follow (`AnalystBrief.references`).
+    A link comes back as its outline plus both screenshots, framed as third-party content (`LINK_FRAME`: structure and
+    style only, never its logos, brand names, images or texts). Run and auto pickup refuse a card with images or links
+    when the Analyst or the Developer can't see them, or the Tester while previews are on (`referenceVisionStages`,
+    `referenceModelProblem`; pickup then takes the next card without them, `nextPickupTask`); models are never
+    switched for the user. With a browser and images or links, the Tester's protocol compares the preview with them
+    (closest viewport, light and dark; a clear mismatch is a test fail).
   - **Permissions are enforced as tools** (`toolsFor` in `lib/agent-tools.ts`). Adding a capability = a tool gated by a
     permission there, not a prompt instruction. ("Skills" are knowledge, not capabilities: see Agent skills below.) Agents never write `.github/workflows/`, `.env*` (except `.env.example`) or
-    `.git/`; manifests need `deps.manage`. Tool output is untrusted data — the stage protocol in `systemPrompt` says so.
+    `.git/`; manifests need `deps.manage` (adding a package: `add_dependency`). The rules live in `lib/repo-paths.ts`
+    and apply to merge resolutions too. Tool output is untrusted data — the stage protocol in `systemPrompt` says so.
+  - **Merging the default branch** (`lib/branch-merge.ts`, Developer with `code.write` on its branch): `merge_default_branch`
+    tries GitHub's merge API (`POST /merges`: a real merge commit); on a conflict it plans the merge from the merge base's,
+    the branch's and the default branch's trees (`planMerge`), merges overlapping-but-compatible files line by line
+    (`mergeText`), takes the default branch's lockfiles, and refuses (nothing changed, the owner merges) protected
+    paths, links/submodules, binary or > 200 KB files, manifests without `deps.manage` and more than 20 conflicts. The
+    rest wait in `agent_runs.pending_merge` (shas only; resolutions are blobs in the repository): `read_conflict` shows a
+    file with markers (recomputed, never stored), `resolve_conflict` refuses leftover markers and stores a blob,
+    `finish_merge` commits the default branch's tree + the branch's own changes + the resolutions with parents [branch
+    head, default head] and moves the ref fast-forward only; either head moving drops the merge (start over). While a
+    merge is open the write tools and `add_dependency` are refused; each development stage starts with none. The Tester's
+    pre-check **Merges cleanly** fails a PR GitHub reports as conflicting, so it goes back to the Developer. GitHub
+    refuses merges that bring in workflow changes without the `workflow` scope: the tool says so, the owner updates
+    the branch.
   - **Each agent picks its company and model** (AI Team → Configure: a Company select, then that company's models via
     `modelsFor`; changing company picks the closest tier, `agentModelFor`). `agents.model` is the model and its
     `provider` is the agent's company; read it with `activeAgentModel(row)`. Every company with a key is available
@@ -640,8 +765,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     rewrite instead of duplicating. Never log tool *content* (file reads, diffs): only targets and short confirmations
     or errors (`toolStep`). The log sheet shows parallel stages as separate blocks, both live at once.
   - **Simulated mode** (`AGENTS_SIMULATED=true`) scripts every stage, including Security (pass) and the Lead (approve,
-    low risk), so the whole flow runs without a model. With the sandbox on, the Developer and the Tester also call
-    `run_tests` and `run_build` for real, and with previews on the Tester browses `/`.
+    low risk), so the whole flow runs without a model. On a card with references each stage lists them and reads the first. With the sandbox on, the Developer and the Tester also call
+    `run_tests` and `run_build` for real, and with previews on the Tester browses `/` (tablet, dark).
   - **Out of credit** (`isOpenAIOutOfCredit` / `isAnthropicOutOfCredit` / `isOpenRouterOutOfCredit`) is not a generic failure: the run stops with
     `agent_runs.failure = { kind: "out_of_credit", provider }` and the board offers switch-and-retry
     (`switchProviderAndRetryAction`: moves the agents still on that company to `fallbackProvider`, the first other
@@ -740,5 +865,5 @@ See `.env.example` for the full list with comments. Feature-specific:
 | `PUBLIC_APP_URL` | The app's internet-reachable URL for callbacks (jobs, Switch evaluations); defaults to `NEXT_PUBLIC_APP_URL`. A tunnel in local dev. |
 | `SWITCH_AGENT_AI_API_KEY` | Optional server-wide Switch Trust key (Editor role) for workspaces that connect without their own. |
 | `SANDBOX_DOCKER_HOST`, `SANDBOX_IMAGE` | Agent sandboxes: the Docker host (`ssh://…` to a VPS set up with `deploy/setup.sh`, or the local socket on it). Unset: Settings → Sandbox can't be switched on. |
-| `SANDBOX_PREVIEW_DOMAIN`, `SANDBOX_BROWSER_IMAGE` | PR previews at `pr-<n>-<random>.<domain>` (wildcard DNS to the sandbox host) and the Tester's browser image. Unset domain: previews can't be switched on. |
+| `SANDBOX_PREVIEW_DOMAIN`, `SANDBOX_BROWSER_IMAGE` | PR previews at `pr-<n>-<random>.<domain>` (wildcard DNS to the sandbox host) and the sandbox browser image (the Tester's browser, link captures). Unset domain: previews can't be switched on. |
 | `AGENTS_SIMULATED` | Local testing: `true` runs the pipeline with scripted agents (`lib/agent-simulated.ts`) — no model calls or spend, but real GitHub work (branch, `agent-simulations/<branch>.md`, PR). |

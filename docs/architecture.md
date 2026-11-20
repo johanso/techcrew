@@ -29,7 +29,7 @@ How the app is put together. For coding conventions and the design system, see [
 | Database | **PostgreSQL** + **Drizzle ORM** (`postgres` driver) | Schema in `db/schema.ts`; SQL migrations in `drizzle/` (`db:generate`, `db:migrate`). |
 | Auth | **Hosted Better Auth** on CloudHike | Called over HTTP from `lib/auth.ts` (no SDK). |
 | GitHub | OAuth App + REST API v3 (`2022-11-28`) | Plain `fetch` in `lib/github.ts`; no Octokit. |
-| File storage | AWS S3 (`@aws-sdk/client-s3`) | Private bucket for workspace logos. |
+| File storage | AWS S3 (`@aws-sdk/client-s3`) | Private bucket for workspace logos, the Tester's screenshots and card references. |
 | Background jobs | **Inngest** v3 | Durable functions served at `/api/inngest`. |
 | Background HTTP jobs | **Cloudhike Jobs** | SwitchAgent scans: a job calls `/api/switch-trust/scans/<id>` back (`lib/jobs.ts`). |
 | Agent sandboxes | **Docker** + **gVisor** on a VPS | The `docker` CLI over SSH (`SANDBOX_DOCKER_HOST`), no SDK; throwaway containers per call (`lib/sandbox/`). See [sandbox.md](sandbox.md). |
@@ -81,7 +81,11 @@ lib/                         Server logic (most files start with `import "server
   board-config.ts            Board vocabulary shared by server and client (no server-only)
   crypto.ts                  AES-256-GCM encrypt/decrypt
   ai-keys.ts                 Workspace AI provider keys (encrypted; env fallback), verification, masking
-  storage.ts                 S3 uploads and reads
+  storage.ts                 S3 uploads, reads and deletes
+  reference-config.ts        Card references: kinds, limits, type by magic bytes, image size, what agents read (pure, shared)
+  references.ts              Card references: upload (S3 + PDF text), list, remove, delete with the card; agent reads
+  reference-images.ts        Reference images as model input per provider, placeholders hydrated from S3 (pure)
+  reference-pdf.ts           PDF text at upload (unpdf, page and character caps)
   agents.ts                  Agents persistence, team view, activity/spend ledger, task key prefix
   agent-config.ts            Agent roles, permissions, models (shared client/server)
   agent-trust.ts             Trust Score rule scan, incl. enabled skills' scan findings (pure)
@@ -103,8 +107,13 @@ lib/                         Server logic (most files start with `import "server
   agent-loop.ts              One model turn with function tools (OpenAI Responses, Anthropic Messages or OpenRouter
                              Chat Completions)
   agent-simulated.ts         Scripted agents for AGENTS_SIMULATED=true
-  agent-tools.ts             Agent tools on the GitHub API, gated by stage and permissions; search_skill/read_skill
-  pull-requests.ts           Agent PRs: merge, Tester follow-up on conflicts/failing builds, refresh, list
+  agent-tools.ts             Agent tools on the GitHub API, gated by stage and permissions; search_skill/read_skill;
+                             list_references/read_reference; the merge tools
+  repo-paths.ts              Which paths agents may write (protected paths, manifests, lockfiles)
+  branch-merge.ts            merge_default_branch and conflict resolution through the Git Data API
+  merge-config.ts, diff3.ts  Pure: the merge's tree plan, rules, answers and briefs; the three-way line merge
+  pull-requests.ts           Agent PRs: merge, Tester follow-up on conflicts/failing builds, runs that continue a PR
+                             (createCardRun), refresh, list
   openai.ts                  OpenAI client and cost accounting
   anthropic.ts               Anthropic client, cost accounting, tool schema conversion
   openrouter.ts              OpenRouter client (Chat Completions), routing rules, reported cost, out-of-credit

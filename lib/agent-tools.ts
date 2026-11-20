@@ -5,33 +5,48 @@ import type { FunctionTool } from "openai/resources/responses/responses";
 import type { PermissionId } from "@/lib/agent-config";
 import type { AgentStage } from "@/lib/agent-run-config";
 import { readSkill, searchSkill, type AgentSkill } from "@/lib/agent-skills";
+import { finishMerge, mergeDefaultBranch, mergeWriteBlock, readConflict, resolveConflict, type MergeContext } from "@/lib/branch-merge";
+import { READ_REFERENCE_MAX_CHARS } from "@/lib/reference-config";
+import { screenshotIdOf, screenshotImage, type ToolImage } from "@/lib/reference-images";
+import { listReferencesForAgent, readReferenceForAgent, type AgentReference } from "@/lib/references";
 import {
   GithubError,
+  commitFiles,
   compareBranches,
   deleteRepoFile,
   getBranchSha,
   getCommitChecks,
   getRepoFile,
   listRepoFiles,
+  listRootFiles,
   putRepoFile,
   searchRepoCode,
 } from "@/lib/github";
-import { runRepoCommand } from "@/lib/sandbox";
+import { addRepoDependency, runRepoCommand } from "@/lib/sandbox";
 import { browsePreview } from "@/lib/sandbox/browser";
-import { BROWSE_ACTIONS, BROWSE_STEPS_MAX, PREVIEW_STAGES, browseReport, parseBrowseArgs } from "@/lib/sandbox/browser-config";
+import { BROWSE_ACTIONS, BROWSE_COLOR_SCHEMES, BROWSE_STEPS_MAX, PREVIEW_STAGES, browseReport, parseBrowseArgs, type ScreenshotDelivery } from "@/lib/sandbox/browser-config";
+import { addDependencyCommand, dependencyChange, dependencyPlan, dependencyReadFiles, dependencyReport, dependencySpec, parseDependencyArgs } from "@/lib/sandbox/dependency-config";
 import { SANDBOX_COMMAND_MAX, SANDBOX_STAGES, parseSandboxCommand, sandboxReport, type SandboxCommands } from "@/lib/sandbox/config";
+import { cleanRepoPath as cleanPath, pathWriteRefusal } from "@/lib/repo-paths";
 import { isStorageConfigured, uploadRunScreenshot } from "@/lib/storage";
 
 /**
  * The tools an agent can call while it works a stage, backed by the GitHub API with the workspace owner's token.
  * What an agent gets depends on its stage and its granted permissions, so permissions are enforced, not just declared.
- * Agents with skills switched on also get search_skill and read_skill (read-only, any stage). With the workspace's sandbox on,
+ * Agents with skills switched on also get search_skill and read_skill (read-only, any stage), and on a card with references
+ * every agent gets list_references and read_reference (read-only; images come back as image input). With the workspace's sandbox on,
  * "Run tests in a sandbox" adds run_tests, run_build and run_command on the working branch (lib/sandbox), and with
  * previews on too, browse_preview for the Tester: a headless browser on the run's live preview (lib/sandbox/browser.ts).
+ * "Manage dependencies" with the sandbox on gives the Developer add_dependency (npm resolves the package in the sandbox,
+ * then one commit of package.json and the lockfile through the GitHub API).
+ * The Developer also gets the merge tools (lib/branch-merge.ts): merge_default_branch brings the default branch into the
+ * working branch, read_conflict / resolve_conflict / finish_merge resolve its conflicts and commit the merge.
  * Every result is a string for the model; recoverable errors are returned as text so the agent can adjust.
  */
 
 export type ToolContext = {
+  /** The run (the merge tools keep a merge in progress on it). */
+  runId: number;
   token: string;
   repo: string;
   defaultBranch: string;
@@ -43,8 +58,16 @@ export type ToolContext = {
   skills: AgentSkill[];
   /** The workspace's sandbox when it's switched on and the server has a host (Settings → Sandbox), else null. */
   sandbox: { runId: number; commands: SandboxCommands } | null;
-  /** The run's preview when the sandbox and previews are on (Settings → Sandbox), else null: browse_preview. */
-  preview: { workspaceId: number; runId: number } | null;
+  /**
+   * The run's preview when the sandbox and previews are on (Settings → Sandbox), else null: browse_preview. `vision`:
+   * the stage's model sees images, so each screenshot is also attached for it (as a placeholder, lib/reference-images.ts).
+   */
+  preview: { workspaceId: number; runId: number; vision: boolean } | null;
+  /**
+   * The card's references (lib/references.ts) and whether the stage's model can see images; null or empty: no
+   * reference tools. read_reference returns an image only when `vision` is true.
+   */
+  references: { items: AgentReference[]; vision: boolean } | null;
 };
 
 const OUTPUT_MAX = 24_000;
@@ -52,28 +75,10 @@ const LIST_MAX = 400;
 const READ_LINES_MAX = 500;
 const WRITE_BYTES_MAX = 200_000;
 
-// Files no agent may write: CI definitions (could exfiltrate secrets), env files (.env.example is fine), git internals.
-const PROTECTED = [/^\.github\/workflows\//, /(^|\/)\.env(\.(?!example$)[^/]*)?$/, /(^|\/)\.git\//];
-// Dependency manifests and lockfiles need the "Manage dependencies" permission.
-const MANIFESTS =
-  /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|requirements[^/]*\.txt|pyproject\.toml|poetry\.lock|Pipfile(\.lock)?|go\.(mod|sum)|Cargo\.(toml|lock)|Gemfile(\.lock)?|composer\.(json|lock)|pom\.xml|build\.gradle(\.kts)?)$/;
-
 const clip = (text: string, max = OUTPUT_MAX) => (text.length > max ? `${text.slice(0, max)}\n… [truncated ${text.length - max} characters]` : text);
 
-function cleanPath(path: unknown) {
-  if (typeof path !== "string") return null;
-  const trimmed = path.trim().replace(/^\.\//, "");
-  if (!trimmed || trimmed.startsWith("/") || trimmed.split("/").some((part) => part === ".." || part === "")) return null;
-  return trimmed;
-}
-
-function writeRefusal(ctx: ToolContext, path: string) {
-  if (PROTECTED.some((pattern) => pattern.test(path))) return `Refused: ${path} is protected (CI workflows, env files and git internals can't be changed by agents).`;
-  if (MANIFESTS.test(path) && !ctx.permissions.includes("deps.manage")) {
-    return `Refused: ${path} is a dependency manifest and this agent doesn't have the "Manage dependencies" permission. Solve it without new dependencies, or explain in your result that a dependency is needed.`;
-  }
-  return null;
-}
+// Protected paths and manifests: lib/repo-paths.ts (the merge tools use the same rules).
+const writeRefusal = (ctx: ToolContext, path: string) => pathWriteRefusal(path, ctx.permissions);
 
 // ── Definitions ────────────────────────────────────────────────────────────────
 
@@ -126,6 +131,18 @@ const TOOLS = {
     "Run the repository's tests in a sandbox on the working branch's latest commit (dependencies are installed first). Returns passed or failed and the end of the output.",
     {}
   ),
+  add_dependency: fn(
+    "add_dependency",
+    "Add an npm package to the repository: npm resolves it in a sandbox (with network, no install scripts) and package.json and the lockfile are committed to the working branch as one commit. The only way to add a package: never edit dependencies in package.json or the lockfile by hand.",
+    {
+      name: { type: "string", description: 'The npm package name, e.g. "@fontsource/inter" or "zod". No URLs, repositories or paths.' },
+      version: {
+        type: ["string", "null"],
+        description: 'An exact version ("5.2.5"), one simple range ("^5.2.0", "~5.2", "5.x") or null for the latest release.',
+      },
+      dev: { type: "boolean", description: "true for devDependencies (tests, build tools, types); false for dependencies the app uses at runtime." },
+    }
+  ),
   run_build: fn("run_build", "Run the repository's build in a sandbox on the working branch's latest commit. Returns passed or failed and the end of the output.", {}),
   run_command: fn(
     "run_command",
@@ -142,7 +159,12 @@ const TOOLS = {
       type: "object",
       properties: {
         path: { type: "string", description: 'The path to open first, on the preview, e.g. "/" or "/settings?tab=team". Not a full URL.' },
-        viewport: { type: "string", enum: ["desktop", "mobile"], description: "desktop is 1280×800; mobile is 375×812 with touch." },
+        viewport: {
+          type: "string",
+          enum: ["desktop", "tablet", "mobile"],
+          description: "desktop is 1280×800; tablet is 768×1024 and mobile 375×812, both with touch. Pick the one closest to a reference image's width.",
+        },
+        color_scheme: { type: "string", enum: [...BROWSE_COLOR_SCHEMES], description: "The prefers-color-scheme the page sees: light or dark." },
         steps: {
           type: "array",
           description: `Up to ${BROWSE_STEPS_MAX} steps, run in order after the page loads; an empty list only opens the page. Name each element with exactly one of: role (with name), text or selector.`,
@@ -166,10 +188,47 @@ const TOOLS = {
           },
         },
       },
-      required: ["path", "viewport", "steps"],
+      required: ["path", "viewport", "color_scheme", "steps"],
       additionalProperties: false,
     },
   },
+  list_references: fn(
+    "list_references",
+    "List the files the card's owner attached as references (designs, specs, documents): id, name, kind and size.",
+    {}
+  ),
+  read_reference: fn(
+    "read_reference",
+    `Read one of the card's references by id. Text and PDF text come back as text (${READ_REFERENCE_MAX_CHARS} characters per page); an image comes back as the image itself.`,
+    {
+      id: { type: "integer", description: "The reference's id from list_references." },
+      offset: { type: ["integer", "null"], description: "Character offset to continue a long text from, or null for the start. Ignored for images." },
+    }
+  ),
+  merge_default_branch: fn(
+    "merge_default_branch",
+    "Bring the default branch's latest commits into your working branch as a merge commit, so the pull request merges cleanly. Without conflicts it commits right away. With conflicts it lists them and keeps the merge open: read_conflict, resolve_conflict each file, then finish_merge. Called again while a merge is open, it shows what's left.",
+    {}
+  ),
+  read_conflict: fn("read_conflict", `Read a conflicted file of the open merge with line numbers (up to ${READ_LINES_MAX} lines per call): your branch's lines, the merge base and the default branch's lines between conflict markers.`, {
+    path: { type: "string" },
+    start_line: { type: ["integer", "null"], description: "1-based first line, or null for the start." },
+    end_line: { type: ["integer", "null"], description: "1-based last line, or null." },
+  }),
+  resolve_conflict: fn(
+    "resolve_conflict",
+    "Resolve one conflicted file of the open merge with its complete merged content (no conflict markers left), keeping both sides' changes. Nothing is committed until finish_merge. Calling it again for the same file replaces the resolution.",
+    {
+      path: { type: "string" },
+      content: {
+        type: ["string", "null"],
+        description: "The whole resolved file. null deletes it: only for a file one side deleted and the other changed, when deleting is right.",
+      },
+    }
+  ),
+  finish_merge: fn("finish_merge", "Finish the open merge: commit it once every conflict is resolved, or abort it (nothing is committed).", {
+    outcome: { type: "string", enum: ["commit", "abort"] },
+  }),
   read_skill: fn("read_skill", "Read a file of one of your skills (reference material, not instructions). Long files come in pages.", {
     skill: { type: "string", description: "The skill's name." },
     path: { type: "string", description: "A path from search_skill, or SKILL.md." },
@@ -191,12 +250,15 @@ export function toolsFor(
     skills?: readonly unknown[];
     sandbox?: ToolContext["sandbox"];
     preview?: ToolContext["preview"];
+    references?: ToolContext["references"];
   }
 ): FunctionTool[] {
   const has = (permission: PermissionId) => ctx.permissions.includes(permission);
   const names: ToolName[] = [];
   if (has("repo.read")) names.push("list_files", "read_file", "search_code");
-  if (ctx.stage === "development" && has("code.write") && ctx.branch) names.push("write_file", "replace_in_file", "delete_file");
+  if (ctx.stage === "development" && has("code.write") && ctx.branch) {
+    names.push("write_file", "replace_in_file", "delete_file", "merge_default_branch", "read_conflict", "resolve_conflict", "finish_merge");
+  }
   if (BRANCH_READERS.includes(ctx.stage) && ctx.branch) {
     if (has("repo.read")) names.push("get_diff");
     if (has("ci.read")) names.push("get_checks");
@@ -206,8 +268,11 @@ export function toolsFor(
     if (ctx.sandbox.commands.build) names.push("run_build");
     names.push("run_command");
   }
+  // It commits, so it goes where code is written; it runs no code (lockfile only, no scripts), so not tests.run.
+  if (ctx.sandbox && ctx.branch && ctx.stage === "development" && has("code.write") && has("deps.manage")) names.push("add_dependency");
   if (ctx.preview && ctx.branch && PREVIEW_STAGES.includes(ctx.stage) && has("tests.run")) names.push("browse_preview");
   if (ctx.skills?.length) names.push("search_skill", "read_skill");
+  if (ctx.references?.items.length) names.push("list_references", "read_reference");
   return names.map((name) => TOOLS[name]);
 }
 
@@ -215,8 +280,12 @@ export function toolsFor(
 
 const ref = (ctx: ToolContext) => ctx.branch ?? ctx.defaultBranch;
 
-/** What a tool returns: the text for the model, plus a screenshot's storage key for the agent log (browse_preview). */
-type ToolOutput = { text: string; screenshotKey: string | null };
+/**
+ * What a tool returns: the text for the model, plus a screenshot's storage key for the agent log (browse_preview),
+ * images for the model (read_reference, and browse_preview's screenshot for a model that sees) and the log target when
+ * the arguments don't name it (a reference's name).
+ */
+type ToolOutput = { text: string; screenshotKey: string | null; images?: ToolImage[]; target?: string | null };
 
 async function run(ctx: ToolContext, name: string, args: Record<string, unknown>): Promise<string | ToolOutput> {
   switch (name as ToolName) {
@@ -251,7 +320,7 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
     case "write_file": {
       const path = cleanPath(args.path);
       if (!path || !ctx.branch) return "Error: invalid path.";
-      const refusal = writeRefusal(ctx, path);
+      const refusal = writeRefusal(ctx, path) ?? (await mergeWriteBlock(ctx.runId));
       if (refusal) return refusal;
       const content = typeof args.content === "string" ? args.content : "";
       if (Buffer.byteLength(content) > WRITE_BYTES_MAX) return "Error: file too large for one write.";
@@ -263,7 +332,7 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
     case "replace_in_file": {
       const path = cleanPath(args.path);
       if (!path || !ctx.branch) return "Error: invalid path.";
-      const refusal = writeRefusal(ctx, path);
+      const refusal = writeRefusal(ctx, path) ?? (await mergeWriteBlock(ctx.runId));
       if (refusal) return refusal;
       const oldText = typeof args.old_text === "string" ? args.old_text : "";
       const newText = typeof args.new_text === "string" ? args.new_text : "";
@@ -279,7 +348,7 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
     case "delete_file": {
       const path = cleanPath(args.path);
       if (!path || !ctx.branch) return "Error: invalid path.";
-      const refusal = writeRefusal(ctx, path);
+      const refusal = writeRefusal(ctx, path) ?? (await mergeWriteBlock(ctx.runId));
       if (refusal) return refusal;
       const file = await getRepoFile(ctx.token, ctx.repo, path, ctx.branch);
       if (!file) return `Error: ${path} not found on ${ctx.branch}.`;
@@ -317,6 +386,16 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
       const run = await runRepoCommand({ token: ctx.token, repo: ctx.repo, ref: sha, runId: ctx.sandbox.runId, install: ctx.sandbox.commands.install, command });
       return sandboxReport(run);
     }
+    case "add_dependency":
+      return addDependency(ctx, args);
+    case "merge_default_branch":
+      return { text: await mergeDefaultBranch(mergeContext(ctx)), screenshotKey: null, target: ctx.branch ? `${ctx.defaultBranch} → ${ctx.branch}` : null };
+    case "read_conflict":
+      return readConflict(mergeContext(ctx), args);
+    case "resolve_conflict":
+      return resolveConflict(mergeContext(ctx), args);
+    case "finish_merge":
+      return finishMerge(mergeContext(ctx), args);
     case "browse_preview": {
       if (!ctx.preview) return "Error: previews aren't available.";
       const parsed = parseBrowseArgs(args);
@@ -324,15 +403,86 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
       const browsed = await browsePreview(ctx.preview.runId, parsed.value);
       if (browsed.kind !== "done") return browseReport(parsed.value, browsed);
       const screenshotKey = await saveScreenshot(ctx.preview, browsed.screenshot);
-      return { text: browseReport(parsed.value, { kind: "done", output: browsed.output, screenshotSaved: screenshotKey !== null }), screenshotKey };
+      // The model sees the screenshot only as a placeholder of this run's own file; the agent log keeps the key.
+      const shotId = screenshotKey && ctx.preview.vision ? screenshotIdOf(screenshotKey) : null;
+      const delivery: ScreenshotDelivery = !screenshotKey ? "none" : shotId ? "attached" : ctx.preview.vision ? "saved" : "saved_no_vision";
+      return {
+        text: browseReport(parsed.value, { kind: "done", output: browsed.output, screenshot: delivery }),
+        screenshotKey,
+        images: shotId ? [screenshotImage(shotId)] : [],
+      };
     }
     case "search_skill":
       return searchSkill(ctx.skills, args.skill, args.query);
     case "read_skill":
       return readSkill(ctx.skills, args.skill, args.path, args.offset);
+    case "list_references":
+      return listReferencesForAgent(ctx.references?.items ?? [], ctx.references?.vision ?? false, Boolean(ctx.preview && PREVIEW_STAGES.includes(ctx.stage)));
+    case "read_reference": {
+      const read = await readReferenceForAgent(ctx.references?.items ?? [], args.id, args.offset, ctx.references?.vision ?? false);
+      return { text: read.text, screenshotKey: null, images: read.images, target: read.target };
+    }
     default:
       return `Error: unknown tool ${name}.`;
   }
+}
+
+/**
+ * add_dependency: validate, check the repository uses npm, install in the sandbox (lockfile only), then commit
+ * package.json and the lockfile as one commit on top of the commit that was installed on. The log target is the spec.
+ */
+async function addDependency(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolOutput> {
+  const parsed = parseDependencyArgs(args);
+  if (!parsed.ok) return textOutput(`Error: ${parsed.error}`);
+  const request = parsed.value;
+  const result = (text: string): ToolOutput => ({ text, screenshotKey: null, target: `${dependencySpec(request)}${request.dev ? " (dev)" : ""}` });
+  if (!ctx.sandbox || !ctx.branch) return result("Error: the sandbox isn't available.");
+  const merging = await mergeWriteBlock(ctx.runId);
+  if (merging) return result(merging);
+
+  const sha = await getBranchSha(ctx.token, ctx.repo, ctx.branch);
+  if (!sha) return result(`Error: branch ${ctx.branch} not found.`);
+  const plan = dependencyPlan(await listRootFiles(ctx.token, ctx.repo, sha));
+  if (!plan.ok) return result(`Error: ${plan.error}`);
+
+  const installed = await addRepoDependency({
+    token: ctx.token,
+    repo: ctx.repo,
+    ref: sha,
+    runId: ctx.sandbox.runId,
+    command: addDependencyCommand(request),
+    files: dependencyReadFiles(plan),
+  });
+  if (installed.failedStep || !installed.files) return result(sandboxReport(installed));
+  const change = dependencyChange(request, plan, installed.files);
+  if (!change.ok) return result(`Error: ${change.error}`);
+
+  let commit: string | null;
+  try {
+    commit = await commitFiles(ctx.token, ctx.repo, {
+      branch: ctx.branch,
+      parentSha: sha,
+      message: `Add ${request.name}@${change.version ?? change.range}${request.dev ? " (dev)" : ""}`,
+      files: change.files,
+    });
+  } catch (error) {
+    // The ref only fast-forwards: a commit landed while npm worked, so these files are stale.
+    if (error instanceof GithubError && error.status === 422) return result(`Error: ${ctx.branch} moved while the package was being added. Call add_dependency again.`);
+    throw error;
+  }
+  return result(dependencyReport({ request, change, branch: ctx.branch, commit }));
+}
+
+function mergeContext(ctx: ToolContext): MergeContext {
+  return {
+    token: ctx.token,
+    repo: ctx.repo,
+    defaultBranch: ctx.defaultBranch,
+    branch: ctx.branch,
+    runId: ctx.runId,
+    permissions: ctx.permissions,
+    canAddDependency: toolsFor(ctx).some((tool) => tool.name === "add_dependency"),
+  };
 }
 
 /** Stores a browse_preview screenshot for the agent log. Best effort: without storage, or on an error, the log has none. */
@@ -368,11 +518,21 @@ async function executeTool(ctx: ToolContext, allowed: FunctionTool[], name: stri
   }
 }
 
-/** Runs one tool call and returns its output for the model with its agent log step (toolStep, plus a screenshot key). */
-export async function callTool(ctx: ToolContext, allowed: FunctionTool[], name: string, rawArgs: string): Promise<{ output: string; step: ToolStep }> {
-  const { text, screenshotKey } = await executeTool(ctx, allowed, name, rawArgs);
-  const step = toolStep(name, rawArgs, text);
-  return { output: text, step: screenshotKey ? { ...step, screenshotKey } : step };
+/**
+ * Runs one tool call and returns its output for the model with its agent log step (toolStep, plus a screenshot key),
+ * and the images to attach (a reference read, a browser screenshot): the provider loop sends them; the log never
+ * holds them.
+ */
+export async function callTool(
+  ctx: ToolContext,
+  allowed: FunctionTool[],
+  name: string,
+  rawArgs: string
+): Promise<{ output: string; step: ToolStep; images: ToolImage[] }> {
+  const { text, screenshotKey, images, target } = await executeTool(ctx, allowed, name, rawArgs);
+  let step = toolStep(name, rawArgs, text);
+  if (target) step = { ...step, target };
+  return { output: text, step: screenshotKey ? { ...step, screenshotKey } : step, images: images ?? [] };
 }
 
 /** One tool call, for the card's agent log. */
@@ -388,7 +548,7 @@ export type ToolStep = {
 };
 
 // Tools whose output is content (a file, a listing, a diff): logging it would copy the repo into the database.
-const READ_TOOLS = new Set(["list_files", "read_file", "search_code", "get_diff", "search_skill", "read_skill"]);
+const READ_TOOLS = new Set(["list_files", "read_file", "search_code", "get_diff", "search_skill", "read_skill", "list_references", "read_reference", "read_conflict"]);
 const SUMMARY_MAX = 200;
 
 /**

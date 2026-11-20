@@ -105,27 +105,71 @@ Run TechTeam itself on the VPS, so nothing has to run on a laptop: open `https:/
 - **Project skills**: read skills from the linked repository (e.g. `.agents/skills/`, `.claude/skills/`) as a third
   source (`agent_skills.source = 'project'` is reserved), scanned like uploads.
 
-### v0.7 — Designer agent and sandbox polish
-The next step on the sandbox (milestones 1 and 2 shipped in v0.5), tested against `techteam-sandbox-demo`.
-1. **Designer agent** (seventh role, a reviewer first)
-   - Reviews in parallel with the Reviewer and Security: screenshots of the changed pages at 375 / 768 / 1280 px in
-     light and dark from the run's preview (`browse_preview` with `PREVIEW_STAGES` including `review`), read by a
-     vision model; findings go to the Lead.
-   - Face, defaults, AI Team card, live process and metrics like every role.
-2. **Sandbox polish**
+### v0.7 — Card references and sandbox polish
+The owner designs and specifies outside TechTeam (a design tool, a document); the agents build from it. Tested against
+`techteam-sandbox-demo`.
+1. **References on a card**
+   - Attach images (PNG, JPEG, WebP), Markdown or text and PDFs to a card, plus reference URLs. Private S3 like logos,
+     served through owner-checked routes; limits on count and size. Files and extracted PDF text live in S3; the
+     database keeps only a small row per reference. Removing the card deletes its references.
+   - A reference URL is captured once, when it's added (screenshot + page outline, by the sandbox browser with network
+     but no access to anything internal), and kept as an attachment: agents never browse the internet.
+   - Agents read references on demand, like skills (`list_references` / `read_reference`): Markdown and PDF text as
+     text, images as image input. The Analyst's brief says which references matter; the Developer follows them.
+   - Models that see images are flagged in `AGENT_MODELS`; Run warns when a card has images and the Developer's model
+     can't see them (DeepSeek can't). Image input per provider (OpenAI, Anthropic, OpenRouter), also from tool results.
+   - References are the owner's requirements but still data: they can't change the operating protocol or add tools.
+   - Done: files (phase 1) and links (`lib/sandbox/capture.ts`: a checking proxy keeps the browser off private
+     networks; the Tester also counts in the vision check while previews are on).
+2. **The Tester compares with the reference**: screenshots of the preview at the reference's size (375 / 768 / 1280 px,
+   light and dark) seen next to it; a clear difference is a test fail and goes back to the Developer. Feeding the
+   Tester's own screenshots to its model comes with this (today they only reach the agent log).
+   Done in code (tablet viewport, color scheme, screenshots as image input, the testing protocol); not yet seen live.
+3. **A UI/UX skill**: a built-in design skill (vendored with its license) for the Developer and the Tester, so a rough
+   image becomes a good page (spacing, states, accessibility, mobile, dark mode) instead of a copy of its flaws.
+   Done: `interface-design` (Dammyjay93/interface-design, MIT), with a usage note for references and the preview.
+4. **Sandbox polish**
    - Sandbox numbers on the Metrics page; limits per workspace; cleanup of stale containers, previews, images and
      screenshot objects (they stay in S3 today).
-   - Still unseen live: the Developer fixing a failure it found, and a preview stopping on merge.
+   - Still unseen live: the Developer fixing a failure it found.
+   - Merge conflicts: the follow-up card a conflict files ("Fix merge of PR #n") can't be done by the agents. They have
+     no tool to bring the default branch into a PR branch, and running that card starts a new branch instead of fixing
+     the PR. Seen live 2026-11-19: SAN-2's PR #2 conflicted after SAN-3 and SAN-4 merged (SAN-5, issue #5).
+     Done in code (2026-11-20): running the follow-up card (or the original card again, or auto pickup) continues on
+     the conflicted PR, and the Developer's `merge_default_branch` / `read_conflict` / `resolve_conflict` /
+     `finish_merge` bring the default branch in as a two-parent merge commit through the GitHub API (pure diff3 in
+     `lib/diff3.ts`, no clone); the Tester's pre-check sends a conflicting PR back. Verified on a local git repository
+     in a unit test; not yet seen live (testing.md rows 73–78). Later: resolving one conflict section at a time
+     (today the Developer rewrites the whole file, costly for long files), and binary conflicts by picking a side.
+   - `add_dependency` (gated by `deps.manage`): installs a package in the sandbox with network and commits the
+     manifest and the lockfile to the branch. Today an agent can't add one: it can't regenerate the lockfile, so
+     `npm ci` fails. First use: a font the owner names in the card (`@fontsource/…`), bundled into the build, so it
+     loads in the preview (no internet there, so a Google Fonts `<link>` falls back) and no visitor request goes to a
+     font host. The owner picks fonts in the card's description; agents don't choose one on their own.
+     Done in code (npm only, lockfile-only install without scripts, one commit through the GitHub API; checked on
+     the sandbox host); not yet seen in a live run.
+   - Done: the capture network's private-range rules for the sandbox's install step too (`techteam-sandbox`, public
+     resolvers; the rules apply once `deploy/setup.sh` runs again on the host).
+   - Done: fonts with real bold weights in the browser image (`techteam-browser:1.64.1-3`: Inter for `system-ui`
+     stacks; run 52's screenshots showed `system-ui` headings and a 700-weight amount as regular).
+   - Done in code (not yet seen live): a run after one that stopped in development without a PR (out of turns,
+     budget) continues the earlier branch instead of starting over on `…-r<run>`, and a Developer that runs out of
+     turns with commits goes on to the Lead as unfinished work instead of failing (run 53: 40 turns, $0.87, no PR).
+     Requests per turn are lighter (OpenRouter folds older turns, Claude context editing, OpenAI compaction) and the
+     protocol asks for batched turns.
    - A Docker socket proxy for Caddy; an optional login in front of previews for private apps; a slimmer browser
      image pinned by digest; Draft with AI aware of the browser; git history inside the sandbox (`git diff` fails on a
      tarball checkout).
-3. Docs, test plan rows, CHANGELOG, release **v0.7.0**.
+5. Docs, test plan rows, CHANGELOG, release **v0.7.0**.
 
 ### v0.8 — Brain
 - A project memory every agent reads before working: repository conventions, decisions, what earlier cards learned.
   Kept per workspace, editable by the owner.
 
 ### Later
+- **Designer agent**: builds on v0.7's references and image input. Design QA first (the preview against the approved
+  reference), then a Design phase before development: two or three directions from the card's prompt as HTML mockups,
+  improved by looking at their own screenshots, and the owner picks one before the Developer starts.
 - **Production** step after merge (deploy, check, roll back).
 - Throughput: several cards at once per workspace.
 

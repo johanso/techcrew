@@ -6,6 +6,7 @@ import type { AnalystBrief, LeadDecision, ReviewReport, RunFailure, SecurityRepo
 import type { SkillScan } from "@/lib/agent-skills-config";
 import type { TrustReport } from "@/lib/agent-trust";
 import type { CiResult } from "@/lib/ci-gate";
+import type { PendingMerge } from "@/lib/merge-config";
 import type { RunPreview, StoredSandboxCommands } from "@/lib/sandbox/config";
 
 export const users = pgTable("users", {
@@ -368,6 +369,50 @@ export const taskEvents = pgTable(
 );
 
 /**
+ * A file the owner attached to a card for the agents to build from (an image, a Markdown or text file, a PDF), or a
+ * link captured once when it was added (two screenshots and an outline). The files, a PDF's extracted text and a
+ * link's outline live in private S3 (lib/references.ts); this row only says what and where, so it stays tiny. Deleted
+ * with its S3 objects when the card is removed (rows of a deleted workspace cascade).
+ */
+export const taskReferences = pgTable(
+  "task_references",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskId: integer("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    // REFERENCE_KINDS in lib/reference-config.ts: "image" | "text" | "pdf" | "link".
+    kind: text("kind").notNull(),
+    // Display name (the uploaded file's name, cleaned).
+    name: text("name").notNull(),
+    // Detected from the bytes, not the browser's claim.
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    // S3 key: card-references/<workspaceId>/<taskId>/<uuid>.<ext>. Never sent to a client.
+    storageKey: text("storage_key").notNull(),
+    // PDFs: S3 key of the extracted text (null when the PDF had none), its length and the page count. Links: the
+    // outline's key and length.
+    textKey: text("text_key"),
+    textLength: integer("text_length"),
+    pageCount: integer("page_count"),
+    // Images: pixel size. Links: the desktop screenshot's (storage_key).
+    width: integer("width"),
+    height: integer("height"),
+    // Links: the address the owner gave (http/https, checked) and the mobile screenshot's S3 key.
+    sourceUrl: text("source_url"),
+    mobileKey: text("mobile_key"),
+    createdById: integer("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("task_references_task_idx").on(table.taskId)]
+);
+
+export type TaskReferenceRow = typeof taskReferences.$inferSelect;
+
+/**
  * A workspace's Switch Trust account (Settings → Switch Trust). Agents are registered there and evaluated by it;
  * see lib/switch-trust.ts.
  */
@@ -467,6 +512,9 @@ export const agentRuns = pgTable(
     ci: jsonb("ci").$type<CiResult[]>(),
     // The run's live preview on the sandbox host (Settings → Sandbox → Previews), started after the CI gate.
     preview: jsonb("preview").$type<RunPreview>(),
+    // merge_default_branch waiting for the Developer to resolve conflicts (shas only, never file contents); cleared
+    // when the merge is committed or aborted, and when a development stage starts.
+    pendingMerge: jsonb("pending_merge").$type<PendingMerge>(),
     // Development rounds after the first one (the Lead or the tests sent the work back).
     reworkRounds: integer("rework_rounds").notNull().default(0),
     // Why the run stopped (failed / needs info / merge blocked), in words for the user.

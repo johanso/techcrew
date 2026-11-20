@@ -92,6 +92,27 @@
       "when": 1795091146801,
       "tag": "0012_agent_run_preview",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1795110870770,
+      "tag": "0013_card_references",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1795118041758,
+      "tag": "0014_card_reference_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1795171027558,
+      "tag": "0015_pending_merge",
+      "breakpoints": true
     }
   ]
 }

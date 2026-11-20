@@ -6,6 +6,7 @@ import { ExternalLinkIcon, PlusIcon, SaveIcon } from "lucide-react";
 
 import { GitHubIcon } from "@/components/auth/brand-icons";
 import { FormMessage } from "@/components/auth/form-parts";
+import { CardReferences } from "@/components/board/card-references";
 import { ISSUE_TYPE_META, PRIORITY_META } from "@/components/board/issue-meta";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -37,16 +38,24 @@ export type CardDialogMode =
 /** Resolves with an error message to show in the dialog, or nothing on success (the dialog closes). */
 export type CardDialogSubmit = (input: BoardCardInput) => Promise<string | void>;
 
+/**
+ * The References section's needs: the workspace, whether storage is set up, whether links can be captured (a sandbox
+ * host), and where a card's new count goes.
+ */
+export type CardDialogReferences = { workspaceId: number; enabled: boolean; links: boolean; onCountChange: (cardId: string, count: number) => void };
+
 export function CardDialog({
   open,
   onOpenChange,
   mode,
   onSubmit,
+  references,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: CardDialogMode;
   onSubmit: CardDialogSubmit;
+  references: CardDialogReferences;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -55,6 +64,7 @@ export function CardDialog({
         <CardForm
           key={mode.kind === "edit" ? mode.card.id : "new"}
           mode={mode}
+          references={references}
           onSubmit={async (input) => {
             const error = await onSubmit(input);
             if (!error) onOpenChange(false);
@@ -66,7 +76,7 @@ export function CardDialog({
   );
 }
 
-function CardForm({ mode, onSubmit }: { mode: CardDialogMode; onSubmit: CardDialogSubmit }) {
+function CardForm({ mode, onSubmit, references }: { mode: CardDialogMode; onSubmit: CardDialogSubmit; references: CardDialogReferences }) {
   const card = mode.kind === "edit" ? mode.card : null;
   // GitHub owns a synced card's title, description and labels (see lib/github-issues.ts).
   const synced = card?.github ?? null;
@@ -286,6 +296,16 @@ function CardForm({ mode, onSubmit }: { mode: CardDialogMode; onSubmit: CardDial
             </FieldDescription>
           </Field>
         </div>
+
+        {/* Board-owned, so GitHub-synced cards take references too. Saved as they're added, not with the form. */}
+        <CardReferences
+          workspaceId={references.workspaceId}
+          cardId={card?.id ?? null}
+          enabled={references.enabled}
+          links={references.links}
+          expected={card?.references ?? 0}
+          onCountChange={card ? (count) => references.onCountChange(card.id, count) : undefined}
+        />
       </FieldGroup>
 
       <div className="flex flex-col-reverse gap-3 border-t border-border/70 bg-muted/40 px-6 py-4 sm:flex-row sm:items-center sm:justify-end">

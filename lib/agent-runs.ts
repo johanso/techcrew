@@ -2,8 +2,9 @@ import "server-only";
 
 import { and, asc, desc, eq, inArray, isNull, max, min, ne, notExists, sql } from "drizzle-orm";
 
-import { agentRunSteps, agentRuns, db, pullRequests, tasks, workspaces, type AgentRunRow } from "@/db";
+import { agentRunSteps, agentRuns, db, pullRequests, taskReferences, tasks, workspaces, type AgentRunRow } from "@/db";
 import type { AgentKey, AgentModelId } from "@/lib/agent-config";
+import { VISUAL_REFERENCE_KINDS } from "@/lib/reference-config";
 import {
   ACTIVE_RUN_STATUSES,
   STAGE_META,
@@ -57,12 +58,15 @@ export async function updateRun(runId: number, patch: Partial<Omit<AgentRunRow, 
     .where(eq(agentRuns.id, runId));
 }
 
-/** A rerun replaces the card's earlier runs still waiting on a merge: their pull request now belongs to the new run. */
-export async function replaceWaitingRuns(taskId: number, newRunId: number) {
+/**
+ * A run that takes over a pull request replaces the earlier runs of these cards (the card, and the PR's own card when
+ * it's a follow-up) still waiting on a merge: their pull request now belongs to the new run.
+ */
+export async function replaceWaitingRuns(taskIds: number[], newRunId: number) {
   const replaced = await db
     .update(agentRuns)
     .set({ status: "cancelled", error: "Replaced by a new run on the same pull request.", finishedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(agentRuns.taskId, taskId), eq(agentRuns.status, "awaiting_merge"), ne(agentRuns.id, newRunId)))
+    .where(and(inArray(agentRuns.taskId, taskIds), eq(agentRuns.status, "awaiting_merge"), ne(agentRuns.id, newRunId)))
     .returning({ id: agentRuns.id });
   // The new run starts its own preview after its CI gate; the old one goes now, in the background.
   for (const { id } of replaced) void stopRunPreview(id, "Replaced by a new run on the same pull request.");
@@ -244,16 +248,37 @@ export async function findAutoPickupCandidates() {
 
   const picks: { workspaceId: number; taskId: number }[] = [];
   for (const { id } of enabled) {
-    const neverRun = db.select({ id: agentRuns.id }).from(agentRuns).where(eq(agentRuns.taskId, tasks.id));
-    const [task] = await db
-      .select({ id: tasks.id })
-      .from(tasks)
-      .where(and(eq(tasks.workspaceId, id), eq(tasks.status, "todo"), isNull(tasks.removedAt), notExists(neverRun)))
-      .orderBy(tasks.position, tasks.id)
-      .limit(1);
-    if (task) picks.push({ workspaceId: id, taskId: task.id });
+    const taskId = await nextPickupTask(id);
+    if (taskId !== null) picks.push({ workspaceId: id, taskId });
   }
   return picks;
+}
+
+/**
+ * The top Todo card of a workspace that was never run, or null. `withoutVisual` skips cards with image or link
+ * references (an agent that must see them can't), so such a card doesn't hold up the rest of the column.
+ */
+export async function nextPickupTask(workspaceId: number, { withoutVisual = false } = {}) {
+  const neverRun = db.select({ id: agentRuns.id }).from(agentRuns).where(eq(agentRuns.taskId, tasks.id));
+  const visual = db
+    .select({ id: taskReferences.id })
+    .from(taskReferences)
+    .where(and(eq(taskReferences.taskId, tasks.id), inArray(taskReferences.kind, [...VISUAL_REFERENCE_KINDS])));
+  const [task] = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.workspaceId, workspaceId),
+        eq(tasks.status, "todo"),
+        isNull(tasks.removedAt),
+        notExists(neverRun),
+        withoutVisual ? notExists(visual) : undefined
+      )
+    )
+    .orderBy(tasks.position, tasks.id)
+    .limit(1);
+  return task?.id ?? null;
 }
 
 // ── Agent log ──────────────────────────────────────────────────────────────────
@@ -297,6 +322,15 @@ export async function savePreviewStep(runId: number, round: number, step: ToolSt
     .from(agentRunSteps)
     .where(and(eq(agentRunSteps.runId, runId), eq(agentRunSteps.stage, "development"), eq(agentRunSteps.round, round)));
   await upsertSteps([{ runId, stage: "development", round, turn: last?.turn ?? 1, seq: END_SEQ + 1, model: null, ...step }]);
+}
+
+/** Tool calls an agent stage made in a round (its agent log rows below the end markers). */
+export async function countStageToolCalls(runId: number, stage: AgentStage, round: number) {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(agentRunSteps)
+    .where(and(eq(agentRunSteps.runId, runId), eq(agentRunSteps.stage, stage), eq(agentRunSteps.round, round), sql`${agentRunSteps.seq} < ${END_SEQ}`));
+  return row?.count ?? 0;
 }
 
 /** How a stage ended: its result (ok) or why it stopped, with the stage's model spend. */
@@ -356,7 +390,7 @@ export type RunLog = {
   ci: CiResult[];
 };
 
-const WRITE_TOOLS = new Set(["write_file", "replace_in_file", "delete_file"]);
+const WRITE_TOOLS = new Set(["write_file", "replace_in_file", "delete_file", "resolve_conflict"]);
 
 /**
  * The card's latest run with what each stage did, grouped in the order the stages started (the parallel review and

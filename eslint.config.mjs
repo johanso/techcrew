@@ -21,6 +21,8 @@ const eslintConfig = defineConfig([
     "components/ui/**",
     // Drizzle migrations are generated SQL snapshots.
     "drizzle/**",
+    // Claude Code's agent worktrees: other checkouts of this repository, with their own builds.
+    ".claude/worktrees/**",
   ]),
 ]);
 

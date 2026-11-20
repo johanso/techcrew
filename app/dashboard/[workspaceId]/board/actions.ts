@@ -1,20 +1,10 @@
 "use server";
 
-import { answerAnalyst, pipelineModelProblem } from "@/lib/agent-pipeline";
+import { answerAnalyst, pipelineModelProblem, referenceModelProblem } from "@/lib/agent-pipeline";
 import { PROVIDERS, fallbackProvider } from "@/lib/agent-config";
 import { parseAnswer } from "@/lib/agent-run-config";
 import { getAIKeys, keyStatus } from "@/lib/ai-keys";
-import {
-  createRun,
-  finishRun,
-  getActiveRun,
-  getLatestRuns,
-  getTaskRunLog,
-  placeTask,
-  releaseTask,
-  replaceWaitingRuns,
-  type RunLog,
-} from "@/lib/agent-runs";
+import { finishRun, getActiveRun, getLatestRuns, getTaskRunLog, placeTask, releaseTask, type RunLog } from "@/lib/agent-runs";
 import { checkAgentCanRun, getAgent, logAgentActivity, moveAgentsToProvider, RUN_AGENT_ID, teamProviders } from "@/lib/agents";
 import {
   createTask,
@@ -33,10 +23,16 @@ import { requireUser } from "@/lib/current-user";
 import { inngest } from "@/lib/inngest/client";
 import { AGENT_TASK_CANCEL, AGENT_TASK_RUN, type AgentTaskRunData } from "@/lib/inngest/agent-run";
 import { logCardEdited, logCardRemoved, logCardsMoved, taskSnapshots } from "@/lib/task-events";
-import { adoptPullRequest, getRerunPullRequest, getTaskOpenPullRequest, mergeManually, refreshOpenPullRequests } from "@/lib/pull-requests";
+import { createCardRun, getTaskOpenPullRequest, mergeManually, refreshOpenPullRequests } from "@/lib/pull-requests";
+import { REFERENCE_UPLOAD_MAX_BYTES, formatReferenceBytes, type ReferenceView } from "@/lib/reference-config";
+import { addLinkReference, addTaskReference, listTaskReferences, removeTaskReference } from "@/lib/references";
+import { linkCaptureAvailable } from "@/lib/sandbox/capture";
+import { parseCaptureUrl } from "@/lib/sandbox/capture-config";
+import { isStorageConfigured } from "@/lib/storage";
 import { getOwnedWorkspace } from "@/lib/workspaces";
 
-export type CardActionResult = { ok: true; card: BoardCard } | { ok: false; error: string };
+/** A failed action may point somewhere to fix it (e.g. AI Team → Configure when a model can't see the card's images). */
+export type CardActionResult = { ok: true; card: BoardCard } | { ok: false; error: string; link?: { href: string; label: string } };
 
 // No revalidatePath: dashboard pages are dynamic (session cookie), so they re-render on every visit, and the
 // board already holds the new state on the client.
@@ -146,20 +142,16 @@ async function startRun(auth: NonNullable<Awaited<ReturnType<typeof authorize>>>
   if (!allowed.ok) return allowed;
   const modelProblem = await pipelineModelProblem(auth.workspace.id);
   if (modelProblem) return { ok: false, error: modelProblem };
+  // Images on the card need an Analyst and a Developer that can see them. Models change only on the AI Team page.
+  const current = await getBoardCard(auth.workspace, taskId);
+  const visionProblem = current && (await referenceModelProblem(auth.workspace.id, taskId, current.key));
+  if (visionProblem) return { ok: false, error: visionProblem, link: { href: `/dashboard/${auth.workspace.id}/ai-team`, label: "Open AI Team" } };
 
-  // A card run before whose pull request is still open: continue on that branch and PR instead of opening another.
-  const openPr = await getRerunPullRequest(auth.workspace, taskId);
-  const run = await createRun({
-    workspaceId: auth.workspace.id,
-    taskId,
-    trigger: "manual",
-    createdById: auth.user.id,
-    branch: openPr?.headBranch ?? null,
-  });
-  if (openPr) {
-    await adoptPullRequest(openPr.id, run.id);
-    await replaceWaitingRuns(taskId, run.id);
-  }
+  // A card run before whose pull request is still open, or the Tester's follow-up card of one that couldn't merge:
+  // continue on that branch and PR instead of opening another.
+  const created = await createCardRun(auth.workspace, { taskId, trigger: "manual", createdById: auth.user.id });
+  if (!created.ok) return created;
+  const run = { id: created.runId };
   try {
     const data: AgentTaskRunData = { workspaceId: auth.workspace.id, taskId, runId: run.id };
     await inngest.send({ name: AGENT_TASK_RUN, data });
@@ -291,4 +283,102 @@ export async function getRunLogAction(workspaceId: number, cardId: string): Prom
   const taskId = Number(cardId);
   if (!auth || !Number.isSafeInteger(taskId)) return null;
   return getTaskRunLog(auth.workspace.id, taskId);
+}
+
+// ── References ─────────────────────────────────────────────────────────────────
+
+export type ReferencesResult = { ok: true; references: ReferenceView[] } | { ok: false; error: string };
+
+/** A card of this workspace that is still on the board, as an id; null otherwise. */
+async function boardTaskId(auth: NonNullable<Awaited<ReturnType<typeof authorize>>>, cardId: string) {
+  const taskId = Number(cardId);
+  if (!Number.isSafeInteger(taskId) || (await isGithubTask(auth.workspace, taskId)) === null) return null;
+  return taskId;
+}
+
+/** The card's references for its dialog. */
+export async function listCardReferencesAction(workspaceId: number, cardId: string): Promise<ReferencesResult> {
+  const auth = await authorize(workspaceId);
+  if (!auth) return { ok: false, error: "Workspace not found." };
+  const taskId = await boardTaskId(auth, cardId);
+  if (taskId === null) return { ok: false, error: "This card no longer exists." };
+  try {
+    return { ok: true, references: await listTaskReferences({ workspaceId: auth.workspace.id, taskId }) };
+  } catch (error) {
+    console.error("[board] references not listed", error);
+    return { ok: false, error: "We couldn't load the references. Please try again." };
+  }
+}
+
+/**
+ * Adds one reference to a card (the dialog sends several files one call at a time, so each fits the Server Action
+ * body limit). The type is checked from the bytes; lib/references.ts stores the file in private S3.
+ */
+export async function uploadCardReferenceAction(
+  workspaceId: number,
+  cardId: string,
+  formData: FormData
+): Promise<{ ok: true; reference: ReferenceView } | { ok: false; error: string }> {
+  const auth = await authorize(workspaceId);
+  if (!auth) return { ok: false, error: "Workspace not found." };
+  if (!isStorageConfigured()) return { ok: false, error: "File storage isn't set up on this server, so references can't be added." };
+  const taskId = await boardTaskId(auth, cardId);
+  if (taskId === null) return { ok: false, error: "This card no longer exists." };
+  const file = formData.get("file");
+  if (!(file instanceof File) || !file.size) return { ok: false, error: "Choose a file." };
+  if (file.size > REFERENCE_UPLOAD_MAX_BYTES) return { ok: false, error: `${file.name} is larger than ${formatReferenceBytes(REFERENCE_UPLOAD_MAX_BYTES)}.` };
+  try {
+    const result = await addTaskReference({
+      workspaceId: auth.workspace.id,
+      taskId,
+      userId: auth.user.id,
+      name: file.name,
+      bytes: new Uint8Array(await file.arrayBuffer()),
+    });
+    return result.ok ? result : { ok: false, error: `${file.name}: ${result.error}` };
+  } catch (error) {
+    console.error("[board] reference upload failed", error);
+    return { ok: false, error: `We couldn't add ${file.name}. Please try again.` };
+  }
+}
+
+/**
+ * Adds a link to a card: the sandbox browser captures the page once, now (desktop and mobile screenshots and an
+ * outline; lib/sandbox/capture.ts), and the capture is the reference. Takes 10–30 s. A failed capture stores nothing.
+ */
+export async function addCardLinkAction(
+  workspaceId: number,
+  cardId: string,
+  rawUrl: unknown
+): Promise<{ ok: true; reference: ReferenceView } | { ok: false; error: string }> {
+  const auth = await authorize(workspaceId);
+  if (!auth) return { ok: false, error: "Workspace not found." };
+  if (!isStorageConfigured()) return { ok: false, error: "File storage isn't set up on this server, so references can't be added." };
+  if (!linkCaptureAvailable()) return { ok: false, error: "Links need a sandbox host to be captured, and this server has none." };
+  const taskId = await boardTaskId(auth, cardId);
+  if (taskId === null) return { ok: false, error: "This card no longer exists." };
+  const url = parseCaptureUrl(rawUrl);
+  if (!url.ok) return url;
+  try {
+    return await addLinkReference({ workspaceId: auth.workspace.id, taskId, userId: auth.user.id, url: url.url });
+  } catch (error) {
+    console.error("[board] link capture failed", error);
+    return { ok: false, error: "We couldn't capture that link. Please try again." };
+  }
+}
+
+/** Deletes one reference from a card (its file too). A reference already gone counts as removed. */
+export async function removeCardReferenceAction(workspaceId: number, cardId: string, referenceId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const auth = await authorize(workspaceId);
+  if (!auth) return { ok: false, error: "Workspace not found." };
+  const taskId = Number(cardId);
+  const id = Number(referenceId);
+  if (!Number.isSafeInteger(taskId) || !Number.isSafeInteger(id)) return { ok: true };
+  try {
+    await removeTaskReference({ workspaceId: auth.workspace.id, taskId }, id);
+    return { ok: true };
+  } catch (error) {
+    console.error("[board] reference remove failed", error);
+    return { ok: false, error: "We couldn't remove the reference. Please try again." };
+  }
 }

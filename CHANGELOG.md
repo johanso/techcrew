@@ -8,6 +8,121 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+### Added
+- **References on a card**: attach images (PNG, JPEG, WebP), Markdown or text files and PDFs in the card dialog's
+  References section, several at once, for any saved card (GitHub cards too). Up to 10 per card; images up to 5 MB and
+  8000 × 8000 px, text up to 1 MB, PDFs up to 5 MB. Files are checked by their content (an SVG or a renamed file is
+  refused), kept in the private bucket and opened through an owner-only link. A PDF's text (up to 100 pages) is
+  extracted once at upload; a scanned PDF says it has none. The board card shows a paperclip with the count. Removing
+  the card deletes its references.
+- **Agents read references** with two read-only tools in every stage, `list_references` and `read_reference`: text and
+  PDF text in pages, images as image input on OpenAI, Anthropic and OpenRouter (sent as base64 from private storage,
+  never a link). The Analyst's brief names the references the Developer must follow; the Developer follows them, and
+  the Reviewer, the Lead and the Tester can check the work against them. References are the owner's requirements but
+  still data for the operating protocol. Simulated agents list and read the first reference.
+- Every model in AI Team → Configure is marked as seeing images or not. **Run** (and auto pickup) refuses a card with
+  images when the Analyst's or the Developer's model can't see them (DeepSeek V4 Pro, GLM 5.3), with a link to the AI
+  Team page. Models are never switched for you.
+- **Links as references**: paste a public http(s) address under References → **Add a link**. The sandbox browser
+  captures the page once, right then (10–30 s): a desktop (1280 px) and a mobile (375 px) screenshot and a short
+  outline of the page (headings, navigation, buttons, main texts, fonts and colors). The row shows the desktop
+  thumbnail, the domain (opens the original page) and the mobile screenshot. Agents read the capture like any
+  reference, framed as a third-party page to take structure and style from, never its logos, brand names, images or
+  texts; they never browse the internet. Private and internal addresses are refused, including through redirects and
+  the page's own requests (see docs/security.md). Needs a sandbox host; without one the input is disabled.
+- **The Tester compares the preview with the references**: `browse_preview` gets a tablet viewport (768 px) and a
+  light or dark color scheme, and a Tester whose model sees images now gets its own screenshots as image input. On a
+  card with images or links it browses each changed page at the reference's size, light and dark, and fails the card
+  with the specific differences when the preview clearly doesn't match what the brief says to follow.
+- With previews on, Run's vision check also covers the **Tester** for cards with images or links.
+- **Built-in design skill `interface-design`** (Dammyjay93/interface-design, MIT, pinned to `2f9be32`; one on-demand
+  practice file), on for the Developer and the Tester in every workspace, new and existing (one you switch off stays
+  off). Visual hierarchy, spacing and type scales, tokens, interactive and data states, hit areas and dark mode, using
+  the project's own design system first. Its usage note tells agents to treat a rough image or spec as content and
+  intent, not pixels to copy, and gives the Tester its checks for the preview.
+
+- **`add_dependency`**: with the sandbox on, a Developer with *Manage dependencies* (and *Write code*) adds an npm
+  package in one call. npm resolves it in the sandbox (`npm install --package-lock-only --ignore-scripts`: no
+  tarballs downloaded, no install scripts run) and package.json and the lockfile are committed to the branch together
+  through the GitHub API, so `npm ci` keeps working in CI and in the sandbox. Name and version are validated (npm
+  names; an exact version, one simple range or latest; no URLs, git, paths or tags). pnpm, Yarn and Bun repositories
+  are refused with a message. The Developer's protocol says a font the card names is added as a bundled package
+  (`@fontsource/…`) and imported, never linked from a font host, so it loads in the preview; agents don't pick fonts
+  on their own. Draft with AI mentions the tool when the Developer has it.
+- **Agents fix merge conflicts**: the Developer brings the default branch into its pull request's branch with
+  `merge_default_branch`, as a real merge commit (two parents), so GitHub sees the pull request as mergeable again.
+  Without conflicts GitHub merges it in one call. With conflicts, files whose changes don't overlap merge
+  automatically, lockfiles take the default branch's version (re-add packages with `add_dependency`), and the rest
+  are resolved one by one: `read_conflict` shows the file with conflict markers (your branch, the merge base, the
+  default branch), `resolve_conflict` takes the whole merged file (leftover markers are refused) and `finish_merge`
+  commits the merge, only if neither branch moved meanwhile, or aborts it. Protected paths, links, submodules, binary
+  or large files, manifests without *Manage dependencies* and more than 20 conflicts are refused with a message for the
+  owner. Nothing is cloned and file contents are never stored: the open merge keeps only commit and blob shas.
+- **Running the Tester's follow-up card fixes the pull request** ("Fix merge of PR #n", filed when a merge is blocked by
+  a conflict or a failing build): the run continues on that PR's branch instead of opening a new one, its brief names
+  the original card and why the merge failed, and for a conflict the Developer starts with `merge_default_branch`.
+  Reviews, the Lead and the tests run again; the merge (manual or automatic) moves both cards to Done. Auto pickup does
+  the same. Running the original card again while its PR conflicts gets the same brief.
+
+- **A stage no longer loses its work to the turn limit.** Three turns before the end an agent is told to wrap up, and
+  the last-turn message (every provider) asks the Developer to submit what's done with `complete: false` and a precise
+  `remaining_work` list. An unfinished result opens or updates the pull request as usual; the Reviewer, Security and
+  the Lead see what's left (the PR body lists it under "Not finished yet"), and the Lead sends it back for another round
+  on the same branch with a full set of turns. A Developer that still ends its last turn without a result, with commits
+  on the branch, goes on the same way with a result the pipeline writes (files from GitHub's compare, "ran out of
+  turns"); without commits (or a rework round with no new commit) the run stops as before. A Reviewer or Security that
+  runs out of turns becomes a missing check for the Lead, and raises the minimum risk to medium; the Analyst, the Lead
+  and the Tester still stop the run (there's no decision to make up).
+- **A rerun continues an unfinished branch**: when the card's previous run stopped with commits on its branch and no
+  pull request (out of turns, budget, Stop), the next run works on that branch instead of a new `…-r<run>` one, and the
+  Developer's brief lists what's already there.
+- Stage activity shows tool calls next to turns ("12 turns, 31 tool calls"), so batching can be measured.
+
+### Changed
+- **Lighter requests per turn.** OpenRouter agents fold older turns into a short digest (one line per tool call: what,
+  where, first line of the result) once the turns since the last fold pass ~100K characters, keeping the last two turns
+  verbatim with their reasoning; stored conversations stay verbatim. On run 53's stored conversation this cuts what the
+  40 turns resent by 76% (12.4M → 2.9M characters; two thirds of it was DeepSeek's reasoning, which its hosts require
+  sent back). Claude uses Anthropic's server-side context editing past 150K input tokens (clears old tool uses, keeps
+  thinking blocks valid); OpenAI uses the Responses API's server-side compaction past 120K tokens.
+- **Terser, batched turns**: the stage protocol asks every agent to batch independent tool calls in one turn, with no
+  prose in between; the Developer edits with `replace_in_file` rather than rewriting files, reads line ranges of big
+  files and runs tests after a batch of edits. The Lead runs at low reasoning effort on every model that accepts it;
+  OpenAI agents outside development ask for low verbosity. Parameters go only to models known to accept them
+  (`lib/agent-request-params.ts`): OpenRouter would otherwise find no host (`require_parameters`).
+- The Tester's pre-checks include **Merges cleanly into the default branch**: a pull request GitHub reports as
+  conflicting fails the tests and goes back to the Developer (who can now merge), instead of failing later at merge.
+- The follow-up card's description and the "couldn't be merged" notification say that running the card fixes the
+  pull request. The pull request's last merge error stays until the run that took it over pushes its work.
+- The sandbox browser image is now `techteam-browser:1.64.1-3` (link captures, tablet, color scheme, and fonts with
+  real bold weights): rebuild it on the sandbox host (docs/sandbox.md). `system-ui` and the usual UI font stacks render
+  in Inter (100–900) and `serif` / `monospace` in Liberation Serif / Mono; before, `system-ui` headings and 700-weight
+  text showed as regular in the Tester's screenshots and link captures.
+- `deploy/setup.sh` creates the link-capture and install networks and adds firewall rules that keep both off private
+  ranges: run it again on the host.
+
+### Fixed
+- A run that continues a pull request gets the Lead's required changes from the earlier run on that branch when that
+  run ended before making them (live run 54 was stopped mid-rework; run 55 had to find the same issues again).
+- A Developer without *Manage dependencies* no longer loads a font the card names from a font host: it keeps the
+  existing fonts and says the permission is needed (live run 55 added a Google Fonts `<link>`, which fails in previews).
+- OpenRouter agents' last turn offers only the stage's finish tool. Models ignored the last-turn message and kept
+  editing (live run 53: DeepSeek V4 Pro used its 40th turn on another edit), so the stage ended without a result.
+
+### Security
+- The sandbox's install step (unpack + install dependencies, the only step with network; previews too) runs on its
+  own network, `techteam-sandbox` (`172.31.252.0/24`, no traffic between containers), instead of Docker's default
+  bridge, where containers could reach the hosting provider's private network. `deploy/setup.sh` refuses its traffic
+  to private, loopback, link-local (cloud metadata), CGNAT, multicast and reserved ranges, as for link captures. The
+  app creates the network on first use and gives installs public DNS resolvers (Docker's own doesn't answer under
+  gVisor). Needs Docker 26 or later on the sandbox host.
+
+### Database
+- Migration `0013_card_references`: `task_references` (one small row per reference: kind, name, type, size, S3 keys,
+  PDF pages and text length, image size; files and PDF text live in S3; additive).
+- Migration `0014_card_reference_links`: `task_references.source_url` and `mobile_key` for link references (additive).
+- Migration `0015_pending_merge`: `agent_runs.pending_merge` (jsonb), the Developer's open merge (additive).
+
 ## [0.5.0] — 2026-11-19
 
 Agents run the code: a sandbox for tests and builds, a live preview of each pull request that the Tester tries in a

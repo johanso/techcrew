@@ -32,9 +32,10 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | Agent pipeline: Run / Stop, Analyst → Developer → Reviewer + Security (parallel) → Lead (approval + risk) → Tester → merge | ✅ Real (the v0.2 Security/Lead stages verified in simulated mode only), needs a key for each agent's company (OpenAI, Anthropic or OpenRouter; verified live with OpenAI on 2026-11-05 and with OpenRouter on 2026-11-19; the Claude path only against a local fake of the API). `AGENTS_SIMULATED=true` runs it with scripted agents | `lib/agent-pipeline.ts`, `lib/inngest/agent-run.ts` |
 | Auto pickup of Todo cards; manual, automatic-when-low-risk or automatic merge | ✅ Real | `lib/inngest/agent-pickup.ts`, `lib/agent-run-config.ts` (`mergeDecision`), `lib/pull-requests.ts` |
 | Follow-up card from the Tester on merge conflict / failing build | ✅ Real | `lib/pull-requests.ts` |
+| Running the follow-up card fixes the PR: continues on its branch, the Developer merges the default branch in and resolves conflicts (`merge_default_branch`, `read_conflict`, `resolve_conflict`, `finish_merge`) | 🟡 Code + unit tests (merge verified on a local git repository); not run against GitHub or in a live run yet | `lib/branch-merge.ts`, `lib/merge-config.ts`, `lib/diff3.ts`, `lib/pull-requests.ts` |
 | Overview page (stats, upcoming tasks, recent activity) | ✅ Real, from the board and the activity feed | `lib/overview.ts`, `lib/activity.ts` |
 | AI Team: six default agents with faces, configure dialog (permissions, skills), Trust Score, spending, activity drawer, live working state | ✅ Real, persisted | `components/ai-team`, `lib/agents.ts`, `public/agents` |
-| Agent skills: built-ins vendored by `npm run skills:sync` (modern-web-guidance, chrome-extensions), uploads with validation + security scan + AI review, per-agent switches, `search_skill` / `read_skill` in every stage, always-loaded playbooks in the prompt, findings in the trust score | ✅ Real (server verified against the dev database with one real AI review; UI rendered with real data but not clicked through; a simulated run with skills not run end to end) | `agent-skills/`, `lib/agent-skills.ts`, `lib/skill-*.ts`, `components/skills`, `/settings/skills` |
+| Agent skills: built-ins vendored by `npm run skills:sync` (modern-web-guidance, chrome-extensions, interface-design), uploads with validation + security scan + AI review, per-agent switches, `search_skill` / `read_skill` in every stage, always-loaded playbooks in the prompt, findings in the trust score | ✅ Real (server verified against the dev database with one real AI review; UI rendered with real data but not clicked through; a simulated run with skills not run end to end) | `agent-skills/`, `lib/agent-skills.ts`, `lib/skill-*.ts`, `components/skills`, `/settings/skills` |
 | Live process (AI Team page): the six steps of each card in flight, live polling | ✅ Real | `components/ai-team/live-process.tsx`, `lib/live-process.ts` |
 | AI drafting of instructions + AI-assisted trust scans | ✅ Real, needs an OpenAI, Anthropic or OpenRouter key (in that order) | `lib/agent-ai.ts` |
 | Switch Trust: connect a Switch account, SwitchAgent scans (register agents, one evaluation each, health score + OWASP coverage) in the background via Cloudhike jobs | ✅ Live scan verified with Switch (2026-11-16, through ngrok); weekly scans and cost caps verified against local fakes | `lib/switch-trust.ts`, `docs/switch-trust.md` |
@@ -101,14 +102,14 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 The plan lives in [roadmap.md](roadmap.md): smarter gates and the live process are done (v0.2), agent skills (v0.3), and
 CI in the loop with a Metrics page (v0.4), and the sandbox with PR previews, the Tester's browser, account keys and
-OpenRouter (v0.5). Next: v0.7, the Designer agent and the sandbox's loose ends (the owner's pick for the next session);
+OpenRouter (v0.5). Next: v0.7, references on cards (images, Markdown, PDFs, URLs) for the agents to build from, and the sandbox's loose ends (the owner's pick for the next session);
 v0.6, deploying TechTeam itself on the VPS so nothing runs on a laptop; then v0.8, a shared project memory.
 
 ## History
 
 | Commit | Change |
 | --- | --- |
-| `v0.5.0` | **Fifth release**: the sandbox (PR #12), account keys and a company per agent (#13, #14), OpenRouter (#15, #16) and previews with the Tester's browser. Next: v0.7 Designer agent and sandbox polish, or v0.6 deploy. |
+| `v0.5.0` | **Fifth release**: the sandbox (PR #12), account keys and a company per agent (#13, #14), OpenRouter (#15, #16) and previews with the Tester's browser. Next: v0.7 card references and sandbox polish, or v0.6 deploy. |
 | `feat/sandbox-preview` | Sandbox milestone 2: PR previews over HTTPS on the sandbox host (Caddy, migrations 0011–0012), the Tester's headless browser (`browse_preview`) with screenshots in the agent log, a ufw rule keeping containers off the host's services. Built by two parallel agents on one shared contract. |
 | `feat/openrouter` | OpenRouter as a third AI company (Google, DeepSeek, Z.ai, xAI, Moonshot; 10 models, routed only to hosts that keep no data), model tiers so a company move keeps the tier, failover to the first other company with a key; live run 50 ($0.091). |
 | `feat/account-settings` | AI keys on the account (migration 0010) with optional workspace keys, spending this month across projects, company and model per agent (no team-wide provider switch), Settings regrouped into Your account / This workspace, one Settings item in the account menu. |

@@ -71,9 +71,16 @@ export const TOOL_LABEL: Record<string, string> = {
   get_checks: "Checked CI",
   search_skill: "Searched skill",
   read_skill: "Read skill",
+  list_references: "Listed references",
+  read_reference: "Read reference",
   run_tests: "Ran the tests",
   run_build: "Ran the build",
   run_command: "Ran",
+  add_dependency: "Added a package",
+  merge_default_branch: "Merged the default branch",
+  read_conflict: "Read a conflict",
+  resolve_conflict: "Resolved a conflict",
+  finish_merge: "Finished the merge",
   // Not an agent's call: the pipeline starts the PR's preview after the CI gate (lib/sandbox/preview.ts).
   preview: "Preview",
   browse_preview: "Opened the preview",
@@ -130,6 +137,8 @@ export type AnalystBrief = {
   relevantFiles: string[];
   /** Extra guidance for the developer. */
   developerNotes: string;
+  /** The card's references the developer must follow, each with what it's for (absent on briefs before v0.7). */
+  references?: string[];
   /** What the analyst needs answered (decision = needs_info). */
   question: string;
 };
@@ -140,6 +149,8 @@ export type ReviewReport = {
   verdict: "approve" | "request_changes";
   summary: string;
   findings: ReviewFinding[];
+  /** The Reviewer ran out of turns without a verdict: the pipeline wrote this one (outOfTurnsReview). */
+  incomplete?: boolean;
 };
 
 export const SECURITY_SEVERITIES = ["critical", "high", "medium", "low"] as const;
@@ -153,6 +164,23 @@ export type SecurityReport = {
   verdict: "pass" | "issues";
   summary: string;
   findings: SecurityFinding[];
+  /** Security ran out of turns without a report: the pipeline wrote this one (outOfTurnsSecurity). */
+  incomplete?: boolean;
+};
+
+/**
+ * The Developer's result (its finish tool, submit_work). `complete: false` with `remaining`: the work stopped short (the
+ * Developer said so, or it ran out of turns and the pipeline wrote the result, `outOfTurns`); the Lead sends it back.
+ * Results from before these fields existed have neither: read `complete === false`, never `!complete`.
+ */
+export type WorkResult = {
+  summary: string;
+  changedFiles: string[];
+  pullRequestTitle: string;
+  notesForReviewer: string;
+  complete: boolean;
+  remaining: string[];
+  outOfTurns?: boolean;
 };
 
 export const RISK_LEVELS = ["low", "medium", "high"] as const;
@@ -218,10 +246,14 @@ const BIG_CHANGE_FILES = 10;
 const BIG_CHANGE_LINES = 400;
 
 /**
- * The lowest risk a change can have, from facts the Lead can't talk away: the Security report's worst finding and
- * what the diff touches. The Lead may rate higher, never lower.
+ * The lowest risk a change can have, from facts the Lead can't talk away: the Security report's worst finding, what
+ * the diff touches, and a review that never finished (an agent ran out of turns). The Lead may rate higher, never lower.
  */
-export function riskFloor(security: SecurityReport | null, diff: DiffFacts | null): { risk: RiskLevel; reasons: string[] } {
+export function riskFloor(
+  security: SecurityReport | null,
+  diff: DiffFacts | null,
+  review: ReviewReport | null = null
+): { risk: RiskLevel; reasons: string[] } {
   const reasons: string[] = [];
   let risk: RiskLevel = "low";
   const raise = (to: RiskLevel, reason: string) => {
@@ -232,6 +264,8 @@ export function riskFloor(security: SecurityReport | null, diff: DiffFacts | nul
   const severities = new Set(security?.findings.map((f) => f.severity));
   if (severities.has("critical") || severities.has("high")) raise("high", "Security reported a critical or high finding.");
   else if (severities.has("medium")) raise("medium", "Security reported a medium finding.");
+  if (security?.incomplete) raise("medium", "The security review didn't finish.");
+  if (review?.incomplete) raise("medium", "The code review didn't finish.");
 
   if (diff) {
     for (const { pattern, reason } of SENSITIVE_PATHS) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useDeferredValue, useEffect, useId, useRef, useState } from "react";
+import Link from "next/link";
 import {
   closestCorners,
   DndContext,
@@ -94,8 +95,14 @@ export function KanbanBoard({
   lastSyncedAt,
   ai,
   openLogFor,
+  referencesEnabled,
+  linksEnabled,
 }: {
   workspaceId: number;
+  /** Whether the server has file storage for card references. */
+  referencesEnabled: boolean;
+  /** Whether the server can capture links (a sandbox host). */
+  linksEnabled: boolean;
   initial: BoardData;
   repo: string;
   /** The team's provider and which companies have a key, for the out-of-credit notice. */
@@ -121,7 +128,9 @@ export function KanbanBoard({
     open: false,
     mode: { kind: "create", type: "feature", status: "todo" },
   });
-  const [boardError, setBoardError] = useState<string | null>(null);
+  // A board-level error, with a link to where it's fixed when there is one (e.g. AI Team for a model without vision).
+  const [boardError, setBoardError] = useState<{ text: string; link: { href: string; label: string } | null } | null>(null);
+  const showError = (text: string, link: { href: string; label: string } | null = null) => setBoardError({ text, link });
   const [runningIds, setRunningIds] = useState<ReadonlySet<string>>(new Set());
   const [mergingIds, setMergingIds] = useState<ReadonlySet<string>>(new Set());
   const [retryingCredit, setRetryingCredit] = useState(false);
@@ -220,8 +229,8 @@ export function KanbanBoard({
     const result = await updateCardAction(workspaceId, dialog.mode.card.id, input);
     if (!result.ok) return result.error;
     const { card } = result;
-    // The edit response doesn't carry the agent run; keep the one the board already shows.
-    setCards((prev) => ({ ...prev, [card.id]: { ...card, run: prev[card.id]?.run ?? card.run } }));
+    // The edit response doesn't carry the agent run or the reference count; keep what the board already shows.
+    setCards((prev) => ({ ...prev, [card.id]: { ...card, run: prev[card.id]?.run ?? card.run, references: prev[card.id]?.references ?? card.references } }));
     // A status change from the form appends the card to its new column (same as the server).
     setColumns((prev) => {
       const from = BOARD_COLUMNS.find((c) => prev[c.id].includes(card.id))?.id;
@@ -245,10 +254,10 @@ export function KanbanBoard({
     setRunningIds((prev) => new Set(prev).add(card.id));
     try {
       const result = await runCardAction(workspaceId, card.id);
-      if (!result.ok) return setBoardError(result.error);
+      if (!result.ok) return showError(result.error, result.link ?? null);
       showRunStarted(result.card);
     } catch {
-      setBoardError(`We couldn't start the analyst on ${card.key}. Please try again.`);
+      showError(`We couldn't start the analyst on ${card.key}. Please try again.`);
     } finally {
       setRunningIds((prev) => {
         const next = new Set(prev);
@@ -290,7 +299,7 @@ export function KanbanBoard({
     pendingWrites.current++;
     try {
       const result = await stopCardAction(workspaceId, card.id);
-      if (!result.ok) return setBoardError(result.error);
+      if (!result.ok) return showError(result.error);
       setCards((prev) => (prev[card.id] ? { ...prev, [card.id]: result.card } : prev));
       // A card stopped during analysis goes back to Todo on the server; mirror it.
       setColumns((prev) => {
@@ -299,7 +308,7 @@ export function KanbanBoard({
         return { ...prev, analysis: prev.analysis.filter((id) => id !== card.id), todo: [card.id, ...prev.todo] };
       });
     } catch {
-      setBoardError(`We couldn't stop the agents on ${card.key}. Please try again.`);
+      showError(`We couldn't stop the agents on ${card.key}. Please try again.`);
     } finally {
       pendingWrites.current--;
       settle();
@@ -314,9 +323,9 @@ export function KanbanBoard({
     pendingWrites.current++;
     try {
       const result = await mergeCardAction(workspaceId, card.id);
-      if (!result.ok) setBoardError(`${card.key}: ${result.error}`);
+      if (!result.ok) showError(`${card.key}: ${result.error}`);
     } catch {
-      setBoardError(`We couldn't merge ${card.key}'s pull request. Please try again.`);
+      showError(`We couldn't merge ${card.key}'s pull request. Please try again.`);
     } finally {
       setMergingIds((prev) => {
         const next = new Set(prev);
@@ -339,13 +348,13 @@ export function KanbanBoard({
       for (const card of outOfCredit) {
         const result = await switchProviderAndRetryAction(workspaceId, card.id);
         if (!result.ok) {
-          setBoardError(`${card.key}: ${result.error}`);
+          showError(`${card.key}: ${result.error}`);
           break;
         }
         showRunStarted(result.card);
       }
     } catch {
-      setBoardError("We couldn't restart the stopped cards. Please try again.");
+      showError("We couldn't restart the stopped cards. Please try again.");
     } finally {
       setRetryingCredit(false);
     }
@@ -359,7 +368,7 @@ export function KanbanBoard({
     try {
       const result = await removeCardAction(workspaceId, card.id);
       if (!result.ok) {
-        setBoardError(result.error);
+        showError(result.error);
       } else {
         setColumns((prev) =>
           Object.fromEntries(BOARD_COLUMNS.map((c) => [c.id, prev[c.id].filter((id) => id !== card.id)])) as BoardColumns
@@ -370,7 +379,7 @@ export function KanbanBoard({
         });
       }
     } catch {
-      setBoardError("We couldn't remove the card. Please try again.");
+      showError("We couldn't remove the card. Please try again.");
     } finally {
       pendingWrites.current--;
       setRemoval((r) => ({ ...r, open: false, pending: false }));
@@ -429,7 +438,7 @@ export function KanbanBoard({
       .then(({ ok }) => {
         if (ok) return;
         setColumns(before);
-        setBoardError("We couldn't save that move, so the card went back to where it was. Please try again.");
+        showError("We couldn't save that move, so the card went back to where it was. Please try again.");
       })
       .finally(() => {
         pendingWrites.current--;
@@ -541,7 +550,17 @@ export function KanbanBoard({
           className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2.5 text-sm text-destructive"
         >
           <CircleAlertIcon className="size-4 shrink-0" />
-          <p className="flex-1">{boardError}</p>
+          <p className="flex-1">
+            {boardError.text}
+            {boardError.link && (
+              <>
+                {" "}
+                <Link href={boardError.link.href} className="font-semibold underline underline-offset-2">
+                  {boardError.link.label}
+                </Link>
+              </>
+            )}
+          </p>
           <Button variant="ghost" size="sm" onClick={() => setBoardError(null)} className="text-destructive">
             Dismiss
           </Button>
@@ -629,6 +648,13 @@ export function KanbanBoard({
         onOpenChange={(open) => setDialog((d) => ({ ...d, open }))}
         mode={dialog.mode}
         onSubmit={submitCard}
+        references={{
+          workspaceId,
+          enabled: referencesEnabled,
+          links: linksEnabled,
+          onCountChange: (cardId, count) =>
+            setCards((prev) => (prev[cardId] && prev[cardId].references !== count ? { ...prev, [cardId]: { ...prev[cardId], references: count } } : prev)),
+        }}
       />
 
       <AnswerDialog
