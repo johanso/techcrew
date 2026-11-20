@@ -1,10 +1,11 @@
-import { ActivityIcon, BlocksIcon, CpuIcon, LibraryBigIcon, ListTodoIcon, SlidersHorizontalIcon } from "lucide-react";
+import { ActivityIcon, BlocksIcon, CircleAlertIcon, CpuIcon, KeyRoundIcon, LibraryBigIcon, ListTodoIcon, SlidersHorizontalIcon, TerminalIcon } from "lucide-react";
 
 import { AgentPortrait, AgentStatusBadge, BudgetMeter, TrustChip } from "@/components/ai-team/agent-visuals";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { AGENT_MODELS } from "@/lib/agent-config";
 import type { AgentView, TeamMember } from "@/lib/agents";
+import { ROUTE_LABEL, type AgentRoute } from "@/lib/cli-agents-config";
 import { isPendingScan } from "@/lib/switch-trust-config";
 import { cn } from "@/lib/utils";
 
@@ -25,11 +26,14 @@ function WorkingDots() {
  */
 export function AgentCard({
   agent,
+  route,
   live,
   onConfigure,
   onViewActivity,
 }: {
   agent: AgentView;
+  /** Its route on this computer (null: no way to its model); undefined when TechTeam isn't running locally. */
+  route?: AgentRoute | null;
   live: TeamMember | null;
   onConfigure: () => void;
   onViewActivity: () => void;
@@ -74,6 +78,19 @@ export function AgentCard({
             <CpuIcon className="size-3.5" />
             <span className="font-medium text-foreground">{model?.label ?? agent.model}</span>
           </li>
+          {route !== undefined && (
+            <li title="How its stages reach the model on this computer (Settings → AI)">
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1",
+                  route === null ? "text-error ring-error/30" : route === "api" ? "ring-border" : "bg-brand/5 text-brand-emphasis ring-brand/25"
+                )}
+              >
+                {route === null ? <CircleAlertIcon className="size-3" /> : route === "api" ? <KeyRoundIcon className="size-3" /> : <TerminalIcon className="size-3" />}
+                {route === null ? "No key or plan" : ROUTE_LABEL[route]}
+              </span>
+            </li>
+          )}
           <li className="flex items-center gap-1.5" title="What the agent may do">
             <BlocksIcon className="size-3.5" />
             <span>

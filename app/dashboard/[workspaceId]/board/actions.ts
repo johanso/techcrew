@@ -1,6 +1,6 @@
 "use server";
 
-import { answerAnalyst, pipelineModelProblem, referenceModelProblem } from "@/lib/agent-pipeline";
+import { agentOnPlan, answerAnalyst, pipelineModelProblem, referenceModelProblem } from "@/lib/agent-pipeline";
 import { PROVIDERS, fallbackProvider } from "@/lib/agent-config";
 import { parseAnswer } from "@/lib/agent-run-config";
 import { getAIKeys, keyStatus } from "@/lib/ai-keys";
@@ -137,8 +137,9 @@ export async function answerCardAction(workspaceId: number, cardId: string, raw:
 async function startRun(auth: NonNullable<Awaited<ReturnType<typeof authorize>>>, taskId: number): Promise<CardActionResult> {
   if (await getActiveRun(auth.workspace.id, taskId)) return { ok: false, error: "The agents are already working on this card." };
   const agent = getAgent(RUN_AGENT_ID)!;
-  // Paused or out-of-budget agents don't take new work (configured on the AI Team page).
-  const allowed = await checkAgentCanRun(auth.workspace.id, RUN_AGENT_ID);
+  // Paused or out-of-budget agents don't take new work (configured on the AI Team page). On the owner's plan the
+  // budget doesn't apply: it spends nothing.
+  const allowed = await checkAgentCanRun(auth.workspace.id, RUN_AGENT_ID, { onPlan: await agentOnPlan(auth.workspace, RUN_AGENT_ID) });
   if (!allowed.ok) return allowed;
   const modelProblem = await pipelineModelProblem(auth.workspace.id);
   if (modelProblem) return { ok: false, error: modelProblem };
@@ -159,7 +160,7 @@ async function startRun(auth: NonNullable<Awaited<ReturnType<typeof authorize>>>
     console.error("[board] run failed to queue", error);
     await finishRun(run.id, "failed", "The run couldn't be queued.");
     // Locally the usual cause is the Inngest Dev Server not running; say so instead of a generic retry.
-    const hint = process.env.NODE_ENV === "production" ? "Please try again." : "Is the Inngest Dev Server running? Start it with `npm run inngest:dev`.";
+    const hint = process.env.NODE_ENV === "production" ? "Please try again." : "Is the Inngest Dev Server running? Start the app with `npm run dev` (it starts Inngest too).";
     return { ok: false, error: `We couldn't start ${agent.name} on this card. ${hint}` };
   }
   try {

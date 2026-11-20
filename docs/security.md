@@ -151,6 +151,35 @@ The pipeline acts on the repository with the workspace owner's token, so its gua
   content as data, and the protocol lists web pages as data. Screenshots are private on S3 and served to the workspace
   owner only, always as `image/png` with `nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`.
 
+## Agents on your plan (local CLIs)
+
+See [cli-agents.md](cli-agents.md). A CLI agent runs on the owner's computer with the owner's subscription, so its
+guardrails are about keeping it inside TechTeam's tools and away from the owner's other logins and secrets:
+
+- **Local only, owner only.** Nothing about CLIs exists unless the app's URL is local and no hosting marker is set; the
+  MCP endpoint answers 404 otherwise. Using one's own CLI and login on one's own machine, for oneself, is normal use.
+  Offering a claude.ai login to *other people* inside a product isn't allowed without Anthropic's approval: if
+  TechTeam is ever offered to others, plan agents must stay a local, owner-only feature.
+- **TechTeam's own login.** Claude Code always runs with `CLAUDE_CONFIG_DIR` set to TechTeam's CLI home, so it never
+  reads the owner's normal login (for example an employer's organization), settings, hooks, MCP servers, `CLAUDE.md` or
+  skills. The owner confirms the signed-in account once; every stage re-checks email and organization and refuses on a
+  mismatch. `--bare` isn't used (it can't read a plan login); the other flags remove every built-in tool, settings
+  source, slash command and MCP server but TechTeam's.
+- **Permissions stay tools.** The CLI has no shell, no file access and no web: only TechTeam's MCP endpoint, which
+  serves `toolsFor(stage, permissions, …)` and runs calls through the same `callTool` (protected paths, the run's own
+  branch, sandbox rules, references, skills). Tool output stays untrusted data under the same operating protocol.
+- **The endpoint's credential** is an HMAC of run, stage and round with `TOKEN_ENCRYPTION_KEY` (nothing stored),
+  checked in constant time, and only valid while that stage is the one working. It reaches the CLI through the child's
+  environment (the MCP config names `${TECHTEAM_MCP_TOKEN}`), never the command line.
+- **No secrets in the child.** `childEnv` passes an allowlist (`PATH`, `HOME`, temp and Windows system folders) plus
+  TechTeam's config home: never API keys, the database URL or GitHub tokens. The system prompt goes through a file
+  (mode 600) in a per-run temp folder outside the project, removed when the run ends.
+- **Windows**: CLIs are spawned with an argument array, never a shell string; an npm `.cmd` shim (which needs a shell)
+  is refused in favor of the native build.
+- **Run races across computers**: one run in flight per card is a database constraint, not a check-then-act.
+- Still to do before the first live run: `scripts/cli-isolation-check.mts` with a signed-in plan (no foreign tools,
+  no hooks, no `CLAUDE.md`, the normal login unchanged) on macOS and on Windows.
+
 ## Agent skills
 
 Skills are text that reaches agent prompts, so they're treated like any other untrusted input:

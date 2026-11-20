@@ -27,6 +27,7 @@ import { AGENT_ROLES, formatMicros } from "@/lib/agent-config";
 import type { WorkspaceMetrics } from "@/lib/metrics";
 import { METRIC_PERIODS, OUTCOMES, REWORK_CAUSES, formatRate, outcomeOf, type Outcome, type ReworkCause } from "@/lib/run-metrics";
 import { cn } from "@/lib/utils";
+import { formatTokens } from "@/lib/cli-agents-config";
 
 const OUTCOME_META: Record<Outcome, { label: string; icon: LucideIcon; tone: string }> = {
   merged: { label: "Merged", icon: GitMergeIcon, tone: "text-success" },
@@ -132,9 +133,11 @@ export function MetricsView({ workspaceId, metrics }: { workspaceId: number; met
         <StatTile
           icon={WalletIcon}
           tone="text-warning"
-          label="Cost per delivered card"
+          label="API cost per delivered card"
           value={summary.costPerDeliveredMicros === null ? "—" : formatMicros(summary.costPerDeliveredMicros)}
-          hint={`${formatMicros(summary.totalCostMicros)} spent in ${days} days, failed runs included`}
+          hint={`${formatMicros(summary.totalCostMicros)} API spend in ${days} days, failed runs included${
+            summary.planRuns ? ` · runs on your plans: ${summary.planRuns}` : ""
+          }`}
         />
       </section>
 
@@ -190,7 +193,7 @@ export function MetricsView({ workspaceId, metrics }: { workspaceId: number; met
         </section>
 
         <section className="surface flex min-w-0 flex-col">
-          <SurfaceHeader title="Spend by agent" description={`${formatMicros(agentSpend)} on pipeline work`} />
+          <SurfaceHeader title="API spend by agent" description={`${formatMicros(agentSpend)} on pipeline work`} />
           {metrics.costByAgent.length === 0 ? (
             <SurfaceEmpty icon={WalletIcon} title="No spend" description="No agent spent on pipeline work in this period." />
           ) : (
@@ -209,6 +212,12 @@ export function MetricsView({ workspaceId, metrics }: { workspaceId: number; met
                 display: formatMicros(costMicros),
               }))}
             />
+          )}
+          {metrics.planByAgent.length > 0 && (
+            <p className="mt-auto border-t border-border/70 px-6 py-4 text-xs text-muted-foreground">
+              On your plans:{" "}
+              {metrics.planByAgent.map(({ agent, tokens }) => `${AGENT_ROLES[agent].name} ${formatTokens(tokens)} tokens`).join(" · ")}
+            </p>
           )}
         </section>
       </div>

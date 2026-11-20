@@ -3,7 +3,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 
 import { db, tasks, workspaces } from "@/db";
-import { pipelineModelProblem, referenceModelProblem } from "@/lib/agent-pipeline";
+import { agentOnPlan, pipelineModelProblem, referenceModelProblem } from "@/lib/agent-pipeline";
 import { findAutoPickupCandidates, nextPickupTask } from "@/lib/agent-runs";
 import { checkAgentCanRun, logAgentActivity, taskKeyPrefix } from "@/lib/agents";
 import { inngest } from "@/lib/inngest/client";
@@ -12,17 +12,24 @@ import { createCardRun } from "@/lib/pull-requests";
 
 /**
  * Auto pickup (Settings → Agents): every two minutes, the analyst takes the top Todo card that was never run, in
- * each workspace that has it on and no run in flight. One card at a time per workspace keeps spend predictable.
+ * each workspace that has it on and no run in flight. One card at a time per workspace keeps spend predictable. Two
+ * computers picking the same card can't both start it (one run in flight per card, createRun).
  */
 export const agentAutoPickup = inngest.createFunction(
   { id: "agent-auto-pickup", name: "Agents: pick up Todo cards" },
   { cron: "*/2 * * * *" },
   async ({ step }) => {
+    // Every computer whose Inngest is up runs this cron (they share the database): AGENTS_AUTO_PICKUP=false opts one out.
+    if (process.env.AGENTS_AUTO_PICKUP?.trim().toLowerCase() === "false") return { started: 0, skipped: "AGENTS_AUTO_PICKUP=false" };
     const runs = await step.run("start-runs", async () => {
       const started: AgentTaskRunData[] = [];
       for (const pick of await findAutoPickupCandidates()) {
-        // Paused or over-budget analysts skip their turn; the card waits for the next tick.
-        const allowed = await checkAgentCanRun(pick.workspaceId, "analyst");
+        // Paused or over-budget analysts skip their turn; the card waits for the next tick. On the owner's plan (this
+        // computer) the budget doesn't apply.
+        const [owner] = await db.select({ ownerId: workspaces.ownerId }).from(workspaces).where(eq(workspaces.id, pick.workspaceId));
+        if (!owner) continue;
+        const onPlan = await agentOnPlan({ id: pick.workspaceId, ownerId: owner.ownerId }, "analyst");
+        const allowed = await checkAgentCanRun(pick.workspaceId, "analyst", { onPlan });
         if (!allowed.ok) continue;
         // No key for an agent's model (Settings → AI providers): don't start a run that would stop halfway.
         if (await pipelineModelProblem(pick.workspaceId)) continue;

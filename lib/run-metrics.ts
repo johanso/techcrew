@@ -46,6 +46,8 @@ export type MetricRun = {
   ci: CiResult[] | null;
   /** Rounds in which the Lead sent the work back (from the agent log). */
   leadSentBack: number[];
+  /** Some stage ran on the owner's plan (a local CLI): its usage isn't in costMicros. */
+  onPlan?: boolean;
 };
 
 export type RunMetrics = {
@@ -61,9 +63,12 @@ export type RunMetrics = {
   /** Pushes whose CI passed, out of those CI decided (passed or failed). */
   ciPassRate: number | null;
   ciDecided: number;
+  /** API spend only: stages on the owner's plans spend nothing. */
   totalCostMicros: number;
-  /** Everything spent in the period divided by what was delivered: failed attempts are part of the price. */
+  /** All API spend in the period divided by what was delivered: failed attempts are part of the price. */
   costPerDeliveredMicros: number | null;
+  /** Runs with at least one stage on the owner's plan (their cost per card reads low on purpose). */
+  planRuns: number;
 };
 
 const ratio = (part: number, whole: number) => (whole > 0 ? part / whole : null);
@@ -84,10 +89,12 @@ export function summarizeRuns(runs: readonly MetricRun[]): RunMetrics {
   let ciPassed = 0;
   let ciDecided = 0;
   let totalCostMicros = 0;
+  let planRuns = 0;
   for (const run of runs) {
     const outcome = outcomeOf(run.status);
     outcomes[outcome]++;
     totalCostMicros += run.costMicros;
+    if (run.onPlan) planRuns++;
     if ((outcome === "merged" || outcome === "ready") && run.reworkRounds === 0) firstPass++;
     for (let round = 0; round < run.reworkRounds; round++) reworkCauses[reworkCause(run, round)]++;
     for (const ci of run.ci ?? []) {
@@ -108,6 +115,7 @@ export function summarizeRuns(runs: readonly MetricRun[]): RunMetrics {
     ciDecided,
     totalCostMicros,
     costPerDeliveredMicros: delivered > 0 ? Math.round(totalCostMicros / delivered) : null,
+    planRuns,
   };
 }
 

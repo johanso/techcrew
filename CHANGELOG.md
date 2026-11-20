@@ -8,6 +8,28 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+### Added
+- **Agents on your Claude plan** (only when TechTeam runs on your computer): Settings → AI → *Plans on this computer*
+  routes the agents on Claude models through **Claude Code** signed in with your own plan, instead of an Anthropic API
+  key. Agents keep their model; the route is per computer. TechTeam uses its own Claude Code login
+  (`~/.techteam/cli/claude`), separate from the one you use in your terminal; you confirm the account once and every
+  stage checks it. Agents still work only through TechTeam's tools (a new local MCP endpoint), with the same
+  permissions, agent log, references, skills and sandbox. Plan stages record turns and tokens plus the API-equivalent
+  cost as a reference, never as spend, and budgets don't apply to them. See [docs/cli-agents.md](docs/cli-agents.md).
+- **When the plan runs out**: wait for the reset and resume the same session (the card says when), continue on the
+  API key, or switch company (auto failover). A model the plan doesn't include (Opus on Pro) takes the API key.
+- AI Team cards show each agent's route on this computer ("Your Claude plan" / "API key"); spending tiles, the run log
+  and Metrics say **API** spend, and Settings shows this month's plan usage.
+- `AGENTS_AUTO_PICKUP=false` keeps auto pickup off on one computer; a card can have only one run in flight, whichever
+  computer starts it (database guard).
+- CI also runs `npm run check` on Windows.
+
+### Changed
+- **One command for local development**: `npm run dev` starts the app and the Inngest Dev Server together in one
+  terminal (`concurrently`; stopping one stops both). `npm run dev:app` starts only the app, `npm run inngest:dev`
+  only Inngest. The app is pinned to port 3000 so a busy port fails loudly instead of leaving Inngest pointed at the
+  wrong address.
+
 ## [0.7.0] — 2026-11-20
 
 ### Added

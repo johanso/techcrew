@@ -3,6 +3,7 @@ import {
   CircleStopIcon,
   GitMergeIcon,
   GitPullRequestIcon,
+  HourglassIcon,
   LoaderCircleIcon,
   MessageCircleQuestionIcon,
   WalletIcon,
@@ -11,7 +12,15 @@ import {
 
 import { PROVIDERS } from "@/lib/agent-config";
 import { PHASE_META, type BoardCardRun } from "@/lib/agent-run-config";
+import { CLI_META } from "@/lib/cli-agents-config";
 import { cn } from "@/lib/utils";
+
+// "3:40 PM" today, else "Nov 21, 3:40 PM": when the owner's plan resets.
+function resetTime(iso: string) {
+  const at = new Date(iso);
+  const sameDay = at.toDateString() === new Date().toDateString();
+  return at.toLocaleString("en-US", sameDay ? { hour: "numeric", minute: "2-digit" } : { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
 
 /** Label, icon and tone for a card's latest agent run. Tones color the icon only; the text stays neutral (contrast). */
 export function runStatusMeta(run: BoardCardRun): { label: string; icon: LucideIcon; tone: string; spin?: boolean } {
@@ -20,6 +29,9 @@ export function runStatusMeta(run: BoardCardRun): { label: string; icon: LucideI
     case "queued":
       return { label: "Queued for the agents", icon: LoaderCircleIcon, tone: "text-muted-foreground", spin: true };
     case "running":
+      if (run.waiting?.kind === "plan_limit") {
+        return { label: `Waiting for your ${CLI_META[run.waiting.cli].plan} · resets ${resetTime(run.waiting.until)}`, icon: HourglassIcon, tone: "text-warning" };
+      }
       if (run.ci === "waiting" && run.stage === "development") {
         return { label: pr ? `Waiting for CI on ${pr}…` : "Waiting for CI…", icon: LoaderCircleIcon, tone: "text-action", spin: true };
       }
@@ -35,6 +47,9 @@ export function runStatusMeta(run: BoardCardRun): { label: string; icon: LucideI
     case "failed":
       if (run.failure?.kind === "out_of_credit") {
         return { label: `Out of ${PROVIDERS[run.failure.provider].label} credit`, icon: WalletIcon, tone: "text-warning" };
+      }
+      if (run.failure?.kind === "plan_limit") {
+        return { label: `Your ${CLI_META[run.failure.cli].plan} ran out`, icon: HourglassIcon, tone: "text-warning" };
       }
       return { label: "Agents stopped", icon: CircleAlertIcon, tone: "text-error" };
   }

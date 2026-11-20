@@ -7,6 +7,7 @@ import { BarList } from "@/components/metrics/bar-list";
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar";
 import { AGENT_ROLES, formatMicros } from "@/lib/agent-config";
 import type { AccountSpend } from "@/lib/agents";
+import { formatTokens } from "@/lib/cli-agents-config";
 
 type SpendWorkspace = { id: number; icon: string; logoSrc: string | null };
 
@@ -26,10 +27,20 @@ export function AccountSpendCard({ spend, workspaces }: { spend: AccountSpend; w
             <WalletIcon />
           </span>
         }
-        title="Spending this month"
+        title="API spending this month"
         description={`${month} (UTC), every project. Resets on the 1st.`}
         actions={<span className="text-xl font-bold tracking-tight tabular-nums">{formatMicros(spend.totalMicros)}</span>}
       />
+      {spend.plan.stages > 0 && (
+        <div className="flex flex-col gap-1 border-b border-border/70 px-6 py-4">
+          <h3 className="eyebrow text-muted-foreground">Plan usage this month</h3>
+          <p className="text-sm">
+            <span className="font-semibold tabular-nums">{spend.plan.stages}</span> stage{spend.plan.stages === 1 ? "" : "s"} on your plans ·{" "}
+            <span className="font-semibold tabular-nums">{formatTokens(spend.plan.tokens)}</span> tokens
+            {spend.plan.equivalentMicros > 0 && <span className="text-muted-foreground"> (≈ {formatMicros(spend.plan.equivalentMicros)} at API prices, not spent)</span>}
+          </p>
+        </div>
+      )}
       {spend.totalMicros === 0 ? (
         <SurfaceEmpty icon={WalletIcon} title="No spend yet" description="Your agents haven't spent anything this month." />
       ) : (

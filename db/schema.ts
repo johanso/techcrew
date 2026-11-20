@@ -1,9 +1,10 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, date, index, integer, jsonb, pgTable, serial, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { bigint, boolean, date, index, integer, jsonb, pgTable, serial, text, timestamp, unique, uniqueIndex } from "drizzle-orm/pg-core";
 
 import type { AgentModelId, AgentProvider } from "@/lib/agent-config";
 import type { AnalystBrief, LeadDecision, ReviewReport, RunFailure, SecurityReport, TestReport } from "@/lib/agent-run-config";
 import type { SkillScan } from "@/lib/agent-skills-config";
+import type { RunWaiting } from "@/lib/cli-agents-config";
 import type { TrustReport } from "@/lib/agent-trust";
 import type { CiResult } from "@/lib/ci-gate";
 import type { PendingMerge } from "@/lib/merge-config";
@@ -331,8 +332,14 @@ export const agentActivity = pgTable(
     kind: text("kind").notNull(),
     title: text("title").notNull(),
     detail: text("detail"),
-    // Model spend in micro-dollars (1e-6 USD).
+    // Model spend in micro-dollars (1e-6 USD). Only real API spend: a stage on the owner's plan adds nothing here.
     costMicros: integer("cost_micros").notNull().default(0),
+    // "api" (spend in cost_micros) or "plan" (the owner's plan through a local CLI, docs/cli-agents-plan.md).
+    billing: text("billing").notNull().default("api"),
+    // Plan stages: what the CLI says the usage would cost at API prices. A reference only, never spend or budget.
+    equivalentMicros: integer("equivalent_micros").notNull().default(0),
+    // Plan stages: tokens used (input, output and cache), the plan's measure instead of money.
+    tokens: integer("tokens").notNull().default(0),
     taskId: integer("task_id").references(() => tasks.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -411,6 +418,35 @@ export const taskReferences = pgTable(
 );
 
 export type TaskReferenceRow = typeof taskReferences.$inferSelect;
+
+/**
+ * A local CLI's settings for one user on one computer (Settings → AI → Plans on this computer): the database is shared
+ * by the owner's computers, but each has its own CLI and login. `machine_id` comes from TechTeam's CLI home on that
+ * computer (lib/cli). Only read when TechTeam runs locally.
+ */
+export const cliSettings = pgTable(
+  "cli_settings",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    machineId: text("machine_id").notNull(),
+    // CLI_KINDS: "claude".
+    cli: text("cli").notNull(),
+    // Route this CLI's company's models through the owner's plan on this computer.
+    enabled: boolean("enabled").notNull().default(false),
+    // PLAN_LIMIT_POLICIES (wait / api / failover); null = the default (the key when there is one, else wait).
+    onLimit: text("on_limit"),
+    // The account the owner confirmed for this CLI; a stage refuses to run when the CLI reports another one.
+    confirmedEmail: text("confirmed_email"),
+    confirmedOrg: text("confirmed_org"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [unique("cli_settings_user_machine_cli").on(table.userId, table.machineId, table.cli)]
+);
+
+export type CliSettingsRow = typeof cliSettings.$inferSelect;
 
 /**
  * A workspace's Switch Trust account (Settings → Switch Trust). Agents are registered there and evaluated by it;
@@ -525,6 +561,10 @@ export const agentRuns = pgTable(
     answer: text("answer"),
     // Model spend of the whole run in micro-dollars (per-agent spend is in agent_activity).
     costMicros: integer("cost_micros").notNull().default(0),
+    // What the run is waiting for outside itself (the owner's plan to reset), shown on the card; null otherwise.
+    waiting: jsonb("waiting").$type<RunWaiting>(),
+    // Results CLI agents submitted through TechTeam's MCP endpoint, by "<stage>:<round>", until the stage reads them.
+    cliResults: jsonb("cli_results").$type<Record<string, unknown>>(),
     createdById: integer("created_by_id").references(() => users.id, { onDelete: "set null" }),
     startedAt: timestamp("started_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -533,6 +573,10 @@ export const agentRuns = pgTable(
   (table) => [
     index("agent_runs_task_started_idx").on(table.taskId, table.startedAt),
     index("agent_runs_workspace_status_idx").on(table.workspaceId, table.status),
+    // One run in flight per card, whichever computer starts it (auto pickup runs on every Inngest that's up).
+    uniqueIndex("agent_runs_one_active_per_task")
+      .on(table.taskId)
+      .where(sql`${table.status} in ('queued', 'running')`),
   ]
 );
 

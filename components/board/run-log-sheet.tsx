@@ -24,6 +24,7 @@ import {
   LoaderCircleIcon,
   MessageCircleQuestionIcon,
   MessageCircleReplyIcon,
+  RouteIcon,
   ScrollTextIcon,
   SearchIcon,
   SquareTerminalIcon,
@@ -77,10 +78,12 @@ const TOOL_ICON: Record<string, LucideIcon> = {
   read_conflict: FileWarningIcon,
   resolve_conflict: FileCheckIcon,
   finish_merge: GitMergeIcon,
+  route: RouteIcon,
 };
 
-// Tools whose outcome line is worth reading even when it went well ("Opened /: 200, 0 console errors …").
-const SHOW_SUMMARY = new Set(["browse_preview", "merge_default_branch", "finish_merge"]);
+// Tools whose outcome line is worth reading even when it went well ("Opened /: 200, 0 console errors …"); `route` says
+// why a stage took the API key although the owner's plan is on.
+const SHOW_SUMMARY = new Set(["browse_preview", "merge_default_branch", "finish_merge", "route"]);
 
 function Step({ step, runId }: { step: RunLogStep; runId: number }) {
   const meta = { label: TOOL_LABEL[step.tool] ?? step.tool, icon: TOOL_ICON[step.tool] ?? WrenchIcon };
@@ -321,7 +324,8 @@ export function RunLogSheet({
                 value: formatDistanceStrict(run.finishedAt ?? new Date(), run.startedAt),
                 title: undefined,
               },
-              { label: "Model spend", value: formatMicros(run.costMicros), title: undefined },
+              // Stages on the owner's plan add nothing here: their usage is in each stage's result line.
+              { label: "API spend", value: formatMicros(run.costMicros), title: undefined },
             ].map((item) => (
               <div key={item.label} className="flex min-w-0 flex-col gap-0.5 border-r border-border/70 px-3 py-2.5 last:border-r-0">
                 <dt className="truncate text-[11px] font-medium text-muted-foreground">{item.label}</dt>

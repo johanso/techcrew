@@ -12,6 +12,7 @@ import {
   GitMergeIcon,
   GitPullRequestArrowIcon,
   GitPullRequestClosedIcon,
+  HourglassIcon,
   MessageCircleQuestionIcon,
   WalletIcon,
   type LucideIcon,
@@ -40,6 +41,7 @@ const KIND: Record<NotificationKind, { icon: LucideIcon; tone: string }> = {
   needs_info: { icon: MessageCircleQuestionIcon, tone: "text-warning" },
   run_failed: { icon: CircleAlertIcon, tone: "text-error" },
   out_of_credit: { icon: WalletIcon, tone: "text-warning" },
+  plan_limit: { icon: HourglassIcon, tone: "text-warning" },
   provider_switched: { icon: ArrowLeftRightIcon, tone: "text-action" },
 };
 

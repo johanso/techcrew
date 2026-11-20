@@ -128,6 +128,21 @@ export async function addActivityCost(activityId: number, costMicros: number) {
     .where(eq(agentActivity.id, activityId));
 }
 
+/**
+ * A plan chunk's usage on the stage's activity row: tokens, and the CLI's API-equivalent cost as a reference. Never
+ * cost_micros: plan usage isn't spend and never counts toward a budget.
+ */
+export async function addActivityPlanUsage(activityId: number, usage: { tokens: number; equivalentMicros: number }) {
+  await db
+    .update(agentActivity)
+    .set({
+      billing: "plan",
+      tokens: sql`${agentActivity.tokens} + ${Math.max(0, Math.round(usage.tokens))}`,
+      equivalentMicros: sql`${agentActivity.equivalentMicros} + ${Math.max(0, Math.round(usage.equivalentMicros))}`,
+    })
+    .where(eq(agentActivity.id, activityId));
+}
+
 export async function updateAgentActivity(activityId: number, values: { title: string; detail?: string | null }) {
   await db.update(agentActivity).set(values).where(eq(agentActivity.id, activityId));
 }
@@ -231,12 +246,14 @@ export type AccountSpend = {
   byWorkspace: { id: number; name: string; micros: number }[];
   /** Per agent role across all workspaces, biggest first. */
   byAgent: { key: AgentKey; micros: number }[];
+  /** Stages that ran on the owner's plans (local CLIs): usage, not spend. */
+  plan: { stages: number; tokens: number; equivalentMicros: number };
 };
 
 /** Settings → Your account: this month's model spend across every workspace the user owns. */
 export async function getAccountSpend(userId: number): Promise<AccountSpend> {
   const { start } = monthWindow();
-  const [owned, rows] = await Promise.all([
+  const [owned, rows, [plan]] = await Promise.all([
     db.select({ id: workspaces.id, name: workspaces.name }).from(workspaces).where(eq(workspaces.ownerId, userId)),
     db
       .select({
@@ -250,6 +267,15 @@ export async function getAccountSpend(userId: number): Promise<AccountSpend> {
       .innerJoin(agents, eq(agents.id, agentActivity.agentId))
       .where(and(eq(workspaces.ownerId, userId), gte(agentActivity.createdAt, start)))
       .groupBy(agentActivity.workspaceId, agents.key),
+    db
+      .select({
+        stages: sql<number>`count(*)::int`,
+        tokens: sql<number>`coalesce(sum(${agentActivity.tokens}), 0)::float8`,
+        equivalentMicros: sql<number>`coalesce(sum(${agentActivity.equivalentMicros}), 0)::float8`,
+      })
+      .from(agentActivity)
+      .innerJoin(workspaces, eq(workspaces.id, agentActivity.workspaceId))
+      .where(and(eq(workspaces.ownerId, userId), eq(agentActivity.billing, "plan"), gte(agentActivity.createdAt, start))),
   ]);
   const sum = (filter: (row: (typeof rows)[number]) => boolean) => rows.filter(filter).reduce((total, row) => total + Number(row.micros), 0);
   return {
@@ -259,6 +285,7 @@ export async function getAccountSpend(userId: number): Promise<AccountSpend> {
     byAgent: AGENT_KEYS.map((key) => ({ key, micros: sum((row) => row.key === key) }))
       .filter((row) => row.micros > 0)
       .sort((a, b) => b.micros - a.micros),
+    plan: { stages: plan?.stages ?? 0, tokens: Number(plan?.tokens ?? 0), equivalentMicros: Number(plan?.equivalentMicros ?? 0) },
   };
 }
 
@@ -774,9 +801,14 @@ export function activeAgentModel(row: AgentRow) {
   return agentModel(row.key as AgentKey, row.model);
 }
 
+/** The workspace's agent rows, in no particular order. */
+export async function getAgentTeamRows(workspaceId: number) {
+  return db.select().from(agents).where(eq(agents.workspaceId, workspaceId));
+}
+
 /** The companies the workspace's agents run on now. */
 export async function teamProviders(workspaceId: number): Promise<ProviderStatus> {
-  const rows = await db.select().from(agents).where(eq(agents.workspaceId, workspaceId));
+  const rows = await getAgentTeamRows(workspaceId);
   const used = new Set(rows.map((row) => modelInfo(activeAgentModel(row)).provider));
   return Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, used.has(provider)])) as ProviderStatus;
 }
@@ -848,14 +880,17 @@ export async function saveTrustScan(row: AgentRow, report: TrustReport, costMicr
 
 // ── Running ────────────────────────────────────────────────────────────────────
 
-/** Whether an agent may take on a card now: it must be enabled and under this month's budget. */
-export async function checkAgentCanRun(workspaceId: number, key: AgentKey) {
+/**
+ * Whether an agent may take on a card now: it must be enabled and under this month's budget. `onPlan`: its stage goes
+ * through the owner's plan on this computer, which spends nothing, so the budget doesn't apply (max turns is the brake).
+ */
+export async function checkAgentCanRun(workspaceId: number, key: AgentKey, { onPlan = false } = {}) {
   await ensureDefaultAgents(workspaceId);
   const row = await getAgentRow(workspaceId, key);
   const name = AGENT_ROLES[key].name;
   if (!row) return { ok: false as const, error: `${name} isn't set up for this workspace.` };
   if (!row.enabled) return { ok: false as const, error: `${name} is paused. Resume it on the AI Team page to run cards.` };
-  if ((await monthSpendMicros(row.id)) >= row.monthlyBudgetCents * 10_000) {
+  if (!onPlan && (await monthSpendMicros(row.id)) >= row.monthlyBudgetCents * 10_000) {
     return { ok: false as const, error: `${name} has used this month's budget. Raise it on the AI Team page to run cards.` };
   }
   return { ok: true as const, row };

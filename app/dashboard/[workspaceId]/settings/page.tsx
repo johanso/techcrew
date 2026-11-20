@@ -9,6 +9,7 @@ import { DetailGrid, PageHeader, SurfaceHeader } from "@/components/dashboard/pa
 import { AccountSpendCard } from "@/components/settings/account-spend";
 import { AgentAutomationForm } from "@/components/settings/agent-automation-form";
 import { AutoFailoverToggle } from "@/components/settings/auto-failover-toggle";
+import { ClaudePlanSettings } from "@/components/settings/cli-plan-settings";
 import { ProviderKeyForm } from "@/components/settings/provider-key-form";
 import { SandboxFormSkeleton, SandboxSettings } from "@/components/settings/sandbox-form";
 import { SwitchConnectionForm } from "@/components/settings/switch-connection-form";
@@ -21,10 +22,11 @@ import { parseMergeMode } from "@/lib/agent-run-config";
 import { getSkillLibrary } from "@/lib/agent-skills";
 import { ensureDefaultAgents, getAccountSpend } from "@/lib/agents";
 import { getProviderKeyViews } from "@/lib/ai-keys";
+import { getClaudePlanView } from "@/lib/cli/plan-view";
 import { detectRepoCommands, sandboxAvailable } from "@/lib/sandbox";
 import { previewsAvailable } from "@/lib/sandbox/preview";
 import { getSwitchConnectionView } from "@/lib/switch-trust";
-import { initials } from "@/lib/utils";
+import { cn, initials } from "@/lib/utils";
 import { getDashboardContext, listWorkspaces } from "@/lib/workspaces";
 
 export const metadata: Metadata = { title: "Settings" };
@@ -40,6 +42,11 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
     getAccountSpend(user.id),
     listWorkspaces(user.id),
   ]);
+  // Null on a deploy (or AGENTS_LOCAL_CLI=false): nothing about local CLIs shows.
+  const plan = await getClaudePlanView(user.id, workspace.id);
+  // Configured providers first; the others wait under "Add another provider".
+  const configured = PROVIDER_IDS.filter((provider) => keys[provider].account !== null);
+  const others = PROVIDER_IDS.filter((provider) => keys[provider].account === null);
   // Reads package.json on GitHub: streamed in so the rest of the page doesn't wait for it.
   const detectedCommands = detectRepoCommands(workspace).catch(() => null);
 
@@ -90,12 +97,30 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
               <KeyRoundIcon />
             </span>
           }
-          title="AI providers"
-          description="Your keys pay for every project. Each agent picks its company and model on the AI Team page."
+          title="AI"
+          description={
+            plan
+              ? "Your plans on this computer and your API keys. Each agent picks its company and model on the AI Team page."
+              : "Your keys pay for every project. Each agent picks its company and model on the AI Team page."
+          }
           actions={<span className="eyebrow text-muted-foreground">AI</span>}
         />
-        <div className="flex flex-col gap-6 p-6">
-          {PROVIDER_IDS.map((provider) => (
+        {plan && (
+          <div className="flex flex-col gap-4 p-6">
+            <SubgroupHeading
+              title="Plans on this computer"
+              description="Agents on Claude models can run on your Claude plan through Claude Code installed here, instead of an API key."
+            />
+            <ClaudePlanSettings workspaceId={workspace.id} initial={plan} />
+          </div>
+        )}
+        <div className={cn("flex flex-col gap-6 p-6", plan && "border-t border-border/70")}>
+          {plan && <SubgroupHeading title="API keys" description="Your keys pay for every project, and for any stage your plan doesn't carry." />}
+          {configured.map((provider) => (
+            <ProviderKeyForm key={provider} workspaceId={workspace.id} provider={provider} scope="account" view={keys[provider]} />
+          ))}
+          {configured.length > 0 && others.length > 0 && <p className="eyebrow -mb-2 text-muted-foreground">Add another provider</p>}
+          {others.map((provider) => (
             <ProviderKeyForm key={provider} workspaceId={workspace.id} provider={provider} scope="account" view={keys[provider]} />
           ))}
         </div>
@@ -167,6 +192,12 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
           actions={<span className="eyebrow text-muted-foreground">Agents</span>}
         />
         <AgentAutomationForm workspaceId={workspace.id} autoPickup={workspace.agentAutoPickup} mergeMode={parseMergeMode(workspace.agentMergeMode)} />
+        {plan && (
+          <p className="border-t border-border/70 px-6 py-4 text-xs text-muted-foreground">
+            Auto pickup runs on every computer where TechTeam and its Inngest are up. To keep it on one, set{" "}
+            <code className="font-mono">AGENTS_AUTO_PICKUP=false</code> in the other computer&apos;s .env.
+          </p>
+        )}
       </section>
 
       <section id="sandbox" className="surface scroll-mt-24">
@@ -233,6 +264,16 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
         />
       </section>
     </>
+  );
+}
+
+/** A group inside a settings card (AI: plans on this computer, then API keys). */
+function SubgroupHeading({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <h3 className="text-sm font-bold">{title}</h3>
+      <p className="text-xs text-muted-foreground">{description}</p>
+    </div>
   );
 }
 

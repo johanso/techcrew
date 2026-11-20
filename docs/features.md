@@ -279,8 +279,9 @@ card's drag area, so using them never starts a drag or opens the dialog.
 
 - **Run** starts the agent pipeline (see [Agent pipeline](#agent-pipeline)): the card moves to **Analysis**, the
   Analyst's avatar appears and the card shows "Queued for the agents". ▶ stays disabled (spinner) while the agents
-  work. Run is refused when the agents are already on the card, when an agent's model has no provider key (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`; `AGENTS_SIMULATED=true` runs scripted agents instead), while the Analyst is
-  paused or over budget, or when the card has image references and the Analyst's or the Developer's model can't see
+  work. Run is refused when the agents are already on the card (on this or your other computer), when an agent's
+  model has neither a provider key nor your plan on this computer (`AGENTS_SIMULATED=true` runs scripted agents
+  instead), while the Analyst is paused or over budget (the budget doesn't apply when it runs on your plan), or when the card has image references and the Analyst's or the Developer's model can't see
   images (the error links to the AI Team page).
 - **Stop agents** (while a run is active) cancels it between steps. The card is unassigned and stays in its column
   (back to Todo if it was still in Analysis); the branch and pull request, if any, are kept.
@@ -294,7 +295,7 @@ card's drag area, so using them never starts a drag or opens the dialog.
   It follows a running card every 5 s. Notifications link straight to it (`/board?log=<card>`). Runs from before the
   log existed show "Nothing logged".
 
-Locally, Run needs the Inngest Dev Server (`npm run inngest:dev`); otherwise it shows an error saying so.
+Locally, Run needs the Inngest Dev Server (`npm run dev` starts it with the app); otherwise it shows an error saying so.
 
 ### Out of credit
 
@@ -308,6 +309,16 @@ reason (not a generic failure):
   company any more, the button just says **Retry**.
 - **Automatic switch** (Settings → AI providers, off by default): the agents on the broke company move to the next one
   with a key on their own and the current stage starts over there (once per stage); you get a "Switched agents to …" notification.
+
+### Your plan runs out
+
+When an agent works on your Claude plan ([cli-agents.md](cli-agents.md)) and the plan's usage window runs out, your
+choice in Settings → AI decides: by default (no Anthropic key) the card says **Waiting for your Claude plan · resets
+3:40 PM** (hourglass), the bell tells you once, and the stage picks up the same session when the plan resets (**Stop
+agents** still works while it waits); with a key, the stage starts over on the API key; or the company's agents move
+elsewhere (switch company). When nothing is possible the card says **Your Claude plan ran out**. In the agent log a plan
+stage's result ends with **Your Claude plan · 12 turns · 180K tokens (≈ $0.40 at API prices)**, a **Route** line says
+why a stage took the API key although the plan is on, and the summary shows **API spend** only.
 
 ## Agent pipeline
 
@@ -554,7 +565,12 @@ Two groups: **Your account** (applies to every project you own) and **This works
 
 Your account:
 - **Account** (`#account`) — avatar, name, verified-email badge, email, member since, last sign-in, account id.
-- **AI providers** (`#ai`) — everything about AI companies in one card. On top, your account's OpenAI, Anthropic and
+- **AI** (`#ai`) — everything about AI companies in one card. When TechTeam runs on your computer, it starts with
+  **Plans on this computer**: Claude Code's install status and version, TechTeam's own sign-in (email · organization ·
+  plan, login expiry) with **Sign in** / **Sign out** / **Check again** and **Confirm this account**, the switch **Use
+  my Claude plan for Claude models**, which agents of this workspace it carries, and **When my plan runs out** (wait for
+  the reset / continue on the API key / switch company). See [cli-agents.md](cli-agents.md). Then **API keys**:
+  configured providers first, the others under "Add another provider". Your account's OpenAI, Anthropic and
   OpenRouter keys (OpenRouter: one key for Google, DeepSeek, Z.ai, xAI and Moonshot models), used by every project: a saved key shows in its field masked (first characters, dots, last four); **Replace
   key** opens an empty password field with a show/hide eye (**Save key**, checked with the provider first, or
   **Cancel**); **Remove** asks first. Without a key: Using the server's key, or Not connected. Every company with a key
@@ -563,8 +579,9 @@ Your account:
   [Out of credit](#out-of-credit)) and **Workspace keys (optional)**, used only for a company your account has no key
   for (while the account has one, only "Using your account's key" shows). The AI Team's "No AI provider connected"
   chip links here.
-- **Spending this month** (`#usage`) — model spend across every project this calendar month (UTC): the total, ranked
-  bars by project and by agent. Each project's own spend stays on its AI Team page.
+- **API spending this month** (`#usage`) — model spend across every project this calendar month (UTC): the total, ranked
+  bars by project and by agent. Each project's own spend stays on its AI Team page. With stages on your plans, a
+  **Plan usage this month** line: stages, tokens and the API-equivalent cost (not spent).
 
 This workspace:
 - **Workspace** (`#workspace`) — avatar, name, repository, default branch, visibility, creation date, **Open repository**.
@@ -572,7 +589,8 @@ This workspace:
   never-run Todo card every 2 minutes) and **Merging pull requests** (Manual: from the Pull Requests page / Automatic when
   low risk: once tests and CI pass, if the Lead rated it low risk / Automatic: once approval, tests and CI pass). Both
   default to Manual; workspaces that merged automatically before v0.2 keep Automatic. A note explains that a blocked merge makes the Tester file a
-  follow-up card.
+  follow-up card. Running locally, another note says auto pickup runs on every computer whose Inngest is up
+  (`AGENTS_AUTO_PICKUP=false` opts one out).
 - **Sandbox** (`#sandbox`) — **Let agents run code in the sandbox** (off by default; needs a sandbox host on the
   server) and the **install / test / build** commands, prefilled from `package.json`. **Test the sandbox** runs them on
   the default branch and shows the result. See [sandbox.md](sandbox.md).

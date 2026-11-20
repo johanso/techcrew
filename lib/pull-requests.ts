@@ -238,6 +238,8 @@ export async function createCardRun(
     }
   }
   const run = await createRun({ workspaceId: workspace.id, ...input, branch: openPr?.headBranch ?? null });
+  // Another run started on this card meanwhile, maybe on the owner's other computer.
+  if (!run) return { ok: false, error: "The agents are already working on this card. Wait for that run, or stop it first." };
   if (openPr) {
     await adoptPullRequest(openPr.id, run.id);
     await replaceWaitingRuns([...new Set([input.taskId, openPr.taskId ?? input.taskId])], run.id);

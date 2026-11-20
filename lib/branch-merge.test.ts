@@ -74,7 +74,8 @@ function write(files: Record<string, string>) {
 const lines = (n: number, tag = "") => Array.from({ length: n }, (_, i) => `line ${i + 1}${tag}`).join("\n") + "\n";
 const commitAll = (message: string) => { git(["add", "-A"]); git(["commit", "-q", "-m", message]); return git(["rev-parse", "HEAD"]).trim(); };
 
-describe("merge tools against a real git repository", () => {
+// Each test runs dozens of git commands, which take several seconds on Windows runners.
+describe("merge tools against a real git repository", { timeout: 60_000 }, () => {
   it("merges main into a conflicted branch as a two-parent commit git accepts", async () => {
     git(["init", "-q", "-b", "main"]);
     write({
@@ -95,6 +96,9 @@ describe("merge tools against a real git repository", () => {
       "src/feature.ts": "export const feature = true;\n",
     });
     chmodSync(join(repoDir, "bin/run.sh"), 0o755);
+    // Git on Windows doesn't read the executable bit from the disk (core.fileMode false): set it in the index too.
+    git(["add", "bin/run.sh"]);
+    git(["update-index", "--chmod=+x", "bin/run.sh"]);
     const ours = commitAll("ours");
     git(["checkout", "-q", "main"]);
     write({

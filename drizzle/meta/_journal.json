@@ -113,6 +113,13 @@
       "when": 1795171027558,
       "tag": "0015_pending_merge",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1795210184660,
+      "tag": "0016_cli_agents",
+      "breakpoints": true
     }
   ]
 }

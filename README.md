@@ -28,7 +28,8 @@ cards from analysis to a merged pull request.
 | Pull Requests page | ✅ Real | Agent PRs with review/test verdicts and **Merge**. |
 | Settings → Agent automation | ✅ Real | Task pickup and merge mode per workspace. |
 | Agent skills | ✅ Real | Knowledge packs in the Agent Skills format that agents search and read (never run). Built-ins vendored at pinned commits (`modern-web-guidance`, `chrome-extensions`, the `interface-design` UI/UX skill; `npm run skills:sync`); upload your own `SKILL.md` or `.zip` in **Settings → Agent skills** (validated, security-scanned, AI-reviewed when a key exists, then assigned per agent); switch them per agent in AI Team → Configure. |
-| Settings → AI providers | ✅ Real | Encrypted OpenAI / Anthropic / OpenRouter keys on your account for every project (optional per-workspace keys), spending this month across projects, optional automatic switch when out of credit. Each agent picks its company and model on the AI Team page. |
+| Settings → AI | ✅ Real | Encrypted OpenAI / Anthropic / OpenRouter keys on your account for every project (optional per-workspace keys), API spending this month across projects, optional automatic switch when out of credit. Each agent picks its company and model on the AI Team page. |
+| Agents on your Claude plan | 🟡 Built, not run live yet | Running locally, agents on Claude models can use your Claude plan through Claude Code instead of an API key, with TechTeam's own login and the same tools and permissions ([docs/cli-agents.md](docs/cli-agents.md)). |
 | Activity page | ✅ Real | Workspace timeline (agent events + cards people created, moved, edited or removed), grouped by day. |
 | Notifications (header bell) | ✅ Real | PR ready to merge, analyst questions, stopped runs, out of credit, provider switched, merges and blocked merges. |
 | Landing page (`/`) | ➖ None yet | Redirects to the dashboard (signed in) or to sign-in. |
@@ -43,8 +44,7 @@ Details: [docs/status.md](docs/status.md).
 npm install
 cp .env.example .env          # then fill in the values — see docs/setup.md
 npm run db:migrate            # create the tables in your Postgres database
-npm run dev                   # http://localhost:3000
-npm run inngest:dev           # in a second terminal — needed for the agent pipeline (Run, auto pickup)
+npm run dev                   # http://localhost:3000 + the Inngest Dev Server (agent pipeline), in one terminal
 ```
 
 You need: Node.js 22+, a PostgreSQL database, a CloudHike auth project, a GitHub OAuth App, and (optionally) an
@@ -66,7 +66,9 @@ Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 | `npm run db:baseline` | One time, for a database created with `db:push` before migrations existed: marks the migrations as applied. |
 | `npm run db:push` | Prototyping only: push the schema without a migration. Don't use it on shared or production databases. |
 | `npm run db:studio` | Drizzle Studio: browse and edit data in the browser. |
-| `npm run inngest:dev` | Local Inngest Dev Server, pointed at `/api/inngest`. Required for the agent pipeline (**Run**, auto pickup, auto-merge). |
+| `npm run dev` | The app on port 3000 **and** the Inngest Dev Server, together in one terminal (stopping one stops both). |
+| `npm run dev:app` | Only the app (`next dev --port 3000`). |
+| `npm run inngest:dev` | Only the local Inngest Dev Server, pointed at `/api/inngest`. Required for the agent pipeline (**Run**, auto pickup, auto-merge); `npm run dev` already starts it. |
 | `npm run lint` | ESLint (flat config: Next.js core web vitals + TypeScript). |
 | `npm test` | Unit tests (Vitest). `npm run test:watch` while working. |
 | `npm run check` | Route types (`next typegen`) + type check + lint + tests: run before every commit. CI runs it plus `npm run build` on every push and PR. |
@@ -90,6 +92,7 @@ Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 | [docs/status.md](docs/status.md) | See what's real, dummy or placeholder, known limitations, and suggested next steps. |
 | [docs/roadmap.md](docs/roadmap.md) | See where the product goes next (phases toward an AI software factory) and how a version is released. |
 | [CHANGELOG.md](CHANGELOG.md) | See what each version added, what was verified live, and its known limitations. |
+| [docs/cli-agents.md](docs/cli-agents.md) | Agents on your Claude plan through a local Claude Code: routes, isolation, the MCP endpoint, plan limits, two computers. |
 | [docs/testing.md](docs/testing.md) | Test the AI agents: simulated mode, providers and models, the test plan with what's verified, techniques and gotchas. |
 | [AGENTS.md](AGENTS.md) | **Coding conventions and the design system** (colors, typography, components). Mandatory reading before changing code — for people and AI agents alike. |
 

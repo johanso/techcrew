@@ -49,13 +49,13 @@ sign-in / sign-up ─▶ /workspaces ──(no workspaces)──▶ /workspaces/
 | GitHub | OAuth App (`repo read:user`) | Separate from social sign-in; tokens are AES-256-GCM encrypted. |
 | File storage | Private S3 bucket | Never public; served through ownership-checked routes. |
 | Jobs | Inngest | `lib/inngest/*`, `app/api/inngest`. |
-| AI | OpenAI (`openai` SDK, Responses API), Anthropic (`@anthropic-ai/sdk`, Messages API) and OpenRouter (`openai` SDK, Chat Completions: Google, DeepSeek, Z.ai, xAI, Moonshot models) | `lib/openai.ts`, `lib/anthropic.ts`, `lib/openrouter.ts`; each agent's model picks the provider. Optional — features degrade without keys. |
+| AI | OpenAI (`openai` SDK, Responses API), Anthropic (`@anthropic-ai/sdk`, Messages API) and OpenRouter (`openai` SDK, Chat Completions: Google, DeepSeek, Z.ai, xAI, Moonshot models); locally, Claude models can run on the owner's plan through Claude Code (`lib/cli/`, docs/cli-agents.md) | `lib/openai.ts`, `lib/anthropic.ts`, `lib/openrouter.ts`; each agent's model picks the provider, the computer picks the route (plan or key). Optional — features degrade without keys. |
 | Quality | ESLint 9 (flat config, `eslint-config-next`) + Vitest 4 | `npm run check` = typegen + tsc + lint + unit tests. CI: `.github/workflows/ci.yml`. |
 
 ## 3. Commands
 
 ```bash
-npm run dev          # dev server on http://localhost:3000
+npm run dev          # app on http://localhost:3000 + Inngest Dev Server, one terminal (dev:app = only the app)
 npm run build        # production build — must pass before you finish
 npm run check        # next typegen + tsc + eslint + vitest — must pass before you finish (CI runs it + build)
 npm test             # unit tests (Vitest); npm run test:watch while working
@@ -64,7 +64,7 @@ npm run db:generate  # after changing db/schema.ts: write the SQL migration into
 npm run db:migrate   # apply pending migrations
 npm run db:baseline  # once, for a database created with db:push before migrations: mark them applied
 npm run db:studio    # inspect data
-npm run inngest:dev  # local Inngest Dev Server — required for the agent pipeline (Run, auto pickup, auto-merge)
+npm run inngest:dev  # only the Inngest Dev Server (npm run dev already starts it) — needed by Run, auto pickup, auto-merge
 npx next typegen     # regenerate PageProps / RouteContext types after adding routes
 npx shadcn add <c>   # add a shadcn component into components/ui
 npm run skills:sync  # re-vendor the built-in agent skills at their pinned refs (-- --update <slug> to bump); commit the diff
@@ -82,6 +82,8 @@ app/
     workspaces/[id]/logo/     Streams a workspace logo from S3 to its owner.
     workspaces/[id]/references/[referenceId]/  Streams a card reference from S3 to the workspace owner (sandboxed).
     inngest/                  Inngest handler (serves the agent pipeline and auto pickup).
+    mcp/runs/[runId]/         TechTeam's MCP endpoint for a CLI agent's stage (local only; per-run bearer): lists and
+                              calls the stage's tools (lib/cli/stage-mcp.ts).
     switch-trust/scans/[scanId]/  Cloudhike job target: advances one SwitchAgent scan (single-use bearer token).
     switch-trust/agents/[agentId]/  OpenAI-compatible endpoint Switch evaluates an agent through (+ v1/chat/completions,
                               chat/completions aliases); derived per-agent bearer credential.
@@ -105,9 +107,10 @@ app/
                           uploadCardReferenceAction (one file per call) / addCardLinkAction (captures a link) /
                           removeCardReferenceAction (auth + validation).
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
-      settings/           Your account: profile (#account), AI providers (#ai: account keys for every project, then "This
-                          workspace only": automatic switch + optional workspace keys), spending this month across
-                          projects (#usage). This workspace: workspace (#workspace), agent automation (#agents), Sandbox
+      settings/           Your account: profile (#account), AI (#ai: "Plans on this computer" when running locally —
+                          Claude Code switch, sign-in, confirmed account, plan-limit choice — then API keys for every
+                          project, then "This workspace only": automatic switch + optional workspace keys), API spending
+                          and plan usage this month across projects (#usage). This workspace: workspace (#workspace), agent automation (#agents), Sandbox
                           (#sandbox), Switch Trust (#switch) and an Agent skills card (#skills) linking to
                           skills/page.tsx (the library on its own page). actions.ts: automation, saveSandboxAction /
                           checkSandboxAction (Test the sandbox),
@@ -133,7 +136,8 @@ components/
   activity/               activity-timeline (Activity page: events grouped by day, Show older).
   metrics/                metrics-view (Metrics page markup: period tabs, stat tiles, bar lists, recent runs), bar-list
                           (ranked one-hue bars with printed values).
-  settings/               agent-automation-form (task pickup + merge mode), auto-failover-toggle,
+  settings/               agent-automation-form (task pickup + merge mode), auto-failover-toggle, cli-plan-settings (Plans on
+                          this computer: Claude Code),
                           provider-key-form
                           (account or workspace scope; masked key + show/hide), account-spend (spending across projects), switch-connection-form (Switch Trust account), switch-weekly-toggle,
                           sandbox-form (Settings → Sandbox: switch, commands, Test the sandbox),
@@ -218,6 +222,17 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           internet through a checking proxy, on the techteam-capture network); capture-config.ts: pure
                           (parseCaptureUrl, parseCaptureOutput, formatCaptureOutline). Tested.
   jobs.ts                 Cloudhike Jobs: enqueueJob, getJobRun, publicAppUrl (null for local addresses).
+  cli-agents-config.ts    Agents on the owner's plans, pure and client-safe: CLI_KINDS / AGENT_ROUTES / CLI_META,
+                          cliAgentsAllowed (local URL, no hosting marker, AGENTS_LOCAL_CLI kill switch), parseCliAuth,
+                          accountMatches, planIncludesModel, resolveRoute, PLAN_LIMIT_POLICIES + planLimitAction,
+                          RunWaiting, planUsageSummary, ClaudePlanView. Tested.
+  cli/                    Local CLIs (docs/cli-agents.md). index.ts: CLI home (~/.techteam/cli), machine id + state.json,
+                          detectClaude (cached 60 s), childEnv (allowlist), sign in/out, cli_settings,
+                          claudeMachineState, run working folders. claude-config.ts: pure claudeChunkArgs, stream-json
+                          reader, classifyClaudeChunk (tested). claude-run.ts: runClaudeChunk, MCP bearer. stage-mcp.ts:
+                          the stage's tools as an MCP registry. plan-view.ts: Settings' view.
+  mcp-protocol.ts         Pure: a minimal stateless MCP server (initialize, ping, tools/list, tools/call), mcpToolsFrom.
+  db-errors.ts            Pure: isUniqueViolation (createRun's one-run-per-card guard).
   agent-ai.ts             Config AI (OpenAI if configured, else Anthropic, else OpenRouter): generateAgentConfig() (repo-aware, sandbox-aware instructions),
                           scanAgentWithAI(), reviewSkillWithAI() (upload review + type/load/roles), isConfigAIAvailable().
   openai.ts               OpenAI client (null without a key), responseCostMicros().
@@ -299,7 +314,8 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           parseCardInput / parseBoardInput (server-side validation).
   inngest/agent-run.ts    agentTaskRun: the agent pipeline (`agent/task.run`, cancel: `agent/task.cancel`). One step per
                           model turn; stages, rework rounds and merge.
-  inngest/agent-pickup.ts agentAutoPickup: cron every 2 min, starts runs on never-run Todo cards (auto pickup on).
+  inngest/agent-pickup.ts agentAutoPickup: cron every 2 min, starts runs on never-run Todo cards (auto pickup on;
+                          AGENTS_AUTO_PICKUP=false opts a computer out).
   inngest/switch-weekly.ts switchWeeklyScans: Mondays 06:00 UTC, queues SwitchAgent scans (Scan every week on).
   inngest/preview-sweep.ts previewSweep: every 10 min, stops previews older than 2 h and removes leftovers.
   task-events.ts          People's card moves/edits/removals for Activity: taskSnapshots (before a change),
@@ -317,7 +333,8 @@ agent-skills/             Built-in agent skills, vendored: sources.json (repo, p
                           usage note), catalog.json (generated: metadata + per-file title/summary for search), <slug>/
                           (files exactly as published + SOURCE.md + upstream LICENSE). Never hand-edit; run skills:sync.
 public/                   agents/<key>.webp: one face per agent role (256×256, round with transparent corners).
-scripts/                  db-baseline.mjs (mark migrations applied on a pushed DB), sync-agent-skills.mjs (skills:sync).
+scripts/                  db-baseline.mjs (mark migrations applied on a pushed DB), sync-agent-skills.mjs (skills:sync),
+                          cli-isolation-check.mts (agents on the plan: isolation check; spends plan usage, ask first).
 deploy/                   setup.sh: prepares a fresh Ubuntu 24.04 VPS (firewall, swap, Docker, gVisor for agent sandboxes,
                           `techteam` user, Caddy for previews, no host services for containers; `--lock-ssh` = keys
                           only; the link-capture and install networks and their DOCKER-USER private-range rules).
@@ -526,8 +543,9 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   the sortable wrapper (the card is only the drag *activator*), so they never start a drag or open the dialog.
   - **Run** (`runCardAction`) creates an `agent_runs` row, queues `agent/task.run` with its `runId`, then moves the card
     to Analysis assigned to the analyst; if queuing fails the run is marked failed and nothing moves. Refused while a
-    run is active, when an agent's model has no provider key (`pipelineModelProblem`), or when the analyst is paused/over budget. Locally: `npm run inngest:dev`.
-  - **Stop agents** (`stopCardAction`) marks the run cancelled, sends `agent/task.cancel` and unassigns the card.
+    run is active, when an agent's model has no provider key (`pipelineModelProblem`), or when the analyst is paused/over budget. Locally: `npm run dev` starts the Inngest Dev Server too.
+  - **Stop agents** (`stopCardAction`) marks the run cancelled, sends `agent/task.cancel` and unassigns the card (also
+    while it waits for the owner's plan to reset: the card then says "Waiting for your Claude plan · resets …").
   - Cards show their latest run with `AgentRunStatus`; ▶ is disabled while it is queued/running, and the board re-reads
     itself every 10 s while any card has an active run (`useGithubSync({ live })` → `getBoardAction`, database only;
     GitHub stays on the 60 s sync).
@@ -737,6 +755,20 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     remembers each agent's model per company for out-of-credit moves (`moveAgentsToProvider`). Config AI (drafting,
     trust reviews) runs on OpenAI, else Anthropic, else OpenRouter (`configAI`). Run refuses up front when any agent's model has no key
     (`pipelineModelProblem`).
+  - **Routes: the owner's plan through a local CLI** ([`docs/cli-agents.md`](docs/cli-agents.md)): only when TechTeam
+    runs locally (`cliAgentsAvailable`); a deploy never shows, detects or spawns a CLI. `resolveRoute` picks each stage's
+    route on the computer that runs it (plan when Claude Code is switched on there, signed in with a plan login to the
+    confirmed account and the plan includes the model; else the API key; else Run refuses) and pins it in `LoopState`
+    (`provider: "cli"`, session id). Never edit an agent's model to change a route. A plan stage runs chunks of up to
+    10 turns (`claude -p --resume`), with **no built-in tools**: only TechTeam's tools through
+    `app/api/mcp/runs/[runId]` (same `toolsFor` + `callTool`, each call logged as it happens, the finish tool stores
+    the result in `agent_runs.cli_results`). Claude Code always runs with TechTeam's own `CLAUDE_CONFIG_DIR`, the
+    isolation flags of `claudeChunkArgs` and `childEnv` (allowlist): never the owner's normal login, settings, MCP
+    servers or hooks, never the parent's env, never a secret on argv. Plan usage goes to `agent_activity.tokens` /
+    `equivalent_micros` (`billing = 'plan'`), never `cost_micros`; budgets don't apply to plan stages. The plan running
+    out follows the owner's choice (`planLimitAction`: wait and resume the session with `step.sleepUntil` and
+    `agent_runs.waiting`, restart on the API key, or auto failover), else `failure.kind = "plan_limit"`. One run in
+    flight per card (unique partial index): handle `createRun` returning null.
   - **Models and providers**: `AGENT_MODELS` (`lib/agent-config.ts`) lists OpenAI, Claude and OpenRouter models with
     their `provider`, `maker`, `tier` and prices. Moving company keeps the tier (`closestModel`). An OpenRouter model is
     added only when its hosts support tools and structured outputs (OpenRouter's `/models`: `supported_parameters`). The model is pinned per stage in `LoopState` (a change on the AI Team page applies from the next stage).
@@ -867,3 +899,5 @@ See `.env.example` for the full list with comments. Feature-specific:
 | `SANDBOX_DOCKER_HOST`, `SANDBOX_IMAGE` | Agent sandboxes: the Docker host (`ssh://…` to a VPS set up with `deploy/setup.sh`, or the local socket on it). Unset: Settings → Sandbox can't be switched on. |
 | `SANDBOX_PREVIEW_DOMAIN`, `SANDBOX_BROWSER_IMAGE` | PR previews at `pr-<n>-<random>.<domain>` (wildcard DNS to the sandbox host) and the sandbox browser image (the Tester's browser, link captures). Unset domain: previews can't be switched on. |
 | `AGENTS_SIMULATED` | Local testing: `true` runs the pipeline with scripted agents (`lib/agent-simulated.ts`) — no model calls or spend, but real GitHub work (branch, `agent-simulations/<branch>.md`, PR). |
+| `AGENTS_LOCAL_CLI`, `TECHTEAM_CLI_HOME`, `CLAUDE_CLI_PATH` | Agents on the owner's plan (local only, nothing to switch on): `AGENTS_LOCAL_CLI=false` turns it off on this computer; TechTeam's CLI home (default `~/.techteam/cli`); Claude Code's binary when it isn't in a known place. |
+| `AGENTS_AUTO_PICKUP` | `false` keeps the auto pickup cron off on this computer (each computer's Inngest runs it; they share the database). |

@@ -10,6 +10,7 @@ import type { AgentKey, ProviderStatus } from "@/lib/agent-config";
 import type { AgentView } from "@/lib/agents";
 import type { SkillView } from "@/lib/agent-skills-config";
 import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
+import type { AgentRoutes } from "@/lib/cli-agents-config";
 
 /**
  * The agent cards plus the configure dialog and activity drawer they open. Both overlays read the agent from
@@ -23,6 +24,7 @@ export function AgentRoster({
   providers,
   switchTrust,
   skills,
+  routes,
 }: {
   agents: AgentView[];
   workspaceId: number;
@@ -32,6 +34,8 @@ export function AgentRoster({
   switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
+  /** Each agent's route on this computer; null when TechTeam isn't running locally. */
+  routes: AgentRoutes | null;
 }) {
   const [configuring, setConfiguring] = useState<AgentKey | null>(null);
   const [viewing, setViewing] = useState<AgentKey | null>(null);
@@ -51,6 +55,7 @@ export function AgentRoster({
           <AgentCard
             key={agent.id}
             agent={agent}
+            route={routes ? (routes[agent.id] ?? null) : undefined}
             live={team.members.find((m) => m.id === agent.id) ?? null}
             onConfigure={() => {
               setConfiguring(agent.id);

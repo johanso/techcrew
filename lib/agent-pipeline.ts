@@ -1,12 +1,16 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
+
 import { NonRetriableError } from "inngest";
 import { and, desc, eq, isNotNull, lt } from "drizzle-orm";
 import type { FunctionTool } from "openai/resources/responses/responses";
 
-import { agentActivity, agentRuns, agentRunSteps, db, pullRequests, tasks, workspaces } from "@/db";
+import { agentActivity, agentRuns, agentRunSteps, db, pullRequests, tasks, workspaces, type AgentRow } from "@/db";
 import {
+  AGENT_KEYS,
   AGENT_ROLES,
+  MICROS_PER_USD,
   PROVIDERS,
   defaultProvider,
   fallbackProvider,
@@ -16,6 +20,7 @@ import {
   type AgentModelId,
   type AgentProvider,
   type PermissionId,
+  type ProviderStatus,
 } from "@/lib/agent-config";
 import { getAIKeys, keyStatus } from "@/lib/ai-keys";
 import { agentTurn, initialLoopState, modelUnavailableReason, type LoopState, type TurnOutcome } from "@/lib/agent-loop";
@@ -48,23 +53,28 @@ import {
 } from "@/lib/agent-run-config";
 import {
   addRunCost,
+  appendRunStep,
+  clearCliResult,
   countStageToolCalls,
   finishRun,
   getRun,
   markStageRunning,
   placeTask,
+  readCliResult,
   savePreviewStep,
   saveRunSteps,
   saveStageEnd,
+  setRunWaiting,
   updateRun,
 } from "@/lib/agent-runs";
 import { getAgentSkills, promptSkills } from "@/lib/agent-skills";
 import { clearPendingMerge } from "@/lib/branch-merge";
 import { toolsFor, type ToolContext } from "@/lib/agent-tools";
-import { continuableBranch, outOfTurnsOutcome, turnsLeftNotice, type OutOfTurnsFacts } from "@/lib/agent-turns";
+import { cliChunkPrompt, continuableBranch, outOfTurnsOutcome, turnsLeftNotice, type OutOfTurnsFacts } from "@/lib/agent-turns";
 import {
   activeAgentModel,
   addActivityCost,
+  addActivityPlanUsage,
   agentMaxTurns,
   checkAgentCanRun,
   getAgentRow,
@@ -77,6 +87,24 @@ import {
 } from "@/lib/agents";
 import { isAnthropicOutOfCredit } from "@/lib/anthropic";
 import { ciForRound, ciSummary, classifyCi, failingChecks, logExcerpt, type CiResult } from "@/lib/ci-gate";
+import {
+  CLI_META,
+  PLAN_RETRY_MINUTES,
+  accountMatches,
+  cliForModel,
+  defaultPlanLimitPolicy,
+  describeAccount,
+  planLimitAction,
+  planUsageSummary,
+  resolveRoute,
+  type AgentRoute,
+  type AgentRoutes,
+  type PlanLimitPolicy,
+  type RouteResolution,
+} from "@/lib/cli-agents-config";
+import { claudeMachineState, claudeSessionExists, cliAgentsAvailable, rememberModelUnusable, rememberPlanLimited } from "@/lib/cli";
+import { totalTokens } from "@/lib/cli/claude-config";
+import { runClaudeChunk } from "@/lib/cli/claude-run";
 import {
   GithubError,
   compareBranches,
@@ -101,6 +129,8 @@ import { sandboxAvailable } from "@/lib/sandbox";
 import { previewLogSummary, sandboxCommandsOf, type RunPreview } from "@/lib/sandbox/config";
 import { pollRunPreview, previewsAvailable, startRunPreview } from "@/lib/sandbox/preview";
 import { LINK_FRAME, REFERENCE_KIND_META, VISUAL_REFERENCE_KINDS, referenceHost, referenceVisionProblem, referenceVisionStages } from "@/lib/reference-config";
+import { claudeEffort } from "@/lib/agent-request-params";
+import type { ImageLoader } from "@/lib/reference-images";
 import { getAgentReferences, loadImageObject, loadReferenceImage, taskHasVisualReferences } from "@/lib/references";
 import { runScreenshotKey } from "@/lib/storage";
 import { skillsPromptBlock } from "@/lib/skill-runtime";
@@ -806,7 +836,8 @@ export async function beginStage(runId: number, stage: AgentStage): Promise<Begi
     return { ok: false };
   }
   const { agent: key, phase } = STAGE_META[stage];
-  const allowed = await checkAgentCanRun(ctx.workspace.id, key);
+  // A stage on the owner's plan spends nothing: the budget doesn't hold it back.
+  const allowed = await checkAgentCanRun(ctx.workspace.id, key, { onPlan: await agentOnPlan(ctx.workspace, key) });
   if (!allowed.ok) {
     await stopRun(runId, allowed.error, null, "failed", null, stage);
     return { ok: false };
@@ -833,18 +864,54 @@ export async function beginStage(runId: number, stage: AgentStage): Promise<Begi
   return { ok: true, activityId, maxTurns: agentMaxTurns(allowed.row) };
 }
 
+type RouteWorkspace = { id: number; ownerId: number };
+
 /**
- * The first pipeline agent whose model can't run (its provider has no API key), as a message for the user, or
- * null. Checked before a run starts so it doesn't stop halfway, after the analyst already spent.
+ * The route an agent's next stage takes on this computer (resolveRoute): the owner's plan through a local CLI, the API
+ * key, or none (`problem`). The model is the agent's; the route is the computer's (docs/cli-agents-plan.md).
+ */
+async function agentRoute(workspace: RouteWorkspace, row: AgentRow | null, key: AgentKey, providers: ProviderStatus, forceApi = false) {
+  const model: AgentModelId = row ? activeAgentModel(row) : AGENT_ROLES[key].defaults.models[defaultProvider(providers)];
+  // Simulated agents need no provider and never spawn a CLI.
+  if (isSimulatedAgents()) return { model, resolved: { route: "api", billing: "api", note: null } as RouteResolution };
+  const cli = cliForModel(model) ? await claudeMachineState(workspace.ownerId) : null;
+  return { model, resolved: resolveRoute({ model, hasKey: providers[modelInfo(model).provider], cli, forceApi }) };
+}
+
+/** Whether an agent's next stage would take the owner's plan on this computer (its budget then doesn't apply). */
+export async function agentOnPlan(workspace: RouteWorkspace, key: AgentKey) {
+  const row = await getAgentRow(workspace.id, key);
+  const { resolved } = await agentRoute(workspace, row, key, keyStatus(await getAIKeys(workspace.id)));
+  return resolved.route !== null && resolved.route !== "api";
+}
+
+/**
+ * Each agent's route on this computer for the AI Team page ("Your Claude plan" / "API key"; null: no way to its model),
+ * or null when CLI agents aren't possible here (a deploy): then the page shows no routes, as before.
+ */
+export async function agentRoutesHere(workspace: RouteWorkspace): Promise<AgentRoutes | null> {
+  if (!cliAgentsAvailable() || isSimulatedAgents()) return null;
+  const providers = keyStatus(await getAIKeys(workspace.id));
+  const routes: AgentRoutes = {};
+  for (const key of AGENT_KEYS) {
+    const { resolved } = await agentRoute(workspace, await getAgentRow(workspace.id, key), key, providers);
+    routes[key] = resolved.route;
+  }
+  return routes;
+}
+
+/**
+ * The first pipeline agent that has no way to its model on this computer (no plan route and no API key), as a message
+ * for the user, or null. Checked before a run starts so it doesn't stop halfway, after the analyst already spent.
  */
 export async function pipelineModelProblem(workspaceId: number) {
+  const [workspace] = await db.select({ id: workspaces.id, ownerId: workspaces.ownerId }).from(workspaces).where(eq(workspaces.id, workspaceId));
+  if (!workspace) return "Workspace not found.";
   const providers = keyStatus(await getAIKeys(workspaceId));
   for (const stage of AGENT_STAGES) {
     const key = STAGE_META[stage].agent;
-    const row = await getAgentRow(workspaceId, key);
-    const model = row ? activeAgentModel(row) : AGENT_ROLES[key].defaults.models[defaultProvider(providers)];
-    const reason = modelUnavailableReason(model, providers);
-    if (reason) return `${AGENT_ROLES[key].name}: ${reason}`;
+    const { resolved } = await agentRoute(workspace, await getAgentRow(workspaceId, key), key, providers);
+    if (resolved.route === null) return `${AGENT_ROLES[key].name}: ${resolved.problem}`;
   }
   return null;
 }
@@ -885,16 +952,21 @@ const REQUIRED_PERMISSIONS: Record<AgentStage, PermissionId[]> = {
 const PERMISSION_NAME: Partial<Record<PermissionId, string>> = { "repo.read": "Read repository", "code.write": "Write code", "pr.open": "Open pull requests" };
 
 export type TurnStepResult<S extends AgentStage> =
-  | { kind: "continue"; state: LoopState }
+  /** `turnsUsed`: a CLI chunk runs several turns (absent: one). */
+  | { kind: "continue"; state: LoopState; turnsUsed?: number }
   | { kind: "done"; result: StageResult[S] }
   | { kind: "stopped"; reason: string; failure?: RunFailure }
-  /** The provider changed under the stage (auto failover after running out of credit): start it over on the new one. */
-  | { kind: "restart"; reason: string };
+  /**
+   * Start the stage over: the provider changed under it (auto failover after running out of credit), or the owner's
+   * plan can't carry it any more and it moves to the API key (`forceApi`).
+   */
+  | { kind: "restart"; reason: string; forceApi?: boolean }
+  /** The owner's plan ran out: sleep until `until`, then resume the same CLI session (`state`; `turnsUsed` before it ran out). */
+  | { kind: "wait"; until: string; state: LoopState; turnsUsed?: number };
 
-/** One model turn of a stage. Re-checks pause and budget every turn, so a change on the AI Team page applies mid-stage. */
-export async function runStageTurn<S extends AgentStage>(input: {
+type StageTurnInput = {
   runId: number;
-  stage: S;
+  stage: AgentStage;
   activityId: number;
   state: LoopState | null;
   forceFinish: boolean;
@@ -904,50 +976,110 @@ export async function runStageTurn<S extends AgentStage>(input: {
   /** This turn (from 1) and the stage's turn limit, for the turns-left note (absent on steps queued before it existed). */
   turn?: number;
   maxTurns?: number;
-}): Promise<TurnStepResult<S>> {
-  const ctx = await requireContext(input.runId);
-  if (ctx.run.status === "cancelled") return { kind: "stopped", reason: "Stopped by the user." };
-  // The agent working in parallel stopped the run: end this stage too instead of spending on a run that's over.
-  if (!isActiveRun(ctx.run.status as RunStatus)) return { kind: "stopped", reason: `The run stopped: ${ctx.run.error ?? "another agent stopped it."}` };
-  if (ctx.removed) return { kind: "stopped", reason: "The card was removed from the board." };
+  /** The stage moved from the owner's plan to the API key (the plan ran out mid-stage, or refused the model). */
+  forceApi?: boolean;
+  /** Times this stage already waited for the plan to reset (the owner is told once). */
+  waits?: number;
+};
 
-  const key = STAGE_META[input.stage].agent;
-  const row = await getAgentRow(ctx.workspace.id, key);
-  if (!row) return { kind: "stopped", reason: `${AGENT_ROLES[key].name} isn't set up for this workspace.` };
-  if (!row.enabled) return { kind: "stopped", reason: `${AGENT_ROLES[key].name} was paused.` };
-  if ((await monthSpendMicros(row.id)) >= row.monthlyBudgetCents * 10_000) {
-    return { kind: "stopped", reason: `${AGENT_ROLES[key].name} reached this month's budget.` };
-  }
-
-  const token = await requireToken(ctx.workspace.ownerId);
+/** What an agent can use in a stage right now: its tools (permissions, skills, references, sandbox, preview). */
+async function stageSetup(ctx: RunContext, row: AgentRow, stage: AgentStage, runId: number, model: AgentModelId, token: string) {
   const permissions = agentPermissions(row.permissions);
   // Read every turn, like pause and budget: switching a skill on or off applies from the agent's next turn.
   const skills = await getAgentSkills(row.id);
   // The card's references, read every turn too: one removed mid-run is gone from the next turn.
   const references = await getAgentReferences(ctx.task.id);
-  const model: AgentModelId = input.state?.model ?? activeAgentModel(row);
   const toolContext: ToolContext = {
-    runId: input.runId,
+    runId,
     token,
     repo: ctx.workspace.githubRepoFullName,
     defaultBranch: ctx.workspace.githubDefaultBranch,
     branch: ctx.run.branch,
-    stage: input.stage,
+    stage,
     permissions,
     skills,
     // Read every turn too: switching the sandbox off in Settings applies from the next turn.
-    sandbox: sandboxFor(ctx, input.runId),
+    sandbox: sandboxFor(ctx, runId),
     // browse_preview: offered with previews on; when none is running for this run, the tool says so.
     preview:
       ctx.workspace.sandboxEnabled && ctx.workspace.sandboxPreview && previewsAvailable()
-        ? { workspaceId: ctx.workspace.id, runId: input.runId, vision: modelInfo(model).vision }
+        ? { workspaceId: ctx.workspace.id, runId, vision: modelInfo(model).vision }
         : null,
     // Images go only to a model that can see them; the others get a note (read_reference).
     references: references.length ? { items: references, vision: modelInfo(model).vision } : null,
   };
-  const tools = toolsFor(toolContext);
+  return { toolContext, tools: toolsFor(toolContext), skills, references };
+}
+
+type StageSetup = Awaited<ReturnType<typeof stageSetup>>;
+
+/** The stage's system prompt: the agent's instructions, the operating protocol for what its tools allow, its skills. */
+async function stageInstructions(row: AgentRow, ctx: RunContext, stage: AgentStage, setup: StageSetup) {
+  const has = (name: string) => setup.tools.some((tool) => tool.name === name);
+  return systemPrompt(row.instructions, ctx, stage, agentMaxTurns(row), skillsPromptBlock(await promptSkills(setup.skills)), {
+    canRun: has("run_command"),
+    canAddDependency: has("add_dependency"),
+    canMerge: has("merge_default_branch"),
+    canBrowse: has("browse_preview"),
+    hasReferences: has("read_reference"),
+    hasLinks: setup.references.some((ref) => ref.kind === "link"),
+    hasVisualReferences: setup.references.some((ref) => VISUAL_REFERENCE_KINDS.includes(ref.kind)),
+  });
+}
+
+/** Loads an image the stage's agent gets: a reference of this card, or a screenshot of this run (keys from its own ids). */
+function stageImageLoader(ctx: RunContext, runId: number): ImageLoader {
+  return (image) =>
+    image.kind === "screenshot"
+      ? loadImageObject(runScreenshotKey(ctx.workspace.id, runId, image.id), "image/png")
+      : loadReferenceImage(ctx.task.id, image.id, image.view);
+}
+
+/**
+ * One turn of a stage (one model turn on the API, one chunk of turns on a local CLI). Re-checks pause and budget every
+ * turn, so a change on the AI Team page applies mid-stage. The route (plan or API key) is resolved when the stage starts
+ * and pinned in the state, like the model.
+ */
+export async function runStageTurn<S extends AgentStage>(input: StageTurnInput & { stage: S }): Promise<TurnStepResult<S>> {
+  const ctx = await requireContext(input.runId);
+  if (ctx.run.status === "cancelled") return { kind: "stopped", reason: "Stopped by the user." };
+  // The agent working in parallel stopped the run: end this stage too instead of spending on a run that's over.
+  if (!isActiveRun(ctx.run.status as RunStatus)) return { kind: "stopped", reason: `The run stopped: ${ctx.run.error ?? "another agent stopped it."}` };
+  if (ctx.removed) return { kind: "stopped", reason: "The card was removed from the board." };
+  // Back from waiting for the owner's plan: the card stops saying so.
+  if (ctx.run.waiting) await setRunWaiting(input.runId, null);
+
+  const key = STAGE_META[input.stage].agent;
+  const row = await getAgentRow(ctx.workspace.id, key);
+  if (!row) return { kind: "stopped", reason: `${AGENT_ROLES[key].name} isn't set up for this workspace.` };
+  if (!row.enabled) return { kind: "stopped", reason: `${AGENT_ROLES[key].name} was paused.` };
+
   const keys = await getAIKeys(ctx.workspace.id);
-  const unavailable = modelUnavailableReason(model, keyStatus(keys));
+  const providers = keyStatus(keys);
+  let model: AgentModelId;
+  let route: AgentRoute;
+  if (input.state) {
+    model = input.state.model;
+    route = input.state.provider === "cli" ? CLI_META[input.state.cli].route : "api";
+  } else {
+    const chosen = await agentRoute(ctx.workspace, row, key, providers, input.forceApi);
+    if (chosen.resolved.route === null) return { kind: "stopped", reason: chosen.resolved.problem };
+    model = chosen.model;
+    route = chosen.resolved.route;
+    // The plan is on but couldn't carry this stage: the agent log says why it took the API key.
+    if (chosen.resolved.note) await logRoute(input.runId, input.stage, ctx.run.reworkRounds, 0, model, chosen.resolved.note);
+  }
+  // Only API spend counts toward the budget; a stage on the owner's plan spends nothing.
+  if (route === "api" && (await monthSpendMicros(row.id)) >= row.monthlyBudgetCents * 10_000) {
+    return { kind: "stopped", reason: `${AGENT_ROLES[key].name} reached this month's budget.` };
+  }
+
+  const token = await requireToken(ctx.workspace.ownerId);
+  const setup = await stageSetup(ctx, row, input.stage, input.runId, model, token);
+  const instructions = await stageInstructions(row, ctx, input.stage, setup);
+  if (route !== "api") return cliTurn<S>({ input, ctx, row, model, instructions, providers });
+
+  const unavailable = modelUnavailableReason(model, providers);
   if (unavailable) return { kind: "stopped", reason: unavailable };
   const state =
     input.state ??
@@ -965,36 +1097,17 @@ export async function runStageTurn<S extends AgentStage>(input: {
       stage: input.stage,
       notice: input.turn && input.maxTurns ? turnsLeftNotice(input.turn, input.maxTurns, FINISH[input.stage].name) : null,
       apiKey: keys[modelInfo(model).provider],
-      instructions: systemPrompt(
-        row.instructions,
-        ctx,
-        input.stage,
-        agentMaxTurns(row),
-        skillsPromptBlock(await promptSkills(skills)),
-        {
-          canRun: tools.some((tool) => tool.name === "run_command"),
-          canAddDependency: tools.some((tool) => tool.name === "add_dependency"),
-          canMerge: tools.some((tool) => tool.name === "merge_default_branch"),
-          canBrowse: tools.some((tool) => tool.name === "browse_preview"),
-          hasReferences: tools.some((tool) => tool.name === "read_reference"),
-          hasLinks: references.some((ref) => ref.kind === "link"),
-          hasVisualReferences: references.some((ref) => VISUAL_REFERENCE_KINDS.includes(ref.kind)),
-        }
-      ),
-      tools,
+      instructions,
+      tools: setup.tools,
       finish: FINISH[input.stage],
-      toolContext,
+      toolContext: setup.toolContext,
       state,
       forceFinish: input.forceFinish,
-      // A reference of this card, or a screenshot of this run (its key is built from the run's own ids).
-      loadImage: (image) =>
-        image.kind === "screenshot"
-          ? loadImageObject(runScreenshotKey(ctx.workspace.id, input.runId, image.id), "image/png")
-          : loadReferenceImage(ctx.task.id, image.id, image.view),
+      loadImage: stageImageLoader(ctx, input.runId),
     });
   } catch (error) {
     const broke = brokeProvider(error);
-    if (broke) return outOfCredit(ctx, key, broke, fallbackProvider(broke, keyStatus(keys)), input.failedOver ?? false);
+    if (broke) return outOfCredit(ctx, key, broke, fallbackProvider(broke, providers), input.failedOver ?? false);
     rethrowGithub(error);
   }
 
@@ -1004,12 +1117,213 @@ export async function runStageTurn<S extends AgentStage>(input: {
   await saveRunSteps(input.runId, at, outcome.steps);
 
   if (outcome.result === null) return { kind: "continue", state: outcome.state };
-  const result = parseResult(input.stage, outcome.result);
+  return completeStage(input, ctx, outcome.result, outcome.state.turn, model, null);
+}
+
+/** Ends a stage on its submitted result: parsed, on the activity row and in the agent log (`usage`: a plan stage's). */
+async function completeStage<S extends AgentStage>(
+  input: { runId: number; stage: S; activityId: number },
+  ctx: RunContext,
+  raw: unknown,
+  turns: number,
+  model: AgentModelId,
+  usage: string | null
+): Promise<TurnStepResult<S>> {
+  const result = parseResult(input.stage, raw);
   const calls = await countStageToolCalls(input.runId, input.stage, ctx.run.reworkRounds);
-  const done = stageDoneActivity(input.stage, ctx.key, result, outcome.state.turn, calls);
+  const done = stageDoneActivity(input.stage, ctx.key, result, turns, calls);
   await updateAgentActivity(input.activityId, done);
-  await saveStageEnd(input.runId, at, { ok: true, summary: done.detail ? `${done.title}: ${done.detail}` : done.title, costMicros: await activityCost(input.activityId) });
+  const summary = done.detail ? `${done.title}: ${done.detail}` : done.title;
+  await saveStageEnd(
+    input.runId,
+    { stage: input.stage, round: ctx.run.reworkRounds, turn: turns, model },
+    { ok: true, summary: usage ? `${summary} · ${usage}` : summary, costMicros: await activityCost(input.activityId) }
+  );
   return { kind: "done", result };
+}
+
+/**
+ * The tools a CLI agent may call right now through TechTeam's MCP endpoint (lib/cli/stage-mcp.ts), or null when that
+ * stage isn't the one working: the run must be active, in this stage's phase and round, with the agent enabled. Built
+ * exactly like an API turn's tools, so permissions, skills, references and the sandbox apply the same way.
+ */
+export async function cliStageTools(runId: number, stage: AgentStage, round: number) {
+  const ctx = await loadRunContext(runId);
+  if (!ctx || ctx.removed || !isActiveRun(ctx.run.status as RunStatus)) return null;
+  if (ctx.run.reworkRounds !== round || ctx.run.stage !== STAGE_META[stage].phase) return null;
+  const row = await getAgentRow(ctx.workspace.id, STAGE_META[stage].agent);
+  if (!row?.enabled) return null;
+  const token = await getGithubToken(ctx.workspace.ownerId).catch(() => null);
+  if (!token) return null;
+  const model = activeAgentModel(row);
+  const setup = await stageSetup(ctx, row, stage, runId, model, token);
+  return { ...setup, model, finish: FINISH[stage], loadImage: stageImageLoader(ctx, runId) };
+}
+
+/** A note in the agent log about the stage's route (plan or API key), at the next free position of the given turn. */
+async function logRoute(runId: number, stage: AgentStage, round: number, turn: number, model: AgentModelId, note: string) {
+  await appendRunStep(runId, { stage, round, turn, model }, { tool: "route", target: null, ok: true, summary: note.slice(0, 200) });
+}
+
+// Turns per CLI chunk: one Inngest step each, short enough to retry and to notice a stop between chunks.
+const CLI_CHUNK_TURNS = 10;
+
+// The protocol names tools without the MCP prefix the CLI shows them with.
+const cliToolsNote = (finish: string) => `
+
+--- Tools on this computer ---
+- Your tools are TechTeam's, served over MCP: they appear as mcp__techteam__<name> (read_file is mcp__techteam__read_file). You have no other tools: no shell, no local files, no web. Finish with mcp__techteam__${finish}.`;
+
+/**
+ * One chunk of a stage on the owner's plan (Claude Code): up to CLI_CHUNK_TURNS turns in the CLI session, which the
+ * next chunk resumes. The agent works through TechTeam's MCP endpoint (lib/cli/stage-mcp.ts: the same tools, logged as
+ * they're called), and its finish tool stores the result there. Usage is tokens and an API-equivalent cost, never spend.
+ */
+async function cliTurn<S extends AgentStage>(args: {
+  input: StageTurnInput & { stage: S };
+  ctx: RunContext;
+  row: AgentRow;
+  model: AgentModelId;
+  instructions: string;
+  providers: ProviderStatus;
+}): Promise<TurnStepResult<S>> {
+  const { input, ctx, row, model, providers } = args;
+  const round = ctx.run.reworkRounds;
+  const resultKey = `${input.stage}:${round}`;
+  const finish = FINISH[input.stage];
+  const prior = input.state?.provider === "cli" ? input.state : null;
+  const turn = input.turn ?? (prior?.turn ?? 0) + 1;
+  const remaining = Math.max(1, (input.maxTurns ?? agentMaxTurns(row)) - turn + 1);
+
+  // Every chunk re-checks this computer: Claude Code still here, signed in to the account the owner confirmed.
+  const machine = await claudeMachineState(ctx.workspace.ownerId);
+  if (!machine?.installed) {
+    return { kind: "stopped", reason: "Claude Code isn't available on this computer any more. Switch your Claude plan off in Settings → AI, or run the card where it is." };
+  }
+  if (!machine.auth || !accountMatches(machine.auth, machine.confirmed)) {
+    const who = machine.auth?.loggedIn ? `as ${describeAccount(machine.auth)}` : "to no account";
+    return { kind: "stopped", reason: `Claude Code is signed in ${who}, not the account you confirmed. Check it in Settings → AI.` };
+  }
+
+  // A fresh stage submits again: forget a result an earlier attempt of this stage stored.
+  if (!prior) await clearCliResult(input.runId, resultKey);
+  const state: Extract<LoopState, { provider: "cli" }> = prior ?? { turn: 0, model, provider: "cli", cli: "claude", sessionId: randomUUID(), started: false };
+  // A retried first chunk finds its session already there.
+  const resume = state.started || (await claudeSessionExists(state.sessionId));
+  const chunkTurns = Math.min(CLI_CHUNK_TURNS, remaining);
+  const run = await runClaudeChunk({
+    runId: input.runId,
+    stage: input.stage,
+    round,
+    turn,
+    model,
+    sessionId: state.sessionId,
+    resume,
+    prompt: cliChunkPrompt({ brief: resume ? null : await stageBrief(ctx, input.stage, input.work), remaining, chunkTurns, finish: finish.name }),
+    systemPrompt: args.instructions + cliToolsNote(finish.name),
+    maxTurns: chunkTurns,
+    effort: claudeEffort(model, input.stage),
+    shouldStop: async () => {
+      const current = await getRun(input.runId);
+      return !current || !isActiveRun(current.status as RunStatus);
+    },
+  });
+
+  const used = Math.max(1, run.summary.result?.numTurns ?? run.summary.assistantMessages);
+  const next: LoopState = { ...state, turn: state.turn + used, started: true };
+  if (run.summary.result) {
+    const { usage, costUsd } = run.summary.result;
+    await addActivityPlanUsage(input.activityId, { tokens: totalTokens(usage), equivalentMicros: costUsd * MICROS_PER_USD });
+  }
+  if (run.stopped) return { kind: "stopped", reason: "The run was stopped." };
+
+  // The finish tool already stored the result (whatever the CLI printed after it).
+  const raw = await readCliResult(input.runId, resultKey);
+  if (raw !== null) return completeStage(input, ctx, raw, next.turn, model, planUsageSummary({ turns: next.turn, ...(await activityPlanUsage(input.activityId)) }));
+
+  const outcome = run.outcome;
+  switch (outcome.kind) {
+    case "ok":
+      return { kind: "continue", state: next, turnsUsed: used };
+    case "plan_limit": {
+      const limited = await planLimited(input, ctx, next, machine.onLimit, providers, outcome.resetsAt, turn);
+      return limited.kind === "wait" ? { ...limited, turnsUsed: used } : limited;
+    }
+    case "model_unavailable": {
+      await rememberModelUnusable("claude", model);
+      const reason = `Your Claude plan doesn't include ${modelInfo(model).label}.`;
+      if (!providers.anthropic) return { kind: "stopped", reason: `${reason} Add an Anthropic key, or pick another model for ${AGENT_ROLES[row.key as AgentKey].name} on the AI Team page.` };
+      await logRoute(input.runId, input.stage, round, turn, model, `${reason} Continued on the API key.`);
+      return { kind: "restart", reason, forceApi: true };
+    }
+    case "auth":
+      return { kind: "stopped", reason: "Claude Code is signed out for TechTeam. Sign in again in Settings → AI, then run the card again." };
+    case "isolation":
+      return {
+        kind: "stopped",
+        reason: `Claude Code started with tools TechTeam didn't give it (${outcome.tools.slice(0, 5).join(", ")}), so the run stopped before the agent could use them. Check TechTeam's Claude Code setup (docs/cli-agents.md), or switch your Claude plan off in Settings → AI.`,
+      };
+    case "error":
+      // Transient (network, a crash): the step retries and resumes the same session.
+      throw new Error(outcome.message);
+  }
+}
+
+/** A plan stage's usage so far: tokens and the API-equivalent cost on its activity row. */
+async function activityPlanUsage(activityId: number) {
+  const [row] = await db.select({ tokens: agentActivity.tokens, equivalentMicros: agentActivity.equivalentMicros }).from(agentActivity).where(eq(agentActivity.id, activityId));
+  return { tokens: row?.tokens ?? 0, equivalentMicros: row?.equivalentMicros ?? 0 };
+}
+
+/**
+ * The plan's usage window ran out mid-stage. This computer remembers it (later stages take the key or wait), then the
+ * owner's choice decides (planLimitAction): wait and resume the same session, start over on the API key, move the
+ * company's agents elsewhere (auto failover), or stop.
+ */
+async function planLimited<S extends AgentStage>(
+  input: StageTurnInput & { stage: S },
+  ctx: RunContext,
+  next: LoopState,
+  policy: PlanLimitPolicy | null,
+  providers: ProviderStatus,
+  resetsAt: string | null,
+  turn: number
+): Promise<TurnStepResult<S>> {
+  const now = new Date();
+  const other = ctx.workspace.aiAutoFailover ? fallbackProvider("anthropic", providers) : null;
+  const action = planLimitAction({ policy: policy ?? defaultPlanLimitPolicy(providers.anthropic), hasKey: providers.anthropic, other, resetsAt, now });
+  await rememberPlanLimited("claude", resetsAt ?? new Date(now.getTime() + PLAN_RETRY_MINUTES * 60_000).toISOString());
+  const reason = `Your Claude plan ran out of usage${resetsAt ? ` until ${resetsAt}` : ""}.`;
+  switch (action.kind) {
+    case "wait":
+      await setRunWaiting(input.runId, { kind: "plan_limit", cli: "claude", until: action.until });
+      if (!input.waits) {
+        await notify(ctx.workspace.id, {
+          kind: "plan_limit",
+          title: `${ctx.key} waits for your Claude plan`,
+          body: `${reason} The agents pick up where they stopped when it resets. Stop the run on the board if you'd rather not wait.`,
+          href: agentLogHref(ctx.workspace.id, ctx.task.id),
+          taskId: ctx.task.id,
+        });
+      }
+      return { kind: "wait", until: action.until, state: next };
+    case "api":
+      await logRoute(input.runId, input.stage, ctx.run.reworkRounds, turn, next.model, `${reason} Continued on the API key.`);
+      return { kind: "restart", reason, forceApi: true };
+    case "failover": {
+      await moveAgentsToProvider(ctx.workspace.id, "anthropic", other!, `${reason} Switched automatically (Settings → AI).`);
+      await notify(ctx.workspace.id, {
+        kind: "provider_switched",
+        title: `Switched agents to ${PROVIDERS[other!].label}`,
+        body: `${reason} The agents on Claude models moved to ${PROVIDERS[other!].label} and ${ctx.key} carried on.`,
+        href: `/dashboard/${ctx.workspace.id}/settings#ai`,
+        taskId: ctx.task.id,
+      });
+      return { kind: "restart", reason };
+    }
+    case "stop":
+      return { kind: "stopped", reason: action.reason, failure: { kind: "plan_limit", cli: "claude", resetsAt } };
+  }
 }
 
 /** The company that refused for lack of credit, or null for any other error. */
@@ -1156,10 +1470,15 @@ export async function stopRun(
   if (stopped) await logStageStop(ctx, stopped, reason, activityId);
   if (final !== "failed") return;
   await notify(ctx.workspace.id, {
-    kind: failure ? "out_of_credit" : "run_failed",
-    title: failure ? `${PROVIDERS[failure.provider].label} is out of credit` : `Agents stopped on ${ctx.key}`,
+    kind: failure?.kind ?? "run_failed",
+    title:
+      failure?.kind === "out_of_credit"
+        ? `${PROVIDERS[failure.provider].label} is out of credit`
+        : failure?.kind === "plan_limit"
+          ? `Your ${CLI_META[failure.cli].plan} ran out on ${ctx.key}`
+          : `Agents stopped on ${ctx.key}`,
     body: failure ? `${ctx.key} stopped. ${reason}` : reason,
-    href: failure ? `/dashboard/${ctx.workspace.id}/board` : agentLogHref(ctx.workspace.id, ctx.task.id),
+    href: failure?.kind === "out_of_credit" ? `/dashboard/${ctx.workspace.id}/board` : agentLogHref(ctx.workspace.id, ctx.task.id),
     taskId: ctx.task.id,
   });
 }

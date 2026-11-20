@@ -21,6 +21,9 @@ import {
 import type { ToolStep } from "@/lib/agent-tools";
 import type { BoardColumnId } from "@/lib/board-config";
 import { ciForRound, type CiResult } from "@/lib/ci-gate";
+import { parseRunWaiting, type RunWaiting } from "@/lib/cli-agents-config";
+import { removeRunWorkdir } from "@/lib/cli";
+import { isUniqueViolation } from "@/lib/db-errors";
 import { removeRunSandbox } from "@/lib/sandbox";
 import { parseRunPreview, previewUrl } from "@/lib/sandbox/config";
 import { stopRunPreview } from "@/lib/sandbox/preview";
@@ -31,6 +34,10 @@ import { stopRunPreview } from "@/lib/sandbox/preview";
  */
 
 
+/**
+ * Starts a run, or returns null when the card already has one in flight: a unique index allows one queued or running
+ * run per card, so two computers (each with its own Inngest and auto pickup) can't start the same card.
+ */
 export async function createRun(values: {
   workspaceId: number;
   taskId: number;
@@ -39,12 +46,19 @@ export async function createRun(values: {
   /** Continue on this branch (a rerun of a card whose pull request is still open). */
   branch?: string | null;
 }) {
-  const [row] = await db
-    .insert(agentRuns)
-    .values({ ...values, status: "queued" })
-    .returning();
-  return row!;
+  try {
+    const [row] = await db
+      .insert(agentRuns)
+      .values({ ...values, status: "queued" })
+      .returning();
+    return row!;
+  } catch (error) {
+    if (isUniqueViolation(error, ONE_ACTIVE_RUN)) return null;
+    throw error;
+  }
 }
+
+const ONE_ACTIVE_RUN = "agent_runs_one_active_per_task";
 
 export async function getRun(runId: number) {
   const [row] = await db.select().from(agentRuns).where(eq(agentRuns.id, runId));
@@ -91,14 +105,42 @@ export async function markStageRunning(runId: number, phase: RunStage) {
  */
 export async function finishRun(runId: number, status: RunStatus, error: string | null = null, failure: RunFailure | null = null) {
   const terminal = status !== "awaiting_merge";
-  await updateRun(runId, { status, error, failure, ...(terminal ? { finishedAt: new Date() } : {}) });
-  // No agent works on the run any more (a merge needs no sandbox): free its checkout in the background.
+  await updateRun(runId, { status, error, failure, waiting: null, cliResults: null, ...(terminal ? { finishedAt: new Date() } : {}) });
+  // No agent works on the run any more (a merge needs no sandbox): free its checkout in the background, and the
+  // working folder of its CLI sessions on this computer.
   void removeRunSandbox(runId);
+  void removeRunWorkdir(runId);
   // The preview outlives the run while its pull request waits (awaiting_merge) or stays open after a failure, until
   // it's merged or closed or two hours pass; a stopped or merged run leaves nothing to look at.
   if (status === "cancelled" || status === "completed") {
     void stopRunPreview(runId, status === "cancelled" ? "The run was stopped." : "The pull request was merged.");
   }
+}
+
+/** What the run waits for outside itself (the owner's plan to reset), or null when it stopped waiting. */
+export async function setRunWaiting(runId: number, waiting: RunWaiting | null) {
+  await updateRun(runId, { waiting });
+}
+
+/** A CLI agent's stage result, stored by the MCP endpoint until the stage's step reads it ("<stage>:<round>"). */
+export async function saveCliResult(runId: number, key: string, result: unknown) {
+  await db
+    .update(agentRuns)
+    .set({ cliResults: sql`coalesce(${agentRuns.cliResults}, '{}'::jsonb) || jsonb_build_object(${key}::text, ${JSON.stringify(result)}::jsonb)`, updatedAt: new Date() })
+    .where(eq(agentRuns.id, runId));
+}
+
+export async function readCliResult(runId: number, key: string): Promise<unknown> {
+  const [row] = await db.select({ results: agentRuns.cliResults }).from(agentRuns).where(eq(agentRuns.id, runId));
+  return row?.results?.[key] ?? null;
+}
+
+/** Forgets a stage's stored result before it starts (a restarted stage must submit again). */
+export async function clearCliResult(runId: number, key: string) {
+  await db
+    .update(agentRuns)
+    .set({ cliResults: sql`coalesce(${agentRuns.cliResults}, '{}'::jsonb) - ${key}::text` })
+    .where(eq(agentRuns.id, runId));
 }
 
 export async function addRunCost(runId: number, costMicros: number) {
@@ -138,6 +180,7 @@ export async function getLatestRuns(workspaceId: number) {
       ci: agentRuns.ci,
       reworkRounds: agentRuns.reworkRounds,
       preview: agentRuns.preview,
+      waiting: agentRuns.waiting,
       prNumber: pullRequests.number,
       prUrl: pullRequests.url,
     })
@@ -158,6 +201,7 @@ export async function getLatestRuns(workspaceId: number) {
       pullRequest: row.prNumber !== null && row.prUrl ? { number: row.prNumber, url: row.prUrl } : null,
       ci: ciForRound(row.ci, row.reworkRounds)?.state ?? null,
       preview: runningPreviewUrl(row.preview),
+      waiting: parseRunWaiting(row.waiting),
     });
   }
   return byTask;
@@ -313,6 +357,34 @@ export async function saveRunSteps(runId: number, at: StepPosition, steps: ToolS
 }
 
 /**
+ * One tool call a CLI agent made through the MCP endpoint, logged as it happens at the next free position of the
+ * chunk's turn. Calls can arrive in parallel: a taken position is retried at the next one.
+ */
+export async function appendRunStep(runId: number, at: StepPosition, step: ToolStep) {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const [last] = await db
+      .select({ seq: max(agentRunSteps.seq) })
+      .from(agentRunSteps)
+      .where(
+        and(
+          eq(agentRunSteps.runId, runId),
+          eq(agentRunSteps.stage, at.stage),
+          eq(agentRunSteps.round, at.round),
+          eq(agentRunSteps.turn, at.turn),
+          sql`${agentRunSteps.seq} < ${END_SEQ}`
+        )
+      );
+    const inserted = await db
+      .insert(agentRunSteps)
+      .values({ runId, ...at, seq: (last?.seq ?? -1) + 1, ...step })
+      .onConflictDoNothing()
+      .returning({ id: agentRunSteps.id });
+    if (inserted.length) return;
+  }
+  console.warn(`[agents] run ${runId}: couldn't log a ${step.tool} call`);
+}
+
+/**
  * The run's preview in the agent log: one row per development round, after that round's development stage (tool
  * `preview`, the public host as target, a one-line summary; never the preview's output).
  */
@@ -329,7 +401,16 @@ export async function countStageToolCalls(runId: number, stage: AgentStage, roun
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(agentRunSteps)
-    .where(and(eq(agentRunSteps.runId, runId), eq(agentRunSteps.stage, stage), eq(agentRunSteps.round, round), sql`${agentRunSteps.seq} < ${END_SEQ}`));
+    .where(
+      and(
+        eq(agentRunSteps.runId, runId),
+        eq(agentRunSteps.stage, stage),
+        eq(agentRunSteps.round, round),
+        sql`${agentRunSteps.seq} < ${END_SEQ}`,
+        // Route notes are the pipeline's, not the agent's calls.
+        ne(agentRunSteps.tool, "route")
+      )
+    );
   return row?.count ?? 0;
 }
 

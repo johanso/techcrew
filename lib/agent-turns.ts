@@ -29,6 +29,25 @@ export function lastTurnMessage(finish: string): string {
   return `This is your last turn. Call ${finish} now with your result; do not call any other tool. If you couldn't check everything, say in your summary what you left unchecked.`;
 }
 
+const CLI_CONTINUE = "Continue working with your tools. When you're done, call the finish tool with your result.";
+
+/**
+ * The prompt of one chunk of a stage on a local CLI (lib/cli): the brief on the first chunk, a nudge to go on after
+ * that. A chunk runs several turns, so the limit's warning goes in the chunk that reaches it: `remaining` counts the
+ * chunk's first turn, `chunkTurns` is the chunk's cap.
+ */
+export function cliChunkPrompt(input: { brief: string | null; remaining: number; chunkTurns: number; finish: string }): string {
+  const { remaining, chunkTurns, finish } = input;
+  const opening = input.brief ?? CLI_CONTINUE;
+  if (remaining <= 1) return `${opening}\n\n${lastTurnMessage(finish)}`;
+  if (chunkTurns < remaining) return opening;
+  const unfinished =
+    finish === "submit_work"
+      ? "If the work isn't complete by then, submit what's done with complete: false and list in remaining_work precisely what's left."
+      : "If you couldn't check everything, say in your summary what you left unchecked.";
+  return `${opening}\n\nYou have ${remaining} turns left in this stage. Call ${finish} before they run out, in your last turn at the latest. ${unfinished}`;
+}
+
 /** What the pipeline knows when a stage ended its last turn without a result. */
 export type OutOfTurnsFacts = {
   stage: AgentStage;

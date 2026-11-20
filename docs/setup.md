@@ -9,6 +9,8 @@ Everything you need to run TechTeam locally, and what each setting does.
 - [4. Create the database tables](#4-create-the-database-tables)
 - [5. Run](#5-run)
 - [6. First-run walkthrough](#6-first-run-walkthrough)
+- [Agents on your Claude plan (optional)](#agents-on-your-claude-plan-optional)
+- [A second computer (Windows)](#a-second-computer-windows)
 - [Production notes](#production-notes)
 - [Troubleshooting](#troubleshooting)
 
@@ -73,7 +75,7 @@ What happens when an optional group is missing:
 - **`TOKEN_ENCRYPTION_KEY` missing or wrong length** → connecting GitHub fails with an error in the server log.
 - **S3 variables missing** → the "Upload custom logo" button is disabled with an explanation; icons still work.
 - **Inngest Dev Server not running (locally)** → the board's **Run** action fails with
-  "Is the Inngest Dev Server running? Start it with `npm run inngest:dev`." Nothing else is affected.
+  "Is the Inngest Dev Server running? Start the app with `npm run dev`." Nothing else is affected.
 
 ## 3. External services
 
@@ -125,7 +127,7 @@ dialog says references can't be added.
 
 ### Inngest
 
-Locally nothing to configure: run `npm run inngest:dev`. It starts the Inngest Dev Server (UI on
+Locally nothing to configure: `npm run dev` starts it next to the app (`npm run inngest:dev` alone starts only it). It runs the Inngest Dev Server (UI on
 <http://localhost:8288>) and points it at `http://localhost:3000/api/inngest`, where the app's functions are
 served. For production see [docs/background-jobs.md](background-jobs.md#production).
 
@@ -166,8 +168,7 @@ exist, so run `npm run db:baseline` once. It marks the migrations as applied wit
 ## 5. Run
 
 ```bash
-npm run dev            # terminal 1 — http://localhost:3000
-npm run inngest:dev    # terminal 2 — only needed for the board's Run action
+npm run dev            # http://localhost:3000 + the Inngest Dev Server (needed for the board's Run action)
 ```
 
 ## 6. First-run walkthrough
@@ -179,6 +180,37 @@ npm run inngest:dev    # terminal 2 — only needed for the board's Run action
 4. You're on the workspace **Overview**. Open **Board** in the sidebar: it syncs the repository's open issues
    immediately ("Syncing with GitHub…").
 5. Create a card with **New**, drag cards between columns, click a card to edit it, or press ▶ to run it.
+
+## Agents on your Claude plan (optional)
+
+Only when TechTeam runs on your computer. Agents on Claude models can run on your Claude plan through Claude Code
+instead of an Anthropic key ([cli-agents.md](cli-agents.md)).
+
+1. Install Claude Code's native build: `curl -fsSL https://claude.ai/install.sh | bash` (macOS/Linux) or
+   `irm https://claude.ai/install.ps1 | iex` (Windows PowerShell).
+2. Settings → AI → **Plans on this computer** → **Sign in**. Claude Code opens your browser: sign in with your personal
+   account (TechTeam keeps this login in `~/.techteam/cli/claude`, apart from the one you use in your terminal). Then
+   **Check again**, **Confirm this account** and switch on **Use my Claude plan for Claude models**.
+3. Agents on Claude models now show **Your Claude plan** on the AI Team page.
+
+To turn the feature off on a computer, set `AGENTS_LOCAL_CLI=false` in its `.env`.
+
+## A second computer (Windows)
+
+The database and auth live on Cloudhike, so a second checkout shares everything (workspaces, cards, agents).
+
+1. Install Node.js 22+ and Git, then clone the repository and `npm install`.
+2. Copy `.env` from your first computer (same `DATABASE_URL`, `TOKEN_ENCRYPTION_KEY`, auth and GitHub values). Don't run
+   `npm run db:migrate` there for a shared database: the first computer already did.
+3. `npm run dev` starts the app and Inngest, as on macOS.
+4. Auto pickup runs on every computer whose Inngest is up: keep it on one by setting `AGENTS_AUTO_PICKUP=false` in the
+   other's `.env`. A card can't run on both at once either way.
+5. Optional: Claude Code's native build and the plan, as above (Settings shows the PowerShell install command). An
+   npm-installed `claude.cmd` is refused; use the native installer.
+
+Scripts in the docs written as `set -a && source .env && set +a && …` are for macOS/Linux shells. In PowerShell, load
+the variables with `Get-Content .env | Where-Object { $_ -match '^[A-Z_]+=.' } | ForEach-Object { $k, $v = $_ -split '=', 2; Set-Item "env:$k" $v }`
+first, or use `node --env-file=.env …`.
 
 ## Production notes
 
@@ -203,7 +235,7 @@ npm run inngest:dev    # terminal 2 — only needed for the board's Run action
 | A repository is missing from the picker | Only repositories you can **push** to and that aren't archived are listed (max 300). For org repos, the org may need to approve the OAuth App. |
 | Board shows "Connect GitHub to bring … issues onto the board" | The workspace owner has no GitHub connection (or it was disconnected). Click **Connect GitHub**. |
 | Board shows "Your GitHub connection expired or was revoked" | The token was revoked on GitHub (or `TOKEN_ENCRYPTION_KEY` changed). Click **Reconnect GitHub**. |
-| **Run** fails with "Is the Inngest Dev Server running?" | Start `npm run inngest:dev`. Without it, the SDK falls back to Inngest Cloud and the placeholder event key is rejected (401). |
+| **Run** fails with "Is the Inngest Dev Server running?" | Start the app with `npm run dev` (it starts Inngest too), or `npm run inngest:dev` if you ran `dev:app`. Without it, the SDK falls back to Inngest Cloud and the placeholder event key is rejected (401). |
 | Logo upload button is disabled | S3 variables are not set. |
 | Settings → Sandbox can't be switched on | `SANDBOX_DOCKER_HOST` isn't set (restart the dev server after setting it), or neither a test nor a build command is saved. |
 | **Test the sandbox** fails while preparing the checkout | The app can't reach Docker on the host: try `docker -H "$SANDBOX_DOCKER_HOST" info` from the same machine (SSH key, host key, user in the `docker` group). |
