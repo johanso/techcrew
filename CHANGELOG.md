@@ -41,6 +41,15 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   the project's own design system first. Its usage note tells agents to treat a rough image or spec as content and
   intent, not pixels to copy, and gives the Tester its checks for the preview.
 
+- **`add_dependency`**: with the sandbox on, a Developer with *Manage dependencies* (and *Write code*) adds an npm
+  package in one call. npm resolves it in the sandbox (`npm install --package-lock-only --ignore-scripts`: no
+  tarballs downloaded, no install scripts run) and package.json and the lockfile are committed to the branch together
+  through the GitHub API, so `npm ci` keeps working in CI and in the sandbox. Name and version are validated (npm
+  names; an exact version, one simple range or latest; no URLs, git, paths or tags). pnpm, Yarn and Bun repositories
+  are refused with a message. The Developer's protocol says a font the card names is added as a bundled package
+  (`@fontsource/…`) and imported, never linked from a font host, so it loads in the preview; agents don't pick fonts
+  on their own. Draft with AI mentions the tool when the Developer has it.
+
 ### Changed
 - The sandbox browser image is now `techteam-browser:1.64.1-3` (link captures, tablet, color scheme, and fonts with
   real bold weights): rebuild it on the sandbox host (docs/sandbox.md). `system-ui` and the usual UI font stacks render

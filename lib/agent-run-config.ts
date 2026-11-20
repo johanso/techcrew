@@ -76,6 +76,7 @@ export const TOOL_LABEL: Record<string, string> = {
   run_tests: "Ran the tests",
   run_build: "Ran the build",
   run_command: "Ran",
+  add_dependency: "Added a package",
   // Not an agent's call: the pipeline starts the PR's preview after the CI gate (lib/sandbox/preview.ts).
   preview: "Preview",
   browse_preview: "Opened the preview",

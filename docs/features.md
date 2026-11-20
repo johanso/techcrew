@@ -340,6 +340,10 @@ Review, so the board still has six columns:
   plus the branch diff for the Reviewer, Security, Lead and Tester; *Write code* → write/edit/delete on the run's
   branch, Developer only; *Read CI results* → checks). Dependency manifests need
   *Manage dependencies*; CI workflows, `.env*` files (except `.env.example`) and `.git/` can never be written.
+  With the sandbox on, *Manage dependencies* plus *Write code* gives the Developer `add_dependency`: npm adds one
+  package in the sandbox and package.json and the lockfile are committed together (npm repositories only;
+  [sandbox.md](sandbox.md#adding-a-package)). A font the card names is added this way (`@fontsource/…`) and imported,
+  never linked from a font host; agents don't pick fonts the card doesn't name.
 - **Skills** (see [Agent skills](#agent-skills)): an agent with skills switched on sees them listed in its prompt and
   gets two read-only tools in every stage, `search_skill` and `read_skill`; always-loaded skills ride in the prompt.
 - **References** (see [Card references](#card-references)): on a card with references every agent gets
@@ -402,7 +406,7 @@ Without `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` the page shows "No AI provider c
 | Read repository, Read board & issues | ✅ list/read/search files (GitHub API); the card is in the agent's brief. |
 | Write code on branches, Open pull requests | ✅ Developer commits through the GitHub contents API; the pipeline opens the PR. |
 | Review pull requests, Comment on issues, File issues, Read CI results | ✅ Reviews (Reviewer, Security, Lead) and test reports posted on the PR, needs-info comments, merge follow-up issues, check runs/statuses. |
-| Manage dependencies | ✅ Gate only: without it, manifests and lockfiles can't be written. |
+| Manage dependencies | ✅ Without it, manifests and lockfiles can't be written. With *Write code* and the sandbox on, the Developer gets `add_dependency` (npm: package.json and the lockfile in one commit). |
 | Merge pull requests | 🟡 Not an agent tool: merging is controlled by Settings → Agents (manual, automatic when low risk, automatic). |
 | Write tests, Run tests in a sandbox | ✅ With Settings → Sandbox on: `run_tests`, `run_build` and `run_command` for the Developer and the Tester, in gVisor containers ([sandbox.md](sandbox.md)). Off: tests are only written as files. |
 | Web research | ❌ Needs a search tool (e.g. OpenAI's web search tool in the Responses API). |

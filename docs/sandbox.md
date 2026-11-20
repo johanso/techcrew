@@ -49,7 +49,9 @@ Agent turn ─▶ run_tests / run_build / run_command          (lib/agent-tools.
 | `run_build` | Same, when a build command is saved | The build command |
 | `run_command` | Same | One line the agent writes (≤ 300 characters), e.g. one test file or the type checker |
 
-All three run on the working branch's latest commit. The stage protocol changes with them: the Developer is told to
+| `add_dependency` | Development, with `code.write` and `deps.manage` (not `tests.run`: it runs no code) | `npm install --package-lock-only --ignore-scripts` for one package, then a commit of package.json and the lockfile |
+
+The first three run on the working branch's latest commit. The stage protocol changes with them: the Developer is told to
 run the tests and the build and fix what it broke before `submit_work`; the Tester runs them itself and fails the card
 when they fail. Reviewers, Security and the Lead never get them.
 
@@ -58,6 +60,41 @@ Developer or the Tester with `tests.run` while the sandbox is on, and says "can'
 
 The agent log records each call as the command plus its first line ("Passed: npm test (exit 0, 3.1 s)"), never the
 output: it's the repository's. Failed and timed-out runs show as failures.
+
+## Adding a package
+
+`add_dependency { name, version, dev }` (`lib/agent-tools.ts`, pure rules in `lib/sandbox/dependency-config.ts`) is
+how the Developer adds an npm package: writing package.json by hand can't regenerate the lockfile, so `npm ci` would
+fail in CI and in the sandbox.
+
+```
+add_dependency { name: "@fontsource/inter", version: null, dev: false }
+  └─ validate: npm name; exact version, one simple range or latest (null)    parseDependencyArgs
+  └─ root files of the branch's latest commit: package.json, and npm's lockfile or none; pnpm, Yarn and Bun
+     lockfiles are refused with a message for the agent's result             dependencyPlan
+  └─ volume techteam-deps-run-<id> (its own, removed afterwards)            lib/sandbox/docker.ts addPackageInSandbox
+       1. prepare (network on, like every install): unpack the tarball, then
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund --save-prod|--save-dev '<name>@<version>'
+       2. read (network off): package.json and the lockfile back as JSON, ≤ 20 MB each
+  └─ package.json declares it in the right section, the lockfile pins it    dependencyChange
+  └─ one commit through the GitHub API (blobs, tree, commit, fast-forward the branch)   commitFiles
+  └─ "Added @fontsource/inter@5.3.0 to dependencies ("^5.3.0"): committed package.json and package-lock.json to …"
+```
+
+- **Lockfile only.** npm resolves the package and rewrites both files without downloading tarballs or running any
+  script, in about 5–10 s. The next `run_tests` / `run_build` sees the changed lockfile and reinstalls with `npm ci`.
+- **Its own volume**, so the run's checkout and `node_modules` (`techteam-run-<id>`) stay as they were; removed after
+  the call, and the hourly sweep catches leftovers.
+- **npm only.** A repository with `pnpm-lock.yaml`, `yarn.lock` or `bun.lock(b)` is refused (the other lockfile would
+  go stale); the agent says in its result which package is needed. Without any lockfile only package.json is
+  committed, as the repository does today. The repository's `.npmrc` applies (`save-exact`, `legacy-peer-deps` …).
+- **Fonts**: a font the card names is added as a bundled package (`@fontsource/<font>` or `@fontsource-variable/<font>`)
+  and imported, so it ships with the build and loads in the preview, which has no internet (a Google Fonts `<link>` or
+  `next/font/google` would fall back or fail there), and visitors never call a font host. The owner names the font in
+  the card; agents don't pick one.
+- **Errors** come back as text: npm's failure (a 404, a peer conflict) as the end of its output; a branch that moved
+  while npm worked as "call add_dependency again" (the ref only fast-forwards); nothing new to commit as "already in".
+- **Agent log**: the package (`@fontsource/inter@latest`) and the first line, never npm's output.
 
 ## Settings → Sandbox
 
@@ -222,8 +259,9 @@ addCardLinkAction ─▶ parseCaptureUrl (net-guard.mjs: http/https, no credenti
 
 - **Node repositories only.** Detection reads `package.json`; other stacks can type their own commands, but the image
   is `node:24-bookworm`.
-- **Install scripts run with network.** Packages' `postinstall` scripts run during install, as on any machine; the
-  limits and gVisor still apply, nothing secret is inside, and the install network keeps them off private ranges.
+- **Install scripts run with network.** Packages' `postinstall` scripts run during install (`npm ci` before tests,
+  builds and previews), as on any machine; the limits and gVisor still apply, nothing secret is inside, and the install
+  network keeps them off private ranges. `add_dependency` itself runs no scripts.
 - **No disk quota per volume** yet; the sweep and the per-run removal keep the host clean.
 - **The browser sees only the preview**: no real devices, email or payments; the Tester names those as manual checks.
 - **Captures see the page as a first-time visitor**: no login, cookie banners included, no video; pages taller than

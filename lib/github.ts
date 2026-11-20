@@ -348,6 +348,42 @@ export async function putRepoFile(
   return result.commit.sha;
 }
 
+/**
+ * Commits several text files to `branch` as one commit on top of `parentSha` (Git Data API: blobs, a tree, a commit,
+ * then the ref). Returns the commit sha, or null when the files already have that content (nothing to commit). The ref
+ * only moves forward: if the branch moved past `parentSha` meanwhile, GitHub answers 422 and nothing changes.
+ */
+export async function commitFiles(
+  token: string,
+  fullName: string,
+  input: { branch: string; parentSha: string; message: string; files: { path: string; content: string }[] }
+): Promise<string | null> {
+  const parent = await githubRequest<{ tree: { sha: string } }>(token, `/repos/${fullName}/git/commits/${input.parentSha}`);
+  const entries = await Promise.all(
+    input.files.map(async (file) => {
+      const blob = await githubRequest<{ sha: string }>(token, `/repos/${fullName}/git/blobs`, {
+        method: "POST",
+        body: { content: Buffer.from(file.content, "utf8").toString("base64"), encoding: "base64" },
+      });
+      return { path: file.path, mode: "100644", type: "blob", sha: blob.sha };
+    })
+  );
+  const tree = await githubRequest<{ sha: string }>(token, `/repos/${fullName}/git/trees`, {
+    method: "POST",
+    body: { base_tree: parent.tree.sha, tree: entries },
+  });
+  if (tree.sha === parent.tree.sha) return null;
+  const commit = await githubRequest<{ sha: string }>(token, `/repos/${fullName}/git/commits`, {
+    method: "POST",
+    body: { message: input.message, tree: tree.sha, parents: [input.parentSha] },
+  });
+  await githubRequest(token, `/repos/${fullName}/git/refs/heads/${encodePath(input.branch)}`, {
+    method: "PATCH",
+    body: { sha: commit.sha, force: false },
+  });
+  return commit.sha;
+}
+
 export async function deleteRepoFile(token: string, fullName: string, input: { path: string; message: string; branch: string; sha: string }) {
   await githubRequest(token, `/repos/${fullName}/contents/${encodePath(input.path)}`, {
     method: "DELETE",

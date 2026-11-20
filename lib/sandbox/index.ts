@@ -3,7 +3,8 @@ import "server-only";
 import type { Workspace } from "@/db";
 import { getGithubToken, getRepoFile, getRepoTarball, listRootFiles } from "@/lib/github";
 import { detectCommands, type SandboxCommands, type SandboxRun } from "@/lib/sandbox/config";
-import { removeSandbox, runInSandbox, sandboxHost } from "@/lib/sandbox/docker";
+import { DEPENDENCY_FILE_MAX_BYTES } from "@/lib/sandbox/dependency-config";
+import { addPackageInSandbox, removeSandbox, runInSandbox, sandboxHost } from "@/lib/sandbox/docker";
 
 /**
  * Agent sandboxes for a workspace's repository: detection of the commands, the agent runs and the Settings check.
@@ -43,6 +44,20 @@ export function runRepoCommand(input: { token: string; repo: string; ref: string
     source: () => getRepoTarball(input.token, input.repo, input.ref),
     install: input.install,
     command: input.command,
+  });
+}
+
+/**
+ * add_dependency: runs `command` (addDependencyCommand) on `ref` in a volume of its own (removed afterwards, so the
+ * run's checkout and node_modules stay as they were) and returns `files` as npm left them.
+ */
+export function addRepoDependency(input: { token: string; repo: string; ref: string; runId: number; command: string; files: string[] }) {
+  return addPackageInSandbox({
+    key: `deps-run-${input.runId}`,
+    source: () => getRepoTarball(input.token, input.repo, input.ref),
+    command: input.command,
+    files: input.files,
+    maxFileBytes: DEPENDENCY_FILE_MAX_BYTES,
   });
 }
 

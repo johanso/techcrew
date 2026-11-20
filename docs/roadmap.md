@@ -140,6 +140,8 @@ The owner designs and specifies outside TechTeam (a design tool, a document); th
      `npm ci` fails. First use: a font the owner names in the card (`@fontsource/…`), bundled into the build, so it
      loads in the preview (no internet there, so a Google Fonts `<link>` falls back) and no visitor request goes to a
      font host. The owner picks fonts in the card's description; agents don't choose one on their own.
+     Done in code (npm only, lockfile-only install without scripts, one commit through the GitHub API; checked on
+     the sandbox host); not yet seen in a live run.
    - Done: the capture network's private-range rules for the sandbox's install step too (`techteam-sandbox`, public
      resolvers; the rules apply once `deploy/setup.sh` runs again on the host).
    - Done: fonts with real bold weights in the browser image (`techteam-browser:1.64.1-3`: Inter for `system-ui`

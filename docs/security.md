@@ -108,6 +108,14 @@ The pipeline acts on the repository with the workspace owner's token, so its gua
 - **Protected paths**: agents can't write `.github/workflows/*` (a workflow could exfiltrate repository secrets),
   `.env*` files (except `.env.example`) or `.git/`. Dependency manifests and lockfiles need *Manage dependencies*.
   Paths with `..`, empty segments or a leading `/` are rejected.
+- **Adding a package** (`add_dependency`: the Developer with *Write code* and *Manage dependencies*, sandbox on): the
+  name and version are validated before anything runs (`lib/sandbox/dependency-config.ts`: npm names only; an exact
+  version, one simple range or `latest`; no URLs, git, `file:`, `link:`, aliases or tags) and reach the shell single
+  quoted. npm runs in the sandbox's install container (the only one with network) as `npm install
+  --package-lock-only --ignore-scripts`: it resolves the package and rewrites package.json and the lockfile without
+  downloading tarballs or running any install script. A container without network reads the two files back (≤ 20 MB
+  each) and the app commits them through the GitHub API, so the token never enters a container. The new dependency
+  still raises the Lead's risk floor (dependency paths) and Security reviews the diff.
 - **Prompt injection**: issue text, code, comments, CI output and card references reach the model inside `<task>` or as
   tool output; the system prompt's operating protocol (which overrides the configurable instructions) treats them as data.
 - **Merging** is never an agent tool: it happens only through `mergeAgentPullRequest` (manual button or the workspace's

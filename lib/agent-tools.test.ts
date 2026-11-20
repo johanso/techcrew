@@ -106,6 +106,27 @@ describe("sandbox tools", () => {
     for (const stage of ["analysis", "review", "security", "approval"] as const) expect(names(stage, ["repo.read", "tests.run"])).not.toContain("run_command");
   });
 
+  it("add_dependency goes only to the developer, with code.write and deps.manage, while the sandbox is on", () => {
+    expect(names("development", ["repo.read", "code.write", "deps.manage"])).toContain("add_dependency");
+    // It runs no code, so tests.run isn't needed.
+    expect(names("development", ["code.write", "deps.manage"])).toContain("add_dependency");
+    expect(names("development", ["repo.read", "code.write", "tests.run"])).not.toContain("add_dependency");
+    expect(names("development", ["repo.read", "deps.manage", "tests.run"])).not.toContain("add_dependency");
+    expect(names("development", ["repo.read", "code.write", "deps.manage"], null)).not.toContain("add_dependency");
+    expect(toolsFor({ stage: "development", permissions: ["code.write", "deps.manage"], branch: null, sandbox }).map((t) => t.name)).not.toContain("add_dependency");
+    for (const stage of ["analysis", "review", "security", "approval", "testing"] as const) {
+      expect(names(stage, ["repo.read", "code.write", "deps.manage", "tests.run"]), stage).not.toContain("add_dependency");
+    }
+  });
+
+  it("add_dependency has a strict schema and logs the package and the first line only", () => {
+    const tool = toolsFor({ stage: "development", permissions: ["code.write", "deps.manage"], branch: "b", sandbox }).find((t) => t.name === "add_dependency")!;
+    expect(tool.parameters).toMatchObject({ required: ["name", "version", "dev"], additionalProperties: false });
+    const step = toolStep("add_dependency", JSON.stringify({ name: "@fontsource/inter", version: null, dev: false }), 'Added @fontsource/inter@5.3.0 to dependencies ("^5.3.0"): committed …\nImport it …');
+    expect(step).toEqual({ tool: "add_dependency", target: null, ok: true, summary: 'Added @fontsource/inter@5.3.0 to dependencies ("^5.3.0"): committed …' });
+    expect(toolStep("add_dependency", "{}", "Failed while installing dependencies: npm install … (exit 1, 3.0 s)\n\nOutput (the end):\nnpm error 404")).toMatchObject({ ok: false });
+  });
+
   it("log the command and the outcome line, never the output; failed runs show as failures", () => {
     expect(toolStep("run_command", JSON.stringify({ command: "npx tsc --noEmit" }), "Passed: npx tsc --noEmit (exit 0, 3.0 s)\n\nOutput (the end):\nsecret")).toEqual({
       tool: "run_command",

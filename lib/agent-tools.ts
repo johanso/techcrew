@@ -10,18 +10,21 @@ import { screenshotIdOf, screenshotImage, type ToolImage } from "@/lib/reference
 import { listReferencesForAgent, readReferenceForAgent, type AgentReference } from "@/lib/references";
 import {
   GithubError,
+  commitFiles,
   compareBranches,
   deleteRepoFile,
   getBranchSha,
   getCommitChecks,
   getRepoFile,
   listRepoFiles,
+  listRootFiles,
   putRepoFile,
   searchRepoCode,
 } from "@/lib/github";
-import { runRepoCommand } from "@/lib/sandbox";
+import { addRepoDependency, runRepoCommand } from "@/lib/sandbox";
 import { browsePreview } from "@/lib/sandbox/browser";
 import { BROWSE_ACTIONS, BROWSE_COLOR_SCHEMES, BROWSE_STEPS_MAX, PREVIEW_STAGES, browseReport, parseBrowseArgs, type ScreenshotDelivery } from "@/lib/sandbox/browser-config";
+import { addDependencyCommand, dependencyChange, dependencyPlan, dependencyReadFiles, dependencyReport, dependencySpec, parseDependencyArgs } from "@/lib/sandbox/dependency-config";
 import { SANDBOX_COMMAND_MAX, SANDBOX_STAGES, parseSandboxCommand, sandboxReport, type SandboxCommands } from "@/lib/sandbox/config";
 import { isStorageConfigured, uploadRunScreenshot } from "@/lib/storage";
 
@@ -32,6 +35,8 @@ import { isStorageConfigured, uploadRunScreenshot } from "@/lib/storage";
  * every agent gets list_references and read_reference (read-only; images come back as image input). With the workspace's sandbox on,
  * "Run tests in a sandbox" adds run_tests, run_build and run_command on the working branch (lib/sandbox), and with
  * previews on too, browse_preview for the Tester: a headless browser on the run's live preview (lib/sandbox/browser.ts).
+ * "Manage dependencies" with the sandbox on gives the Developer add_dependency (npm resolves the package in the sandbox,
+ * then one commit of package.json and the lockfile through the GitHub API).
  * Every result is a string for the model; recoverable errors are returned as text so the agent can adjust.
  */
 
@@ -138,6 +143,18 @@ const TOOLS = {
     "Run the repository's tests in a sandbox on the working branch's latest commit (dependencies are installed first). Returns passed or failed and the end of the output.",
     {}
   ),
+  add_dependency: fn(
+    "add_dependency",
+    "Add an npm package to the repository: npm resolves it in a sandbox (with network, no install scripts) and package.json and the lockfile are committed to the working branch as one commit. The only way to add a package: never edit dependencies in package.json or the lockfile by hand.",
+    {
+      name: { type: "string", description: 'The npm package name, e.g. "@fontsource/inter" or "zod". No URLs, repositories or paths.' },
+      version: {
+        type: ["string", "null"],
+        description: 'An exact version ("5.2.5"), one simple range ("^5.2.0", "~5.2", "5.x") or null for the latest release.',
+      },
+      dev: { type: "boolean", description: "true for devDependencies (tests, build tools, types); false for dependencies the app uses at runtime." },
+    }
+  ),
   run_build: fn("run_build", "Run the repository's build in a sandbox on the working branch's latest commit. Returns passed or failed and the end of the output.", {}),
   run_command: fn(
     "run_command",
@@ -237,6 +254,8 @@ export function toolsFor(
     if (ctx.sandbox.commands.build) names.push("run_build");
     names.push("run_command");
   }
+  // It commits, so it goes where code is written; it runs no code (lockfile only, no scripts), so not tests.run.
+  if (ctx.sandbox && ctx.branch && ctx.stage === "development" && has("code.write") && has("deps.manage")) names.push("add_dependency");
   if (ctx.preview && ctx.branch && PREVIEW_STAGES.includes(ctx.stage) && has("tests.run")) names.push("browse_preview");
   if (ctx.skills?.length) names.push("search_skill", "read_skill");
   if (ctx.references?.items.length) names.push("list_references", "read_reference");
@@ -353,6 +372,8 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
       const run = await runRepoCommand({ token: ctx.token, repo: ctx.repo, ref: sha, runId: ctx.sandbox.runId, install: ctx.sandbox.commands.install, command });
       return sandboxReport(run);
     }
+    case "add_dependency":
+      return addDependency(ctx, args);
     case "browse_preview": {
       if (!ctx.preview) return "Error: previews aren't available.";
       const parsed = parseBrowseArgs(args);
@@ -382,6 +403,50 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
     default:
       return `Error: unknown tool ${name}.`;
   }
+}
+
+/**
+ * add_dependency: validate, check the repository uses npm, install in the sandbox (lockfile only), then commit
+ * package.json and the lockfile as one commit on top of the commit that was installed on. The log target is the spec.
+ */
+async function addDependency(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolOutput> {
+  const parsed = parseDependencyArgs(args);
+  if (!parsed.ok) return textOutput(`Error: ${parsed.error}`);
+  const request = parsed.value;
+  const result = (text: string): ToolOutput => ({ text, screenshotKey: null, target: `${dependencySpec(request)}${request.dev ? " (dev)" : ""}` });
+  if (!ctx.sandbox || !ctx.branch) return result("Error: the sandbox isn't available.");
+
+  const sha = await getBranchSha(ctx.token, ctx.repo, ctx.branch);
+  if (!sha) return result(`Error: branch ${ctx.branch} not found.`);
+  const plan = dependencyPlan(await listRootFiles(ctx.token, ctx.repo, sha));
+  if (!plan.ok) return result(`Error: ${plan.error}`);
+
+  const installed = await addRepoDependency({
+    token: ctx.token,
+    repo: ctx.repo,
+    ref: sha,
+    runId: ctx.sandbox.runId,
+    command: addDependencyCommand(request),
+    files: dependencyReadFiles(plan),
+  });
+  if (installed.failedStep || !installed.files) return result(sandboxReport(installed));
+  const change = dependencyChange(request, plan, installed.files);
+  if (!change.ok) return result(`Error: ${change.error}`);
+
+  let commit: string | null;
+  try {
+    commit = await commitFiles(ctx.token, ctx.repo, {
+      branch: ctx.branch,
+      parentSha: sha,
+      message: `Add ${request.name}@${change.version ?? change.range}${request.dev ? " (dev)" : ""}`,
+      files: change.files,
+    });
+  } catch (error) {
+    // The ref only fast-forwards: a commit landed while npm worked, so these files are stale.
+    if (error instanceof GithubError && error.status === 422) return result(`Error: ${ctx.branch} moved while the package was being added. Call add_dependency again.`);
+    throw error;
+  }
+  return result(dependencyReport({ request, change, branch: ctx.branch, commit }));
 }
 
 /** Stores a browse_preview screenshot for the agent log. Best effort: without storage, or on an error, the log has none. */

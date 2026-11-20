@@ -322,11 +322,25 @@ export type StageResult = {
 // ── Prompts ────────────────────────────────────────────────────────────────────
 
 /**
- * What the agent's tools allow this stage: the sandbox tools (run_tests, run_build, run_command), the browser and the
- * card's references (list_references, read_reference); whether some references are links (third-party pages) and
- * whether some are images or links (what the Tester compares the preview with).
+ * What the agent's tools allow this stage: the sandbox tools (run_tests, run_build, run_command), add_dependency, the
+ * browser and the card's references (list_references, read_reference); whether some references are links (third-party
+ * pages) and whether some are images or links (what the Tester compares the preview with).
  */
-type StageAbilities = { canRun: boolean; canBrowse: boolean; hasReferences: boolean; hasLinks: boolean; hasVisualReferences: boolean };
+type StageAbilities = {
+  canRun: boolean;
+  canAddDependency: boolean;
+  canBrowse: boolean;
+  hasReferences: boolean;
+  hasLinks: boolean;
+  hasVisualReferences: boolean;
+};
+
+/**
+ * The Developer with add_dependency. Fonts: the owner names them in the card; a bundled package loads in the preview
+ * (no internet there) and sends no visitor to a font host.
+ */
+const DEPENDENCY_GUIDANCE = `- add_dependency adds an npm package: npm resolves it in a sandbox and package.json and the lockfile are committed to your branch together. It's the only way to add a package: never edit dependencies in package.json or the lockfile by hand. Add one only when the card needs it, and prefer what the repository already uses.
+- A font the card names is added as a bundled package (e.g. @fontsource/<font>, or @fontsource-variable/<font> when the font has a variable version) and imported in the app's code, so it ships with the build. Never load fonts from a third-party host (a Google Fonts <link> or @import, next/font/google): previews have no internet and visitors shouldn't call a font host. Don't pick a font the card doesn't name.`;
 
 /**
  * The Tester with a browser on a card with images or links: compare the preview with them, at their size, light and
@@ -355,10 +369,10 @@ const STAGE_PROTOCOL: Record<AgentStage, (ctx: RunContext, can: StageAbilities) 
 - If the card can be implemented (make reasonable, stated assumptions for small gaps), decide "ready": the card goes to the Developer. Give acceptance criteria, an ordered plan, the relevant files and notes the developer needs.
 - Only if essential information is missing and no reasonable assumption exists, decide "needs_info" with one specific question for a human.
 - If the task lists earlier questions, treat the answers as requirements and don't ask the same question again.`,
-  development: (ctx, { canRun }) => `Your job in this stage: implement the card on branch ${ctx.run.branch}, created from ${ctx.workspace.githubDefaultBranch}.
+  development: (ctx, { canRun, canAddDependency }) => `Your job in this stage: implement the card on branch ${ctx.run.branch}, created from ${ctx.workspace.githubDefaultBranch}.
 - write_file, replace_in_file and delete_file each commit to that branch. You can't touch any other branch.
 - Read the code before changing it and follow the repository's conventions. Keep the change focused on the acceptance criteria.
-${
+${canAddDependency ? `${DEPENDENCY_GUIDANCE}\n` : ""}${
   canRun
     ? "- run_tests, run_build and run_command run your branch's latest commit in a sandbox (dependencies are installed first; no network). After your changes, run the tests and the build and fix what you broke. If something still fails and isn't yours to fix, say so in your summary."
     : "- You can't run code or tests here, so read your changes back to check them."
@@ -840,6 +854,7 @@ export async function runStageTurn<S extends AgentStage>(input: {
         skillsPromptBlock(await promptSkills(skills)),
         {
           canRun: tools.some((tool) => tool.name === "run_command"),
+          canAddDependency: tools.some((tool) => tool.name === "add_dependency"),
           canBrowse: tools.some((tool) => tool.name === "browse_preview"),
           hasReferences: tools.some((tool) => tool.name === "read_reference"),
           hasLinks: references.some((ref) => ref.kind === "link"),

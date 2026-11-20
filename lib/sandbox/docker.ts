@@ -474,3 +474,125 @@ function sweepOldVolumes() {
     if (old.length) await docker(["volume", "rm", ...old]);
   })().catch(() => undefined);
 }
+
+// ── Adding a dependency ────────────────────────────────────────────────────────
+
+// Prints the named files at the repository root as JSON ({ name: text | null }): null when missing, not a regular
+// file or over the size cap (the first argument). Run with --network=none.
+const READ_FILES_SCRIPT = `const fs = require("fs");
+const [max, ...names] = process.argv.slice(1);
+const out = {};
+for (const name of names) {
+  try { const stat = fs.lstatSync(name); out[name] = stat.isFile() && stat.size <= Number(max) ? fs.readFileSync(name, "utf8") : null; }
+  catch { out[name] = null; }
+}
+process.stdout.write(JSON.stringify(out));`;
+
+export type DependencyInstall = SandboxRun & { files: Record<string, string | null> | null };
+
+/**
+ * add_dependency's sandbox work, on a volume of its own that's removed afterwards: the prepare container (network on,
+ * like every install) unpacks the tarball and runs `command` (lib/sandbox/dependency-config.ts: lockfile only, no
+ * scripts), then a container without network reads `files` back. Committing them is the caller's job (GitHub API),
+ * so the token never enters a container.
+ */
+export function addPackageInSandbox(input: { key: string; source: RepoSource; command: string; files: string[]; maxFileBytes: number }): Promise<DependencyInstall> {
+  return serialized(input.key, async () => {
+    sweepOldVolumes();
+    const started = Date.now();
+    const deadline = started + SANDBOX_TIMEOUT_SECONDS * 1000;
+    const volume = volumeName(input.key);
+    const done = (rest: Omit<DependencyInstall, "command" | "durationMs">): DependencyInstall => ({
+      command: input.command,
+      durationMs: Date.now() - started,
+      ...rest,
+      output: outputTail(rest.output),
+    });
+    try {
+      // A fresh volume has no node_modules, so prepareCheckout always runs the command.
+      const prepared = await prepareCheckout({ key: input.key, source: input.source, install: input.command, deadline });
+      if (!prepared.ok) {
+        const { ok: _ok, ...failure } = prepared;
+        return done({ ...failure, files: null });
+      }
+      const readName = containerName(input.key, "read");
+      const read = await dockerStdout(
+        ["run", "--rm", `--name=${readName}`, ...LIMITS, "--network=none", `--mount=type=volume,src=${volume},dst=${HOME}`, `--workdir=${HOME}/repo`]
+          .concat([image(), "node", "-e", READ_FILES_SCRIPT, String(input.maxFileBytes), ...input.files]),
+        { timeoutMs: deadline - Date.now(), name: readName, maxBytes: input.files.length * input.maxFileBytes * 2 + 1024 }
+      );
+      const files = read.code === 0 ? parseFiles(read.stdout) : null;
+      if (!files) {
+        const output = [prepared.installLog, read.stderr || "Couldn't read the files back from the sandbox."].filter(Boolean).join("\n");
+        return done({ exitCode: read.code, timedOut: read.timedOut, failedStep: "command", output, files: null });
+      }
+      return done({ exitCode: 0, timedOut: false, failedStep: null, output: prepared.installLog, files });
+    } finally {
+      await docker(["volume", "rm", "--force", volume]).catch(() => undefined);
+    }
+  });
+}
+
+function parseFiles(stdout: Buffer): Record<string, string | null> | null {
+  try {
+    const parsed: unknown = JSON.parse(stdout.toString("utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    return entries.every(([, value]) => value === null || typeof value === "string") ? (Object.fromEntries(entries) as Record<string, string | null>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Like docker(), but keeps stdout whole, as bytes, up to `maxBytes` (past it the container is killed and the call
+ * fails), and only the end of stderr. For reading files back out of a container.
+ */
+function dockerStdout(args: string[], options: { timeoutMs: number; name: string; maxBytes: number }) {
+  const host = sandboxHost();
+  if (!host) return Promise.reject(new Error("No sandbox host: set SANDBOX_DOCKER_HOST."));
+  return new Promise<{ code: number | null; stdout: Buffer; stderr: string; timedOut: boolean }>((resolve, reject) => {
+    // The same environment as docker(): the app's secrets stay out of the CLI.
+    const child = spawn("docker", args, {
+      env: { NODE_ENV: process.env.NODE_ENV, PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", DOCKER_HOST: host },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    let stderr = "";
+    let timedOut = false;
+    let tooLarge = false;
+    let fallback: NodeJS.Timeout | undefined;
+    const stop = () => {
+      docker(["kill", options.name]).catch(() => undefined);
+      fallback ??= setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS);
+    };
+    child.stdout.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes <= options.maxBytes) return void chunks.push(chunk);
+      if (!tooLarge) stop();
+      tooLarge = true;
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString("utf8")).slice(-OUTPUT_KEEP);
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      stop();
+    }, Math.max(options.timeoutMs, 1));
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      clearTimeout(fallback);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      clearTimeout(fallback);
+      resolve(
+        tooLarge
+          ? { code: null, stdout: Buffer.alloc(0), stderr: "The files are larger than the sandbox returns.", timedOut }
+          : { code, stdout: Buffer.concat(chunks), stderr, timedOut }
+      );
+    });
+  });
+}

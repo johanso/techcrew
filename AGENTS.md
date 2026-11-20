@@ -166,7 +166,7 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   auth.ts                 Hosted-auth client, session cookie; getSession reuses sessions validated in the last 60 s
                           (session-cache.ts: the auth service rate-limits the dashboard's polls).
   current-user.ts         getCurrentUser() / requireUser(returnTo).
-  github.ts               GitHub OAuth + REST + connection persistence.
+  github.ts               GitHub OAuth + REST + connection persistence; commitFiles (several files, one commit).
   crypto.ts               encrypt / decrypt for secrets at rest.
   ai-keys.ts              AI provider keys: getAIKeys (owner's account key, else workspace key, else env; keyInUse),
                           getProviderKeyViews (masked), verifyProviderKey, saveProviderKey / removeProviderKey (account
@@ -205,8 +205,10 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           parseSandboxCommand, sandboxReport, outputTail, the install network's constants,
                           bridgeNetworkProblem). docker.ts: runInSandbox (prepare on the install network, command
                           without network, gVisor + limits), ensureBridgeNetwork (install and capture networks),
-                          removeSandbox, hourly sweep. index.ts: sandboxAvailable,
-                          detectRepoCommands, runRepoCommand (one volume per run), removeRunSandbox, checkSandbox.
+                          addPackageInSandbox, removeSandbox, hourly sweep. index.ts: sandboxAvailable,
+                          detectRepoCommands, runRepoCommand (one volume per run), addRepoDependency, removeRunSandbox,
+                          checkSandbox. dependency-config.ts: pure (add_dependency: parseDependencyArgs, dependencyPlan,
+                          addDependencyCommand, dependencyChange, dependencyReport).
                           preview.ts: PR previews (startRunPreview / pollRunPreview / stopRunPreview /
                           stopPullRequestPreviews / sweepPreviews, getRunPreviewEndpoint; state in agent_runs.preview).
                           browser.ts: browsePreview (the Tester's headless Chromium on the preview's network);
@@ -634,6 +636,13 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     `/etc/resolv.conf` (Docker's DNS doesn't answer under gVisor and `--dns` doesn't change that). Never add a container
     with network outside a network those rules cover. Log the command and the outcome line only (`toolStep`), never the output. The stage protocol says
     "you can't run code" only to agents without the tools.
+  - **Adding a package** (`add_dependency`, [`docs/sandbox.md`](docs/sandbox.md#adding-a-package)): development stage,
+    `code.write` + `deps.manage`, sandbox on (not `tests.run`: it runs no code). Validated name/version
+    (`parseDependencyArgs`), npm only (`dependencyPlan`), `npm install --package-lock-only --ignore-scripts` in the
+    prepare container on its own volume (`addPackageInSandbox`), files read back without network, one commit through
+    `commitFiles` (Git Data API, fast-forward only). Never let an agent edit a lockfile by hand to add a package. The
+    protocol (`DEPENDENCY_GUIDANCE`) is shown only to a Developer with the tool: fonts the card names go in as bundled
+    packages (`@fontsource/…`), never a font host `<link>`; agents don't pick fonts.
   - **Previews** (Settings → Sandbox → Previews, `SANDBOX_PREVIEW_DOMAIN`): after the CI gate passes, a
     `preview-<round>-start` step and `-poll-<n>` steps run beside the reviews (the Lead waits for them, up to 8 min).
     A preview never fails the run; it logs one `preview` row. Stopped on merge/close (`completeMerge`,
@@ -660,7 +669,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     (closest viewport, light and dark; a clear mismatch is a test fail).
   - **Permissions are enforced as tools** (`toolsFor` in `lib/agent-tools.ts`). Adding a capability = a tool gated by a
     permission there, not a prompt instruction. ("Skills" are knowledge, not capabilities: see Agent skills below.) Agents never write `.github/workflows/`, `.env*` (except `.env.example`) or
-    `.git/`; manifests need `deps.manage`. Tool output is untrusted data — the stage protocol in `systemPrompt` says so.
+    `.git/`; manifests need `deps.manage` (adding a package: `add_dependency`). Tool output is untrusted data — the
+    stage protocol in `systemPrompt` says so.
   - **Each agent picks its company and model** (AI Team → Configure: a Company select, then that company's models via
     `modelsFor`; changing company picks the closest tier, `agentModelFor`). `agents.model` is the model and its
     `provider` is the agent's company; read it with `activeAgentModel(row)`. Every company with a key is available
