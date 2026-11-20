@@ -131,9 +131,19 @@ The owner designs and specifies outside TechTeam (a design tool, a document); th
 4. **Sandbox polish**
    - Sandbox numbers on the Metrics page; limits per workspace; cleanup of stale containers, previews, images and
      screenshot objects (they stay in S3 today).
-   - Still unseen live: the Developer fixing a failure it found, and a preview stopping on merge.
+   - Still unseen live: the Developer fixing a failure it found.
+   - Merge conflicts: the follow-up card a conflict files ("Fix merge of PR #n") can't be done by the agents. They have
+     no tool to bring the default branch into a PR branch, and running that card starts a new branch instead of fixing
+     the PR. Seen live 2026-11-19: SAN-2's PR #2 conflicted after SAN-3 and SAN-4 merged (SAN-5, issue #5).
+   - `add_dependency` (gated by `deps.manage`): installs a package in the sandbox with network and commits the
+     manifest and the lockfile to the branch. Today an agent can't add one: it can't regenerate the lockfile, so
+     `npm ci` fails. First use: a font the owner names in the card (`@fontsource/…`), bundled into the build, so it
+     loads in the preview (no internet there, so a Google Fonts `<link>` falls back) and no visitor request goes to a
+     font host. The owner picks fonts in the card's description; agents don't choose one on their own.
    - The capture network's private-range rules for the sandbox's install step too: it has network, and the provider's
      private network (10.x) answered from containers when the capture was tested.
+   - Fonts with real bold weights in the browser image: run 52's screenshots show `system-ui` headings and a 700-weight
+     amount as regular, so the Tester could misjudge weight against a reference.
    - A Docker socket proxy for Caddy; an optional login in front of previews for private apps; a slimmer browser
      image pinned by digest; Draft with AI aware of the browser; git history inside the sandbox (`git diff` fails on a
      tarball checkout).
