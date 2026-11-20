@@ -141,16 +141,16 @@ for a blocked merge is picked up like any other and continues on that pull reque
 ## Local development
 
 ```bash
-npm run dev            # app on :3000
-npm run inngest:dev    # npx inngest-cli@latest dev -u http://localhost:3000/api/inngest
+npm run dev            # app on :3000 + Inngest Dev Server, one terminal (concurrently)
+npm run inngest:dev    # only the Dev Server: npx inngest-cli@latest dev -u http://localhost:3000/api/inngest
 ```
 
 - Dev Server UI: <http://localhost:8288> — see events, runs, step output and logs; replay runs.
 - No keys are needed locally. The SDK (v3) infers **Dev Mode** outside production and sends events to the Dev
   Server.
 - **If the Dev Server isn't running**, the SDK falls back to Inngest Cloud with the placeholder `INNGEST_EVENT_KEY`
-  and gets `401 Event key not found`. Run then fails with "Is the Inngest Dev Server running? Start it with
-  `npm run inngest:dev`." — the run is marked failed and nothing is assigned.
+  and gets `401 Event key not found`. Run then fails with "Is the Inngest Dev Server running? Start the app with
+  `npm run dev` (it starts Inngest too)." — the run is marked failed and nothing is assigned.
 - Force a mode with `INNGEST_DEV=1` (dev) or `INNGEST_DEV=0` (cloud).
 
 ## Production
@@ -167,4 +167,4 @@ npm run inngest:dev    # npx inngest-cli@latest dev -u http://localhost:3000/api
 2. Add it to the `functions` array in `app/api/inngest/route.ts`.
 3. Send events only from server code, after authorizing the user, with `inngest.send({ name, data })`.
 4. Re-check ownership/existence inside the function: data can be stale by the time it runs.
-5. Restart `npm run inngest:dev` if the Dev Server doesn't pick up the new function.
+5. Restart `npm run dev` (or `npm run inngest:dev` alone) if the Dev Server doesn't pick up the new function.

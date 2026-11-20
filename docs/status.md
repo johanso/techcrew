@@ -75,7 +75,7 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 - **Auto pickup only takes never-run cards**, one at a time per workspace, every 2 minutes.
 - **Live board progress is polled** (every 10 s while a run is active, database only), not pushed.
 - **Workspace and account editing** isn't available (settings are read-only), nor deleting workspaces or accounts.
-- **The agent pipeline locally requires the Inngest Dev Server** (`npm run inngest:dev`).
+- **The agent pipeline locally requires the Inngest Dev Server** (`npm run dev` starts it with the app).
 - **Live runs so far are on OpenAI** (GPT-6.1 Sol / GPT-6 Luna); the Anthropic path is verified only against a local
   fake of its API. OpenRouter has one live run (DeepSeek for the Developer and the Tester). Simulated agents always take the happy path.
 - **Switch scans need a public URL** (not deployed yet: a tunnel such as ngrok), for both Switch's tests and the

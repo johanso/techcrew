@@ -73,7 +73,7 @@ What happens when an optional group is missing:
 - **`TOKEN_ENCRYPTION_KEY` missing or wrong length** → connecting GitHub fails with an error in the server log.
 - **S3 variables missing** → the "Upload custom logo" button is disabled with an explanation; icons still work.
 - **Inngest Dev Server not running (locally)** → the board's **Run** action fails with
-  "Is the Inngest Dev Server running? Start it with `npm run inngest:dev`." Nothing else is affected.
+  "Is the Inngest Dev Server running? Start the app with `npm run dev`." Nothing else is affected.
 
 ## 3. External services
 
@@ -125,7 +125,7 @@ dialog says references can't be added.
 
 ### Inngest
 
-Locally nothing to configure: run `npm run inngest:dev`. It starts the Inngest Dev Server (UI on
+Locally nothing to configure: `npm run dev` starts it next to the app (`npm run inngest:dev` alone starts only it). It runs the Inngest Dev Server (UI on
 <http://localhost:8288>) and points it at `http://localhost:3000/api/inngest`, where the app's functions are
 served. For production see [docs/background-jobs.md](background-jobs.md#production).
 
@@ -166,8 +166,7 @@ exist, so run `npm run db:baseline` once. It marks the migrations as applied wit
 ## 5. Run
 
 ```bash
-npm run dev            # terminal 1 — http://localhost:3000
-npm run inngest:dev    # terminal 2 — only needed for the board's Run action
+npm run dev            # http://localhost:3000 + the Inngest Dev Server (needed for the board's Run action)
 ```
 
 ## 6. First-run walkthrough
@@ -203,7 +202,7 @@ npm run inngest:dev    # terminal 2 — only needed for the board's Run action
 | A repository is missing from the picker | Only repositories you can **push** to and that aren't archived are listed (max 300). For org repos, the org may need to approve the OAuth App. |
 | Board shows "Connect GitHub to bring … issues onto the board" | The workspace owner has no GitHub connection (or it was disconnected). Click **Connect GitHub**. |
 | Board shows "Your GitHub connection expired or was revoked" | The token was revoked on GitHub (or `TOKEN_ENCRYPTION_KEY` changed). Click **Reconnect GitHub**. |
-| **Run** fails with "Is the Inngest Dev Server running?" | Start `npm run inngest:dev`. Without it, the SDK falls back to Inngest Cloud and the placeholder event key is rejected (401). |
+| **Run** fails with "Is the Inngest Dev Server running?" | Start the app with `npm run dev` (it starts Inngest too), or `npm run inngest:dev` if you ran `dev:app`. Without it, the SDK falls back to Inngest Cloud and the placeholder event key is rejected (401). |
 | Logo upload button is disabled | S3 variables are not set. |
 | Settings → Sandbox can't be switched on | `SANDBOX_DOCKER_HOST` isn't set (restart the dev server after setting it), or neither a test nor a build command is saved. |
 | **Test the sandbox** fails while preparing the checkout | The app can't reach Docker on the host: try `docker -H "$SANDBOX_DOCKER_HOST" info` from the same machine (SSH key, host key, user in the `docker` group). |

@@ -43,8 +43,7 @@ Details: [docs/status.md](docs/status.md).
 npm install
 cp .env.example .env          # then fill in the values — see docs/setup.md
 npm run db:migrate            # create the tables in your Postgres database
-npm run dev                   # http://localhost:3000
-npm run inngest:dev           # in a second terminal — needed for the agent pipeline (Run, auto pickup)
+npm run dev                   # http://localhost:3000 + the Inngest Dev Server (agent pipeline), in one terminal
 ```
 
 You need: Node.js 22+, a PostgreSQL database, a CloudHike auth project, a GitHub OAuth App, and (optionally) an
@@ -66,7 +65,9 @@ Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 | `npm run db:baseline` | One time, for a database created with `db:push` before migrations existed: marks the migrations as applied. |
 | `npm run db:push` | Prototyping only: push the schema without a migration. Don't use it on shared or production databases. |
 | `npm run db:studio` | Drizzle Studio: browse and edit data in the browser. |
-| `npm run inngest:dev` | Local Inngest Dev Server, pointed at `/api/inngest`. Required for the agent pipeline (**Run**, auto pickup, auto-merge). |
+| `npm run dev` | The app on port 3000 **and** the Inngest Dev Server, together in one terminal (stopping one stops both). |
+| `npm run dev:app` | Only the app (`next dev --port 3000`). |
+| `npm run inngest:dev` | Only the local Inngest Dev Server, pointed at `/api/inngest`. Required for the agent pipeline (**Run**, auto pickup, auto-merge); `npm run dev` already starts it. |
 | `npm run lint` | ESLint (flat config: Next.js core web vitals + TypeScript). |
 | `npm test` | Unit tests (Vitest). `npm run test:watch` while working. |
 | `npm run check` | Route types (`next typegen`) + type check + lint + tests: run before every commit. CI runs it plus `npm run build` on every push and PR. |

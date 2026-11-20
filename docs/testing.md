@@ -14,7 +14,7 @@ testing practical. Written for the next developer or agent picking this up. Last
 
 ## What to set up
 
-1. `npm run dev` (port 3000) **and** `npm run inngest:dev` in a second terminal. Without the Inngest Dev Server,
+1. `npm run dev` (port 3000; it also starts the Inngest Dev Server). Without the Inngest Dev Server,
    Run fails with "Is the Inngest Dev Server running?" and the run is marked failed.
 2. Sign in, create a workspace linked to a **throwaway repository**. Agents create real branches, commits, pull
    requests, issue comments and (with **File issues**) issues on it, even in simulated mode.

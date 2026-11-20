@@ -55,7 +55,7 @@ sign-in / sign-up ─▶ /workspaces ──(no workspaces)──▶ /workspaces/
 ## 3. Commands
 
 ```bash
-npm run dev          # dev server on http://localhost:3000
+npm run dev          # app on http://localhost:3000 + Inngest Dev Server, one terminal (dev:app = only the app)
 npm run build        # production build — must pass before you finish
 npm run check        # next typegen + tsc + eslint + vitest — must pass before you finish (CI runs it + build)
 npm test             # unit tests (Vitest); npm run test:watch while working
@@ -64,7 +64,7 @@ npm run db:generate  # after changing db/schema.ts: write the SQL migration into
 npm run db:migrate   # apply pending migrations
 npm run db:baseline  # once, for a database created with db:push before migrations: mark them applied
 npm run db:studio    # inspect data
-npm run inngest:dev  # local Inngest Dev Server — required for the agent pipeline (Run, auto pickup, auto-merge)
+npm run inngest:dev  # only the Inngest Dev Server (npm run dev already starts it) — needed by Run, auto pickup, auto-merge
 npx next typegen     # regenerate PageProps / RouteContext types after adding routes
 npx shadcn add <c>   # add a shadcn component into components/ui
 npm run skills:sync  # re-vendor the built-in agent skills at their pinned refs (-- --update <slug> to bump); commit the diff
@@ -526,7 +526,7 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   the sortable wrapper (the card is only the drag *activator*), so they never start a drag or open the dialog.
   - **Run** (`runCardAction`) creates an `agent_runs` row, queues `agent/task.run` with its `runId`, then moves the card
     to Analysis assigned to the analyst; if queuing fails the run is marked failed and nothing moves. Refused while a
-    run is active, when an agent's model has no provider key (`pipelineModelProblem`), or when the analyst is paused/over budget. Locally: `npm run inngest:dev`.
+    run is active, when an agent's model has no provider key (`pipelineModelProblem`), or when the analyst is paused/over budget. Locally: `npm run dev` starts the Inngest Dev Server too.
   - **Stop agents** (`stopCardAction`) marks the run cancelled, sends `agent/task.cancel` and unassigns the card.
   - Cards show their latest run with `AgentRunStatus`; ▶ is disabled while it is queued/running, and the board re-reads
     itself every 10 s while any card has an active run (`useGithubSync({ live })` → `getBoardAction`, database only;

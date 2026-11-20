@@ -294,7 +294,7 @@ card's drag area, so using them never starts a drag or opens the dialog.
   It follows a running card every 5 s. Notifications link straight to it (`/board?log=<card>`). Runs from before the
   log existed show "Nothing logged".
 
-Locally, Run needs the Inngest Dev Server (`npm run inngest:dev`); otherwise it shows an error saying so.
+Locally, Run needs the Inngest Dev Server (`npm run dev` starts it with the app); otherwise it shows an error saying so.
 
 ### Out of credit
 

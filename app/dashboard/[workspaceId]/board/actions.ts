@@ -159,7 +159,7 @@ async function startRun(auth: NonNullable<Awaited<ReturnType<typeof authorize>>>
     console.error("[board] run failed to queue", error);
     await finishRun(run.id, "failed", "The run couldn't be queued.");
     // Locally the usual cause is the Inngest Dev Server not running; say so instead of a generic retry.
-    const hint = process.env.NODE_ENV === "production" ? "Please try again." : "Is the Inngest Dev Server running? Start it with `npm run inngest:dev`.";
+    const hint = process.env.NODE_ENV === "production" ? "Please try again." : "Is the Inngest Dev Server running? Start the app with `npm run dev` (it starts Inngest too).";
     return { ok: false, error: `We couldn't start ${agent.name} on this card. ${hint}` };
   }
   try {

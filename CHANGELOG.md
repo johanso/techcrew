@@ -8,6 +8,12 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+### Changed
+- **One command for local development**: `npm run dev` starts the app and the Inngest Dev Server together in one
+  terminal (`concurrently`; stopping one stops both). `npm run dev:app` starts only the app, `npm run inngest:dev`
+  only Inngest. The app is pinned to port 3000 so a busy port fails loudly instead of leaving Inngest pointed at the
+  wrong address.
+
 ## [0.7.0] — 2026-11-20
 
 ### Added
