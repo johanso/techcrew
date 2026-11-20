@@ -12,10 +12,12 @@ import {
   AGENT_ROLES,
   MICROS_PER_USD,
   PROVIDERS,
+  PROVIDER_IDS,
   defaultProvider,
   fallbackProvider,
   isPermissionId,
   modelInfo,
+  modelsFor,
   type AgentKey,
   type AgentModelId,
   type AgentProvider,
@@ -883,6 +885,33 @@ export async function agentOnPlan(workspace: RouteWorkspace, key: AgentKey) {
   const row = await getAgentRow(workspace.id, key);
   const { resolved } = await agentRoute(workspace, row, key, keyStatus(await getAIKeys(workspace.id)));
   return resolved.route !== null && resolved.route !== "api";
+}
+
+/**
+ * The companies whose models this computer can run on the owner's plan without an API key (AI Team's model picker
+ * shows them as "Your plan" and lets the owner pick them). Empty on a deploy or with no plan switched on.
+ */
+export async function planProvidersHere(workspace: RouteWorkspace): Promise<Partial<Record<AgentProvider, boolean>>> {
+  if (!cliAgentsAvailable() || isSimulatedAgents()) return {};
+  const cli = await claudeMachineState(workspace.ownerId);
+  if (!cli) return {};
+  const plans: Partial<Record<AgentProvider, boolean>> = {};
+  for (const provider of PROVIDER_IDS) {
+    const carried = modelsFor(provider).some(({ id }) => {
+      if (!cliForModel(id)) return false;
+      const { route } = resolveRoute({ model: id, hasKey: false, cli });
+      return route !== null && route !== "api";
+    });
+    if (carried) plans[provider] = true;
+  }
+  return plans;
+}
+
+/** Whether this computer can run `model` on the owner's plan without an API key (saving an agent's model). */
+export async function modelOnPlanHere(workspace: RouteWorkspace, model: AgentModelId) {
+  if (!cliAgentsAvailable() || isSimulatedAgents() || !cliForModel(model)) return false;
+  const { route } = resolveRoute({ model, hasKey: false, cli: await claudeMachineState(workspace.ownerId) });
+  return route !== null && route !== "api";
 }
 
 /**

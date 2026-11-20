@@ -38,6 +38,7 @@ import {
   modelInfo,
   modelsFor,
   type AgentModelId,
+  type AgentProvider,
   type ProviderStatus,
   type PermissionId,
   type PermissionRisk,
@@ -66,6 +67,7 @@ export function AgentConfigDialog({
   repoFullName,
   aiEnabled,
   providers,
+  plans,
   switchTrust,
   skills,
 }: {
@@ -76,6 +78,8 @@ export function AgentConfigDialog({
   repoFullName: string;
   aiEnabled: boolean;
   providers: ProviderStatus;
+  /** Companies this computer can run on the owner's plan without an API key ("Your plan" in the model picker). */
+  plans: Partial<Record<AgentProvider, boolean>>;
   switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
@@ -90,6 +94,7 @@ export function AgentConfigDialog({
           repoFullName={repoFullName}
           aiEnabled={aiEnabled}
           providers={providers}
+          plans={plans}
           switchTrust={switchTrust}
           skills={skills}
           onSaved={() => onOpenChange(false)}
@@ -105,6 +110,7 @@ function ConfigForm({
   repoFullName,
   aiEnabled,
   providers,
+  plans,
   switchTrust,
   skills,
   onSaved,
@@ -114,6 +120,8 @@ function ConfigForm({
   repoFullName: string;
   aiEnabled: boolean;
   providers: ProviderStatus;
+  /** Companies this computer can run on the owner's plan without an API key ("Your plan" in the model picker). */
+  plans: Partial<Record<AgentProvider, boolean>>;
   switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
@@ -255,7 +263,10 @@ function ConfigForm({
             <Field>
               <FieldLabel htmlFor="agent-provider">Company</FieldLabel>
               <Select
-                items={PROVIDER_IDS.map((id) => ({ value: id, label: providers[id] ? PROVIDERS[id].label : `${PROVIDERS[id].label} (no key)` }))}
+                items={PROVIDER_IDS.map((id) => ({
+                  value: id,
+                  label: providers[id] ? PROVIDERS[id].label : plans[id] ? `${PROVIDERS[id].label} (your plan)` : `${PROVIDERS[id].label} (no key)`,
+                }))}
                 value={provider}
                 onValueChange={(value) => {
                   // Moving company keeps the tier: the closest model there (GPT-6.1 Sol ↔ Claude Sonnet 5.5, …).
@@ -271,7 +282,7 @@ function ConfigForm({
                     <SelectItem key={id} value={id}>
                       <span className="flex w-full items-baseline justify-between gap-3">
                         <span className="font-medium">{PROVIDERS[id].label}</span>
-                        {!providers[id] && <span className="text-xs text-muted-foreground">No key</span>}
+                        {!providers[id] && <span className="text-xs text-muted-foreground">{plans[id] ? "Your plan" : "No key"}</span>}
                       </span>
                     </SelectItem>
                   ))}
@@ -280,6 +291,8 @@ function ConfigForm({
               <FieldDescription>
                 {providers[provider] ? (
                   <>Each agent can work on a different company.</>
+                ) : plans[provider] ? (
+                  <>Runs on your plan on this computer (no API key for this company). Pick a model your plan includes.</>
                 ) : (
                   <>
                     No {PROVIDERS[provider].label} key yet:{" "}
