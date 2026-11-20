@@ -10,9 +10,11 @@ import {
   PERMISSION_BY_ID,
   PROVIDER_IDS,
   formatCents,
+  roleDefaultModel,
   type AgentKey,
   type AgentModelId,
   type AgentProvider,
+  type ModelPricing,
   type PermissionId,
 } from "@/lib/agent-config";
 import { STAGE_META } from "@/lib/agent-run-config";
@@ -21,6 +23,8 @@ import { scanAgentRules, sortFindings, type TrustFinding, type TrustReport, type
 import { getAIKeys, type AIKeys } from "@/lib/ai-keys";
 import { anthropicClient, anthropicErrorMessage, messageCostMicros } from "@/lib/anthropic";
 import { getGithubToken, getRepoContext, type RepoContext } from "@/lib/github";
+import { getModelCatalog } from "@/lib/model-catalog";
+import { findModel } from "@/lib/model-catalog-config";
 import { openAIClient, openAIErrorMessage, responseCostMicros } from "@/lib/openai";
 import { OPENROUTER_ROUTING, completionCostMicros, openRouterClient, openRouterErrorMessage } from "@/lib/openrouter";
 import { sandboxAvailable } from "@/lib/sandbox";
@@ -32,8 +36,15 @@ import { SANDBOX_STAGES } from "@/lib/sandbox/config";
  * ConfigAI from configAI() first.
  */
 
-/** Model for configuration helpers per provider: strong writing at a moderate price. */
-const CONFIG_MODELS = { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5", openrouter: "deepseek/deepseek-v4-pro-0813" } as const satisfies Record<AgentProvider, AgentModelId>;
+/**
+ * Model for configuration helpers on a company, with its catalog price: the Analyst's default there (the company's
+ * balanced model in the catalog), strong writing at a moderate price.
+ */
+async function configModel(provider: AgentProvider): Promise<{ model: AgentModelId; pricing: ModelPricing | null }> {
+  const catalog = await getModelCatalog();
+  const model = roleDefaultModel(catalog, "analyst", provider);
+  return { model, pricing: findModel(catalog, model)?.pricing ?? null };
+}
 
 export type ConfigAI = { provider: AgentProvider; apiKey: string };
 
@@ -64,7 +75,7 @@ async function structuredCompletion<T>(
 ) {
   if (ai.provider === "openai") {
     const openai = openAIClient(ai.apiKey);
-    const model = CONFIG_MODELS.openai;
+    const { model, pricing } = await configModel("openai");
     const response = await openai.responses.create({
       model,
       input: [
@@ -73,11 +84,11 @@ async function structuredCompletion<T>(
       ],
       text: { format: { type: "json_schema", name: input.name, strict: true, schema: input.schema } },
     });
-    return { data: JSON.parse(response.output_text) as T, model, costMicros: responseCostMicros(model, response.usage) };
+    return { data: JSON.parse(response.output_text) as T, model, costMicros: responseCostMicros(pricing, response.usage) };
   }
 
   if (ai.provider === "openrouter") {
-    const model = CONFIG_MODELS.openrouter;
+    const { model, pricing } = await configModel("openrouter");
     const body: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & { provider: typeof OPENROUTER_ROUTING } = {
       model,
       messages: [
@@ -90,11 +101,11 @@ async function structuredCompletion<T>(
     const response = await openRouterClient(ai.apiKey).chat.completions.create(body);
     const text = response.choices[0]?.message.content;
     if (!text) throw new Error("The model returned no text.");
-    return { data: JSON.parse(text) as T, model, costMicros: completionCostMicros(model, response.usage) };
+    return { data: JSON.parse(text) as T, model, costMicros: completionCostMicros(pricing, response.usage) };
   }
 
   const anthropic = anthropicClient(ai.apiKey);
-  const model = CONFIG_MODELS.anthropic;
+  const { model, pricing } = await configModel("anthropic");
   const response = await anthropic.messages.create({
     model,
     max_tokens: 16_000,
@@ -105,7 +116,7 @@ async function structuredCompletion<T>(
   if (response.stop_reason === "refusal") throw new Error("The model declined this request.");
   const text = response.content.find((block) => block.type === "text");
   if (!text || text.type !== "text") throw new Error("The model returned no text.");
-  return { data: JSON.parse(text.text) as T, model, costMicros: messageCostMicros(model, response.model, response.usage) };
+  return { data: JSON.parse(text.text) as T, model, costMicros: messageCostMicros(pricing, response.usage) };
 }
 
 type WorkspaceRepo = { ownerId: number; githubRepoFullName: string; githubDefaultBranch: string; sandboxEnabled: boolean };

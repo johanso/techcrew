@@ -2,11 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 
-import { PROVIDERS, isAgentKey, isPermissionId, modelInfo, type AgentKey } from "@/lib/agent-config";
+import { PROVIDERS, isAgentKey, isPermissionId, type AgentKey } from "@/lib/agent-config";
 import { configAIErrorMessage, generateAgentConfig, getWorkspaceConfigAI, scanAgentWithAI } from "@/lib/agent-ai";
 import { getTrustSkills } from "@/lib/agent-skills";
 import { modelOnPlanHere } from "@/lib/agent-pipeline";
 import { getAIKeys, keyStatus } from "@/lib/ai-keys";
+import { getModelCatalog } from "@/lib/model-catalog";
+import { findModel, modelProvider } from "@/lib/model-catalog-config";
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
 import {
   getAgentRow,
@@ -42,11 +44,17 @@ export async function saveAgentAction(workspaceId: number, key: string, raw: unk
   if (!auth) return { ok: false, error: "Agent not found." };
   const input = parseAgentConfigInput(raw);
   if (!input.ok) return input;
+  // A new model must be one the catalog offers now (an older one stays only on the agent that already has it).
+  const changed = input.value.model !== auth.agent.model;
+  if (changed && !findModel(await getModelCatalog(), input.value.model)?.current) {
+    return { ok: false, error: "Check the highlighted fields.", errors: { model: "That model isn't offered any more. Pick another one." } };
+  }
   // Each agent picks any company's model, as long as that company has a key or the owner's plan carries the model on
   // this computer: an agent that can't run would only fail its next card. Keeping the model it already has is allowed.
-  const provider = modelInfo(input.value.model).provider;
+  const provider = modelProvider(input.value.model);
+  if (!provider) return { ok: false, error: "Check the highlighted fields.", errors: { model: "Choose a model." } };
   if (
-    input.value.model !== auth.agent.model &&
+    changed &&
     !keyStatus(await getAIKeys(auth.workspace.id))[provider] &&
     !(await modelOnPlanHere(auth.workspace, input.value.model))
   ) {

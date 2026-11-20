@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { CheckIcon, RotateCcwIcon, SaveIcon, SparklesIcon, Undo2Icon } from "lucide-react";
+import { CheckIcon, EyeIcon, RotateCcwIcon, SaveIcon, SparklesIcon, Undo2Icon } from "lucide-react";
 
 import { generateAgentAction, saveAgentAction } from "@/app/dashboard/[workspaceId]/ai-team/actions";
 import { AGENT_STATUS, AgentPortrait } from "@/components/ai-team/agent-visuals";
@@ -32,11 +32,7 @@ import {
   PERMISSIONS,
   agentModelFor,
   formatMicros,
-  isAgentModelId,
   isAgentProvider,
-  makersOf,
-  modelInfo,
-  modelsFor,
   type AgentModelId,
   type AgentProvider,
   type ProviderStatus,
@@ -46,6 +42,18 @@ import {
 import { MAX_TURNS_MAX, MAX_TURNS_MIN } from "@/lib/agent-run-config";
 import type { AgentConfigField, AgentView } from "@/lib/agents";
 import type { SkillView } from "@/lib/agent-skills-config";
+import {
+  TIER_LABEL,
+  findModel,
+  formatContext,
+  formatPrice,
+  makersOf,
+  modelProvider,
+  pickerModels,
+  unknownModel,
+  type CatalogModel,
+  type ModelCatalog,
+} from "@/lib/model-catalog-config";
 import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
 import { cn } from "@/lib/utils";
 
@@ -56,6 +64,13 @@ const RISK: Record<PermissionRisk, { label: string; dot: string; text: string }>
   high: { label: "High risk", dot: "bg-warning", text: "text-foreground" },
   critical: { label: "Critical", dot: "bg-error", text: "text-error" },
 };
+
+/** "Balanced · sees images · 1M context", or "Older model" for one the catalog no longer offers. */
+function modelHint(model: CatalogModel) {
+  return [model.current ? TIER_LABEL[model.tier] : "Older model", model.vision ? "sees images" : "text only", formatContext(model.contextLength)]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 const samePermissions = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((s) => b.includes(s));
 
@@ -68,6 +83,7 @@ export function AgentConfigDialog({
   aiEnabled,
   providers,
   plans,
+  catalog,
   switchTrust,
   skills,
 }: {
@@ -80,6 +96,8 @@ export function AgentConfigDialog({
   providers: ProviderStatus;
   /** Companies this computer can run on the owner's plan without an API key ("Your plan" in the model picker). */
   plans: Partial<Record<AgentProvider, boolean>>;
+  /** The model catalog's current models plus the team's own (lib/model-catalog.ts). */
+  catalog: ModelCatalog;
   switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
@@ -95,6 +113,7 @@ export function AgentConfigDialog({
           aiEnabled={aiEnabled}
           providers={providers}
           plans={plans}
+          catalog={catalog}
           switchTrust={switchTrust}
           skills={skills}
           onSaved={() => onOpenChange(false)}
@@ -111,6 +130,7 @@ function ConfigForm({
   aiEnabled,
   providers,
   plans,
+  catalog,
   switchTrust,
   skills,
   onSaved,
@@ -122,6 +142,7 @@ function ConfigForm({
   providers: ProviderStatus;
   /** Companies this computer can run on the owner's plan without an API key ("Your plan" in the model picker). */
   plans: Partial<Record<AgentProvider, boolean>>;
+  catalog: ModelCatalog;
   switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
@@ -133,7 +154,11 @@ function ConfigForm({
   const [instructions, setInstructions] = useState(agent.instructions);
   const [model, setModel] = useState<AgentModelId>(agent.model);
   // The company follows the model: changing it in the Company select picks that company's closest model.
-  const provider = modelInfo(model).provider;
+  const provider = modelProvider(model) ?? "openai";
+  // The company's current models, plus the agent's saved one when it's no longer offered ("older").
+  const models = pickerModels(catalog, provider, agent.model);
+  const selected = findModel(catalog, model) ?? unknownModel(model);
+  const onPlan = Boolean(plans[provider]);
   const [permissions, setPermissions] = useState<PermissionId[]>(agent.permissions);
   const [budget, setBudget] = useState(String(agent.monthlyBudgetCents / 100));
   const [maxTurns, setMaxTurns] = useState(String(agent.maxTurns));
@@ -270,7 +295,7 @@ function ConfigForm({
                 value={provider}
                 onValueChange={(value) => {
                   // Moving company keeps the tier: the closest model there (GPT-6.1 Sol ↔ Claude Sonnet 5.5, …).
-                  if (isAgentProvider(value) && value !== provider) setModel(agentModelFor(agent.id, value, model, {}));
+                  if (isAgentProvider(value) && value !== provider) setModel(agentModelFor(catalog, agent.id, value, model, {}));
                   clearError("model");
                 }}
               >
@@ -308,10 +333,10 @@ function ConfigForm({
             <Field data-invalid={!!errors.model}>
               <FieldLabel htmlFor="agent-model">Model</FieldLabel>
               <Select
-                items={modelsFor(provider).map((m) => ({ value: m.id, label: m.label }))}
+                items={models.map((m) => ({ value: m.id, label: m.label }))}
                 value={model}
                 onValueChange={(value) => {
-                  if (isAgentModelId(value)) setModel(value);
+                  if (typeof value === "string" && models.some((m) => m.id === value)) setModel(value);
                   clearError("model");
                 }}
               >
@@ -328,25 +353,29 @@ function ConfigForm({
                     {/* pr-8 lines the price header up with the prices (items leave room for the check). */}
                     <SelectLabel className="flex justify-between gap-3 pr-8">
                       <span>{PROVIDERS[provider].label} models</span>
-                      <span>per 1M tokens · in / out</span>
+                      {!onPlan && <span>per 1M tokens · in / out</span>}
                     </SelectLabel>
                   </SelectGroup>
                   {/* OpenRouter resells several companies: one group per maker. OpenAI and Anthropic are one group each. */}
-                  {makersOf(provider).map((maker) => (
+                  {makersOf(models).map((maker) => (
                     <SelectGroup key={maker}>
                       {maker !== PROVIDERS[provider].label && <SelectLabel>{maker}</SelectLabel>}
-                      {modelsFor(provider)
+                      {models
                         .filter((m) => m.maker === maker)
                         .map((m) => (
                           <SelectItem key={m.id} value={m.id} className="py-2">
                             <span className="flex w-full min-w-0 flex-col gap-0.5 whitespace-normal">
                               <span className="flex items-baseline justify-between gap-3">
-                                <span className="font-medium">{m.label}</span>
+                                <span className="flex min-w-0 items-center gap-1.5">
+                                  <span className="font-medium">{m.label}</span>
+                                  {m.vision && <EyeIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
+                                </span>
+                                {/* On the owner's plan the price doesn't apply; a model with no known price says so. */}
                                 <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                                  ${m.pricing.input} / ${m.pricing.output}
+                                  {onPlan ? "Your plan" : m.pricing.output > 0 ? formatPrice(m.pricing) : "No price"}
                                 </span>
                               </span>
-                              <span className="text-xs text-muted-foreground">{m.hint}</span>
+                              <span className="text-xs text-muted-foreground">{modelHint(m)}</span>
                             </span>
                           </SelectItem>
                         ))}
@@ -354,51 +383,62 @@ function ConfigForm({
                   ))}
                 </SelectContent>
               </Select>
-              <FieldDescription>{modelInfo(model).hint}</FieldDescription>
+              <FieldDescription>
+                {modelHint(selected)}
+                {!selected.current && ". No longer offered: the agent keeps it until you pick another one."}
+              </FieldDescription>
               <FieldError>{errors.model}</FieldError>
             </Field>
 
-            <Field data-invalid={!!errors.budget}>
-              <FieldLabel htmlFor="agent-budget">Monthly budget</FieldLabel>
-              <InputGroup className="h-10">
-                <InputGroupAddon>$</InputGroupAddon>
-                <InputGroupInput
-                  id="agent-budget"
-                  type="number"
-                  inputMode="decimal"
-                  min={BUDGET_MIN_USD}
-                  max={BUDGET_MAX_USD}
-                  step="1"
-                  value={budget}
-                  onChange={(event) => {
-                    setBudget(event.target.value);
-                    clearError("budget");
-                  }}
-                  aria-invalid={!!errors.budget}
-                  className="tabular-nums"
-                />
-                <InputGroupAddon align="inline-end">/ month</InputGroupAddon>
-              </InputGroup>
-              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Budget presets">
-                {BUDGET_PRESETS_USD.map((preset) => (
-                  <Button
-                    key={preset}
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    aria-pressed={budgetUsd === preset}
-                    onClick={() => {
-                      setBudget(String(preset));
+            {/* On the owner's plan there's no API spend to cap: the budget stays saved and applies when the agent runs on a key. */}
+            {onPlan ? (
+              <p className="rounded-lg bg-brand/5 px-3 py-2.5 text-sm text-muted-foreground ring-1 ring-brand/20">
+                Runs on your plan on this computer: no API spend, so no monthly budget. If it runs on an API key (another
+                computer, or after your plan runs out), the saved budget applies again.
+              </p>
+            ) : (
+              <Field data-invalid={!!errors.budget}>
+                <FieldLabel htmlFor="agent-budget">Monthly budget</FieldLabel>
+                <InputGroup className="h-10">
+                  <InputGroupAddon>$</InputGroupAddon>
+                  <InputGroupInput
+                    id="agent-budget"
+                    type="number"
+                    inputMode="decimal"
+                    min={BUDGET_MIN_USD}
+                    max={BUDGET_MAX_USD}
+                    step="1"
+                    value={budget}
+                    onChange={(event) => {
+                      setBudget(event.target.value);
                       clearError("budget");
                     }}
-                    className={cn("tabular-nums", budgetUsd === preset && "border-brand/40 bg-brand/5 text-brand-emphasis")}
-                  >
-                    ${preset}
-                  </Button>
-                ))}
-              </div>
-              <FieldError>{errors.budget}</FieldError>
-            </Field>
+                    aria-invalid={!!errors.budget}
+                    className="tabular-nums"
+                  />
+                  <InputGroupAddon align="inline-end">/ month</InputGroupAddon>
+                </InputGroup>
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Budget presets">
+                  {BUDGET_PRESETS_USD.map((preset) => (
+                    <Button
+                      key={preset}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      aria-pressed={budgetUsd === preset}
+                      onClick={() => {
+                        setBudget(String(preset));
+                        clearError("budget");
+                      }}
+                      className={cn("tabular-nums", budgetUsd === preset && "border-brand/40 bg-brand/5 text-brand-emphasis")}
+                    >
+                      ${preset}
+                    </Button>
+                  ))}
+                </div>
+                <FieldError>{errors.budget}</FieldError>
+              </Field>
+            )}
 
             <Field data-invalid={!!errors.maxTurns}>
               <FieldLabel htmlFor="agent-max-turns">Max turns per stage</FieldLabel>
@@ -431,7 +471,7 @@ function ConfigForm({
 
         <aside className="flex min-w-0 flex-col gap-4 border-t border-border/70 bg-canvas px-5 py-6 lg:border-t-0 lg:border-l">
           <TrustPanel agent={agent} workspaceId={workspaceId} dirty={dirty} aiEnabled={aiEnabled} switchTrust={switchTrust} />
-          <SpendingPanel spend={agent.spend} budgetCents={budgetCents} />
+          <SpendingPanel spend={agent.spend} budgetCents={budgetCents} onPlan={onPlan} />
           <SkillsPanel agent={agent} skills={skills} permissions={permissions} workspaceId={workspaceId} />
         </aside>
       </div>

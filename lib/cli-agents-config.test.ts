@@ -88,8 +88,8 @@ describe("accountMatches", () => {
 });
 
 describe("planIncludesModel", () => {
-  it("keeps Opus off Claude Pro", () => {
-    expect(planIncludesModel("pro", "claude-opus-5-5")).toBe(false);
+  it("lets any plan try any model (a refusal is remembered at run time)", () => {
+    expect(planIncludesModel("pro", "claude-opus-5-5")).toBe(true);
     expect(planIncludesModel("pro", "claude-sonnet-5-5")).toBe(true);
     expect(planIncludesModel("max", "claude-opus-5-5")).toBe(true);
     expect(planIncludesModel(null, "claude-sonnet-5-5")).toBe(false);
@@ -131,8 +131,16 @@ describe("resolveRoute", () => {
   });
 
   it("notes why a switched-on plan wasn't used", () => {
-    const resolved = resolveRoute({ model: "claude-opus-5-5", hasKey: true, cli: machine({ auth: auth({ subscriptionType: "pro" }) }), now: NOW });
+    const resolved = resolveRoute({ model: "claude-opus-5-5", label: "Claude Opus 5.5", hasKey: true, cli: machine({ unusable: ["claude-opus-5-5"] }), now: NOW });
     expect(resolved).toMatchObject({ route: "api", note: expect.stringContaining("doesn't include Claude Opus 5.5") });
+    // Without the catalog's label the message names the id.
+    expect(resolveRoute({ model: "claude-opus-5-5", hasKey: true, cli: machine({ unusable: ["claude-opus-5-5"] }), now: NOW })).toMatchObject({
+      note: expect.stringContaining("doesn't include claude-opus-5-5"),
+    });
+  });
+
+  it("refuses an id no company takes", () => {
+    expect(resolveRoute({ model: "retired-model", hasKey: true, cli: null })).toMatchObject({ route: null, problem: expect.stringContaining("isn't a model") });
   });
 
   it("uses the plan again once the window has reset", () => {

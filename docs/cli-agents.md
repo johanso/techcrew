@@ -37,7 +37,7 @@ stage's `LoopState` like the model:
 
 | Model | Plan route when… | Otherwise |
 | --- | --- | --- |
-| Claude (Anthropic) | Claude Code is installed here, switched on, signed in with a plan login to the confirmed account, the plan includes the model (Pro has no Opus) and this computer hasn't seen the plan's window run out | the Anthropic API key |
+| Claude (Anthropic) | Claude Code is installed here, switched on, signed in with a plan login to the confirmed account, the plan hasn't refused the model on this computer and this computer hasn't seen the plan's window run out | the Anthropic API key |
 | OpenAI | (Codex, later) | the OpenAI key |
 | OpenRouter | never | the OpenRouter key |
 
@@ -98,9 +98,14 @@ runs out** (Settings, per computer) decides (`planLimitAction`, pure and tested)
 | **Continue on the API key** (default with a key) | The stage starts over on the same model through the key (a CLI conversation can't move to the API); the agent log notes the switch. |
 | **Switch company** | The existing auto failover: agents on Claude models move to another company with a key (this edits agents). Needs auto failover on. |
 
-When none is possible, the run stops with `failure = { kind: "plan_limit", cli, resetsAt }` and a notification. A model
-the plan doesn't include ("Claude Opus is not available with the Claude Pro plan") is remembered on this computer and
-the stage restarts on the key, or stops when there is none.
+When none is possible, the run stops with `failure = { kind: "plan_limit", cli, resetsAt }` and a notification. TechTeam
+doesn't guess which models a plan includes (Pro runs Opus in Claude Code): a model the CLI refuses is remembered on
+this computer and the stage restarts on the key, or stops with the reason when there is none.
+
+The Claude models a plan can run are the Anthropic models of the model catalog (the same list as the API route, from
+OpenRouter's public `/models`: Claude Fable 5.2, Opus, Sonnet and Haiku 5.5 on 2026-11-21), under the same ids
+(`claude-fable-5-2`); Claude Code takes them as they are (`--model`). A new Claude model shows up in the picker after
+the next catalog refresh, with *Your plan* instead of a price.
 
 ## Two computers, one database
 

@@ -1,7 +1,8 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { format } from "date-fns";
+import { after } from "next/server";
+import { format, formatDistanceToNowStrict } from "date-fns";
 import { ArrowRightIcon, BadgeCheckIcon, BotIcon, ContainerIcon, ExternalLinkIcon, KeyRoundIcon, LibraryBigIcon, ShieldCheckIcon } from "lucide-react";
 
 import { dashboardHref } from "@/components/dashboard/nav";
@@ -10,6 +11,7 @@ import { AccountSpendCard } from "@/components/settings/account-spend";
 import { AgentAutomationForm } from "@/components/settings/agent-automation-form";
 import { AutoFailoverToggle } from "@/components/settings/auto-failover-toggle";
 import { ClaudePlanSettings } from "@/components/settings/cli-plan-settings";
+import { ModelCatalogStatus } from "@/components/settings/model-catalog-status";
 import { ProviderKeyForm } from "@/components/settings/provider-key-form";
 import { SandboxFormSkeleton, SandboxSettings } from "@/components/settings/sandbox-form";
 import { SwitchConnectionForm } from "@/components/settings/switch-connection-form";
@@ -23,6 +25,7 @@ import { getSkillLibrary } from "@/lib/agent-skills";
 import { ensureDefaultAgents, getAccountSpend } from "@/lib/agents";
 import { getProviderKeyViews } from "@/lib/ai-keys";
 import { getClaudePlanView } from "@/lib/cli/plan-view";
+import { getModelCatalog, refreshModelCatalogIfStale } from "@/lib/model-catalog";
 import { detectRepoCommands, sandboxAvailable } from "@/lib/sandbox";
 import { previewsAvailable } from "@/lib/sandbox/preview";
 import { getSwitchConnectionView } from "@/lib/switch-trust";
@@ -35,13 +38,16 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
   const { user, workspace } = await getDashboardContext((await params).workspaceId);
   // Agents and built-in skills exist before the library lists who uses what.
   await ensureDefaultAgents(workspace.id);
-  const [keys, switchView, skills, spend, owned] = await Promise.all([
+  const [keys, switchView, skills, spend, owned, catalog] = await Promise.all([
     getProviderKeyViews(user.id, workspace.id),
     getSwitchConnectionView(workspace.id),
     getSkillLibrary(workspace.id),
     getAccountSpend(user.id),
     listWorkspaces(user.id),
+    getModelCatalog(),
   ]);
+  // A model list older than a day is fetched again after the response.
+  after(refreshModelCatalogIfStale);
   // Null on a deploy (or AGENTS_LOCAL_CLI=false): nothing about local CLIs shows.
   const plan = await getClaudePlanView(user.id, workspace.id);
   // Configured providers first; the others wait under "Add another provider".
@@ -123,6 +129,13 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
           {others.map((provider) => (
             <ProviderKeyForm key={provider} workspaceId={workspace.id} provider={provider} scope="account" view={keys[provider]} />
           ))}
+        </div>
+        <div className="border-t border-border/70 p-6">
+          <ModelCatalogStatus
+            workspaceId={workspace.id}
+            updated={catalog.fetchedAt ? formatDistanceToNowStrict(new Date(catalog.fetchedAt), { addSuffix: true }) : null}
+            current={catalog.models.filter((m) => m.current).length}
+          />
         </div>
         {/* Workspace-only settings live here too, so everything about AI companies is in one place. */}
         <div className="flex flex-col gap-6 border-t border-border/70 p-6">

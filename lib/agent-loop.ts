@@ -13,15 +13,17 @@ import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/reso
 import type { FunctionTool, ResponseInput } from "openai/resources/responses/responses";
 
 import { agentRunMessages, db } from "@/db";
-import { PROVIDERS, modelInfo, type AgentModelId, type ProviderStatus } from "@/lib/agent-config";
+import { PROVIDERS, type AgentModelId, type ProviderStatus } from "@/lib/agent-config";
 import { compactChatHistory } from "@/lib/agent-context";
-import { claudeEffort, openAIRequestParams, openRouterRequestParams } from "@/lib/agent-request-params";
+import { claudeEffort, modelKnobs, openAIRequestParams, openRouterRequestParams } from "@/lib/agent-request-params";
 import type { AgentStage } from "@/lib/agent-run-config";
 import type { CliKind } from "@/lib/cli-agents-config";
 import { isSimulatedAgents, simulatedTurn } from "@/lib/agent-simulated";
 import { callTool, type ToolContext, type ToolStep } from "@/lib/agent-tools";
 import { lastTurnMessage } from "@/lib/agent-turns";
 import { anthropicClient, messageCostMicros, toClaudeSchema } from "@/lib/anthropic";
+import { catalogModel, getModelCatalog } from "@/lib/model-catalog";
+import { catalogLabel, modelProvider } from "@/lib/model-catalog-config";
 import { openAIClient, responseCostMicros } from "@/lib/openai";
 import { OPENROUTER_ROUTING, completionCostMicros, openRouterClient, parseFinishArguments } from "@/lib/openrouter";
 import {
@@ -96,10 +98,12 @@ export type TurnOutcome<T> = {
 };
 
 /** Why an agent on this model can't work right now, or null when it can. Simulated agents need no provider. */
-export function modelUnavailableReason(model: AgentModelId, providers: ProviderStatus) {
+export async function modelUnavailableReason(model: AgentModelId, providers: ProviderStatus) {
   if (isSimulatedAgents()) return null;
-  const { provider, label } = modelInfo(model);
+  const provider = modelProvider(model);
+  if (!provider) return `${model} isn't a model TechTeam can run. Pick another one on the AI Team page.`;
   if (providers[provider]) return null;
+  const label = catalogLabel(await getModelCatalog(), model);
   return `${label} needs an ${PROVIDERS[provider].label} API key. Add one in Settings → AI providers.`;
 }
 
@@ -108,7 +112,8 @@ export function modelUnavailableReason(model: AgentModelId, providers: ProviderS
  * so every later turn just reads the committed history.
  */
 export async function initialLoopState(input: { brief: string; model: AgentModelId; runId: number; conversation: string }): Promise<LoopState> {
-  const { provider } = modelInfo(input.model);
+  const provider = modelProvider(input.model);
+  if (!provider) throw new NonRetriableError(`${input.model} isn't a model TechTeam can run. Pick another one on the AI Team page.`);
   if (provider === "openai") {
     return { turn: 0, model: input.model, provider: "openai", previousResponseId: null, pending: [{ role: "user", content: input.brief }] };
   }
@@ -172,7 +177,11 @@ async function openAITurn<T>(input: TurnInput, state: Extract<LoopState, { provi
     tool_choice: input.forceFinish ? ({ type: "function", name: input.finish.name } as const) : ("auto" as const),
     previous_response_id: state.previousResponseId,
   };
-  const knobs = { context_management: [{ type: "compaction", compact_threshold: OPENAI_COMPACT_THRESHOLD }], ...openAIRequestParams(state.model, input.stage) };
+  const model = await catalogModel(state.model);
+  const knobs = {
+    context_management: [{ type: "compaction", compact_threshold: OPENAI_COMPACT_THRESHOLD }],
+    ...openAIRequestParams(modelKnobs(state.model, model), input.stage),
+  };
   let response: OpenAI.Responses.Response;
   try {
     response = await openai.responses.create({ ...request, ...knobs }, { timeout: OPENAI_TURN_TIMEOUT_MS });
@@ -182,7 +191,7 @@ async function openAITurn<T>(input: TurnInput, state: Extract<LoopState, { provi
     console.warn(`[agents] ${state.model} rejected ${error.param}; retrying the turn without the optional parameters`);
     response = await openai.responses.create(request, { timeout: OPENAI_TURN_TIMEOUT_MS });
   }
-  const costMicros = responseCostMicros(state.model, response.usage);
+  const costMicros = responseCostMicros(model?.pricing ?? null, response.usage);
   const next = (pending: ResponseInput): LoopState => ({ ...state, turn: state.turn + 1, previousResponseId: response.id, pending });
 
   const calls = response.output.filter((item) => item.type === "function_call");
@@ -273,6 +282,8 @@ async function claudeTurn<T>(input: TurnInput, state: Extract<LoopState, { provi
   // The last-turn instruction rides as a mid-conversation system message: it isn't stored, and the stage ends here.
   const messages: BetaMessageParam[] = input.forceFinish ? [...history, { role: "system", content: lastTurnMessage(input.finish.name) }] : history;
   const fallback = FALLBACK_MODELS.includes(state.model);
+  const model = await catalogModel(state.model);
+  const effort = claudeEffort(modelKnobs(state.model, model), input.stage);
 
   const response = await anthropic.beta.messages
     .stream({
@@ -284,17 +295,19 @@ async function claudeTurn<T>(input: TurnInput, state: Extract<LoopState, { provi
       tool_choice: { type: "auto" },
       // Caches the growing prefix (system, tools, history) so each turn pays full price only for what's new.
       cache_control: { type: "ephemeral" },
-      output_config: { effort: claudeEffort(state.model, input.stage) },
+      ...(effort ? { output_config: { effort } } : {}),
       context_management: CLAUDE_CONTEXT_MANAGEMENT,
       betas: fallback ? [CONTEXT_EDITING_BETA, FALLBACK_BETA] : [CONTEXT_EDITING_BETA],
       ...(fallback ? { fallbacks: "default" as const } : {}),
     })
     .finalMessage();
-  const costMicros = messageCostMicros(state.model, response.model, response.usage);
+  // A refusal fallback answers on another model: priced at its own rates when the catalog knows them.
+  const served = response.model === state.model ? model : ((await catalogModel(response.model)) ?? model);
+  const costMicros = messageCostMicros(served?.pricing ?? null, response.usage);
 
   if (response.stop_reason === "refusal") {
     const category = response.stop_details?.category;
-    throw new NonRetriableError(`${modelInfo(state.model).label} declined this task${category ? ` (${category})` : ""}. Try another model for this agent.`);
+    throw new NonRetriableError(`${model?.label ?? state.model} declined this task${category ? ` (${category})` : ""}. Try another model for this agent.`);
   }
   if (response.stop_reason === "model_context_window_exceeded") {
     throw new NonRetriableError("The conversation outgrew the model's context window. Split the card into smaller ones.");
@@ -357,6 +370,7 @@ function assistantReply(message: OpenAI.Chat.Completions.ChatCompletionMessage):
 
 async function openRouterTurn<T>(input: TurnInput, state: Extract<LoopState, { provider: "anthropic" | "openrouter" }>): Promise<TurnOutcome<T>> {
   if (!input.apiKey) throw new NonRetriableError("The OpenRouter API key was removed. Add it again in Settings → AI providers.");
+  const model = await catalogModel(state.model);
   const client = openRouterClient(input.apiKey);
 
   // Older turns fold into a digest once they pile up (lib/agent-context.ts); the stored conversation stays verbatim.
@@ -380,17 +394,17 @@ async function openRouterTurn<T>(input: TurnInput, state: Extract<LoopState, { p
     tool_choice: "auto",
     max_tokens: OPENROUTER_MAX_TOKENS,
     provider: OPENROUTER_ROUTING,
-    ...openRouterRequestParams(state.model, input.stage),
+    ...openRouterRequestParams(modelKnobs(state.model, model), input.stage),
   };
   let response: OpenAI.Chat.Completions.ChatCompletion;
   try {
     response = await client.chat.completions.create(body, { timeout: OPENAI_TURN_TIMEOUT_MS });
   } catch (error) {
     if (error instanceof OpenAI.AuthenticationError) throw new NonRetriableError("OpenRouter rejected the API key. Check it in Settings → AI providers.");
-    if (error instanceof OpenAI.PermissionDeniedError) throw new NonRetriableError(`OpenRouter's moderation blocked ${modelInfo(state.model).label} on this task. Try another model for this agent.`);
+    if (error instanceof OpenAI.PermissionDeniedError) throw new NonRetriableError(`OpenRouter's moderation blocked ${model?.label ?? state.model} on this task. Try another model for this agent.`);
     throw error;
   }
-  const costMicros = completionCostMicros(state.model, response.usage);
+  const costMicros = completionCostMicros(model?.pricing ?? null, response.usage);
   const choice = response.choices[0];
   if (!choice) throw new Error("OpenRouter returned no answer.");
 

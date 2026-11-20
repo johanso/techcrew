@@ -109,12 +109,13 @@ app/
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
       settings/           Your account: profile (#account), AI (#ai: "Plans on this computer" when running locally —
                           Claude Code switch, sign-in, confirmed account, plan-limit choice — then API keys for every
-                          project, then "This workspace only": automatic switch + optional workspace keys), API spending
+                          project, then Models (updated when, Refresh models), then "This workspace only": automatic
+                          switch + optional workspace keys), API spending
                           and plan usage this month across projects (#usage). This workspace: workspace (#workspace), agent automation (#agents), Sandbox
                           (#sandbox), Switch Trust (#switch) and an Agent skills card (#skills) linking to
                           skills/page.tsx (the library on its own page). actions.ts: automation, saveSandboxAction /
                           checkSandboxAction (Test the sandbox),
-                          auto failover toggle, save/remove provider key, connect/disconnect Switch,
+                          auto failover toggle, save/remove provider key, refreshModelsAction, connect/disconnect Switch,
                           inspectSkillAction / installSkillAction (upload, two steps), saveSkillAssignmentsAction,
                           deleteSkillAction.
   globals.css             THE theme: palette, semantic tokens, Tailwind mapping.
@@ -139,7 +140,8 @@ components/
   settings/               agent-automation-form (task pickup + merge mode), auto-failover-toggle, cli-plan-settings (Plans on
                           this computer: Claude Code),
                           provider-key-form
-                          (account or workspace scope; masked key + show/hide), account-spend (spending across projects), switch-connection-form (Switch Trust account), switch-weekly-toggle,
+                          (account or workspace scope; masked key + show/hide), model-catalog-status (Models updated ·
+                          Refresh models), account-spend (spending across projects), switch-connection-form (Switch Trust account), switch-weekly-toggle,
                           sandbox-form (Settings → Sandbox: switch, commands, Test the sandbox),
                           option-cards (radio
                           cards shared by the settings forms).
@@ -181,9 +183,18 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   overview.ts             getOverviewData(): stats + upcoming tasks from getBoardData, recent work activity.
   activity.ts             getActivityFeed(): agent_activity + cards people created + task_events, newest first;
                           WORK_ACTIVITY_KINDS.
-  agent-config.ts         AI Team vocabulary shared by server + client: roles + defaults (models per provider), PERMISSIONS,
-                          AGENT_MODELS (provider, maker, tier, vision, pricing), PROVIDER_IDS / PROVIDERS, closestModel (same
-                          tier), agentModelFor, fallbackProvider, limits.
+  agent-config.ts         AI Team vocabulary shared by server + client: roles + defaults (a tier per role; roleDefaultModel),
+                          PERMISSIONS, PROVIDER_IDS / PROVIDERS, AgentModelId (a string: models are catalog data),
+                          agentModelFor, fallbackProvider, limits.
+  model-catalog-config.ts Pure, client-safe: the model catalog's rules (docs/model-catalog-plan.md). Route ids both ways
+                          (routeOf / openRouterIdOf / modelProvider), parseCatalogResponse (eligible models of OpenRouter's
+                          /models), buildCatalog (current = newest per family within CURRENT_WINDOW_DAYS, tiers by output
+                          price), closestModel / pickInTier, pickerModels / pickerCatalog, catalogEntries (stored, else
+                          seed). Tested on lib/__fixtures__/openrouter-models.json (a trimmed real response).
+  model-catalog.ts        The catalog in `model_catalog`: getModelCatalog (cached a minute, seed fallback), catalogModel,
+                          refreshModelCatalog (fetch, upsert, mark unlisted; never deletes), refreshModelCatalogIfStale.
+  model-seed.ts           SEED_ENTRIES / SEED_CATALOG: the pre-catalog models, used only before the first fetch and to name
+                          or price a model no stored row knows. Never extended.
   agent-trust.ts          Trust Score: scanAgentRules() (deterministic; permissions, instructions, budget, enabled uploaded
                           skills' scan findings), trustGrade(). Pure.
   agent-skills-config.ts  Agent skills vocabulary shared by server + client: SKILL_TYPES / SKILL_LOADS / SKILL_SOURCES,
@@ -276,8 +287,9 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           on run 53's shape.
   agent-turns.ts          Pure: the turn limit (turnsLeftNotice, lastTurnMessage), outOfTurnsOutcome (what a stage that
                           ends without its finish tool becomes), continuableBranch (a rerun continues an unfinished branch).
-  agent-request-params.ts Pure: request knobs per model and stage (MODEL_EFFORTS, STAGE_EFFORT, openAIRequestParams,
-                          claudeEffort, openRouterRequestParams): only parameters a model is known to accept.
+  agent-request-params.ts Pure: request knobs per model and stage (modelKnobs: the catalog's efforts and verbosity,
+                          MODEL_EFFORTS overrides; STAGE_EFFORT, openAIRequestParams, claudeEffort, openRouterRequestParams):
+                          only parameters a model is known to accept.
   agent-tools.ts          Agent tools on the GitHub API, filtered by stage + permissions; search_skill / read_skill when the
                           agent has skills; list_references / read_reference when the card has references; the
                           Developer's merge tools (branch-merge.ts);
@@ -745,16 +757,17 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     pre-check **Merges cleanly** fails a PR GitHub reports as conflicting, so it goes back to the Developer. GitHub
     refuses merges that bring in workflow changes without the `workflow` scope: the tool says so, the owner updates
     the branch.
-  - **Each agent picks its company and model** (AI Team → Configure: a Company select, then that company's models via
-    `modelsFor`; changing company picks the closest tier, `agentModelFor`). `agents.model` is the model and its
-    `provider` is the agent's company; read it with `activeAgentModel(row)`. Every company with a key is available
-    (Settings → `#ai` has no team-wide switch; `workspaces.ai_provider` is no longer read). `saveAgentAction` refuses a
-    new model whose company has no key. New agents start on `defaultProvider(keys)` (OpenAI, Anthropic, then
-    OpenRouter). Role defaults are per provider (`defaults.models`: Sol/Sonnet/DeepSeek V4 Pro, the Lead included;
-    Tester Luna/Haiku/DeepSeek V4.1 Flash). `agents.provider_models`
+  - **Each agent picks its company and model** (AI Team → Configure: a Company select, then that company's current
+    catalog models via `pickerModels`; changing company picks the closest tier, `agentModelFor`). `agents.model` is the
+    model's route id and its company follows from it (`modelProvider`); read it with `activeAgentModel(row)`. Every
+    company with a key is available (Settings → `#ai` has no team-wide switch; `workspaces.ai_provider` is no longer
+    read). `saveAgentAction` refuses a new model the catalog doesn't offer now, or whose company has no key (and no plan
+    route). New agents start on `defaultProvider(keys)` (OpenAI, Anthropic, then OpenRouter). Role defaults are a
+    **tier** (`defaults.tier`: balanced, the Tester fast), resolved per company by `roleDefaultModel` (`pickInTier`: the
+    tier's cheapest current model; on OpenRouter DeepSeek's first). `agents.provider_models`
     remembers each agent's model per company for out-of-credit moves (`moveAgentsToProvider`). Config AI (drafting,
-    trust reviews) runs on OpenAI, else Anthropic, else OpenRouter (`configAI`). Run refuses up front when any agent's model has no key
-    (`pipelineModelProblem`).
+    trust reviews) runs on OpenAI, else Anthropic, else OpenRouter (`configAI`), on the Analyst's default model there.
+    Run refuses up front when any agent's model has no key (`pipelineModelProblem`).
   - **Routes: the owner's plan through a local CLI** ([`docs/cli-agents.md`](docs/cli-agents.md)): only when TechTeam
     runs locally (`cliAgentsAvailable`); a deploy never shows, detects or spawns a CLI. `resolveRoute` picks each stage's
     route on the computer that runs it (plan when Claude Code is switched on there, signed in with a plan login to the
@@ -769,9 +782,23 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     out follows the owner's choice (`planLimitAction`: wait and resume the session with `step.sleepUntil` and
     `agent_runs.waiting`, restart on the API key, or auto failover), else `failure.kind = "plan_limit"`. One run in
     flight per card (unique partial index): handle `createRun` returning null.
-  - **Models and providers**: `AGENT_MODELS` (`lib/agent-config.ts`) lists OpenAI, Claude and OpenRouter models with
-    their `provider`, `maker`, `tier` and prices. Moving company keeps the tier (`closestModel`). An OpenRouter model is
-    added only when its hosts support tools and structured outputs (OpenRouter's `/models`: `supported_parameters`). The model is pinned per stage in `LoopState` (a change on the AI Team page applies from the next stage).
+  - **Models and providers come from the model catalog** (`lib/model-catalog.ts`, [`docs/model-catalog-plan.md`](docs/model-catalog-plan.md)):
+    OpenRouter's public `GET /api/v1/models` (no key), which lists Anthropic's and OpenAI's own models too, stored in
+    `model_catalog` (shared by every workspace and computer), refreshed when older than a day (AI Team and Settings
+    schedule it with `after`; never in simulated mode) and with Settings → AI → **Refresh models**. Never write a model
+    list in code: new models arrive with the catalog. Only `lib/model-seed.ts` (the fallback before the first fetch) and
+    per-model overrides (`MODEL_EFFORTS`, Claude's `FALLBACK_MODELS`) name ids. Route ids: `anthropic/claude-opus-5.5` →
+    `claude-opus-5-5` (Anthropic API, Claude Code), `openai/gpt-6.1-sol` → `gpt-6.1-sol`, OpenRouter ids as they are.
+    The filter (`parseCatalogResponse`, `buildCatalog`): OpenAI `gpt-*`, Anthropic `claude-*`, OpenRouter's makers in
+    `OPENROUTER_MAKERS`; tools **and** structured outputs in `supported_parameters` (every stage ends on a strict finish
+    tool), text out, no `:variant`, preview or expired model, no OpenRouter mode twin (`-pro` at its base's price);
+    offered = the newest of each family whose family shipped within 183 days of its company's newest. Tiers rank each
+    company's current models by output price (top third flagship, bottom third fast); moving company keeps the tier
+    (`closestModel`, nearest price within it). A model that leaves the catalog keeps its row (`listed` false): agents
+    on it keep running ("older" in AI Team), priced at the last stored price. Every lookup can miss: an unknown model
+    has no price (cost 0, warned), no vision and no knobs. Request knobs come from the catalog
+    (`reasoning.supported_efforts`, `verbosity`) through `modelKnobs`. Unit tests and simulated mode never fetch.
+    The model is pinned per stage in `LoopState` (a change on the AI Team page applies from the next stage).
     Claude's conversation is stored in `agent_run_messages` (append-only, written at fixed positions so a retried step
     overwrites itself); thinking blocks go back unchanged. Claude 5.5 models reject forced tool choice, so the last turn
     is a mid-conversation system message instead. Opus/Sonnet 5.5 use refusal `fallbacks: "default"`. OpenRouter

@@ -11,6 +11,7 @@ import type { AgentView } from "@/lib/agents";
 import type { SkillView } from "@/lib/agent-skills-config";
 import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
 import type { AgentRoutes } from "@/lib/cli-agents-config";
+import type { ModelCatalog } from "@/lib/model-catalog-config";
 
 /**
  * The agent cards plus the configure dialog and activity drawer they open. Both overlays read the agent from
@@ -23,6 +24,7 @@ export function AgentRoster({
   aiEnabled,
   providers,
   plans,
+  catalog,
   switchTrust,
   skills,
   routes,
@@ -34,6 +36,8 @@ export function AgentRoster({
   providers: ProviderStatus;
   /** Companies this computer can run on the owner's plan without an API key ("Your plan" in the model picker). */
   plans: Partial<Record<AgentProvider, boolean>>;
+  /** The models the picker offers (current ones plus the team's own). */
+  catalog: ModelCatalog;
   switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
@@ -84,6 +88,7 @@ export function AgentRoster({
           aiEnabled={aiEnabled}
           providers={providers}
           plans={plans}
+          catalog={catalog}
           switchTrust={switchTrust}
           skills={skills}
         />

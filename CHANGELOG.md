@@ -17,14 +17,25 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   permissions, agent log, references, skills and sandbox. Plan stages record turns and tokens plus the API-equivalent
   cost as a reference, never as spend, and budgets don't apply to them. See [docs/cli-agents.md](docs/cli-agents.md).
 - **When the plan runs out**: wait for the reset and resume the same session (the card says when), continue on the
-  API key, or switch company (auto failover). A model the plan doesn't include (Opus on Pro) takes the API key.
+  API key, or switch company (auto failover). A model the plan refuses is remembered on that computer and takes the API key (or the stage stops with the reason).
 - AI Team cards show each agent's route on this computer ("Your Claude plan" / "API key"); spending tiles, the run log
   and Metrics say **API** spend, and Settings shows this month's plan usage.
 - `AGENTS_AUTO_PICKUP=false` keeps auto pickup off on one computer; a card can have only one run in flight, whichever
   computer starts it (database guard).
 - CI also runs `npm run check` on Windows.
+- **Live model catalog**: each company's models come from OpenRouter's public model list (no key, no spend), stored in
+  the database (`model_catalog`, migration 0017) and refreshed daily or with Settings → AI → **Refresh models**. AI
+  Team's model picker shows each company's current models with tier, vision and price per 1M tokens (or *Your plan*),
+  so Claude Fable 5.2 and GPT-6.2 Sol and Astra can be picked without a code change. Offline before the first fetch,
+  the app uses a built-in list. See [docs/model-catalog-plan.md](docs/model-catalog-plan.md).
 
 ### Changed
+- Models are data, not code: the hand-written `AGENT_MODELS` list is gone. Only current models are offered (the newest
+  of each family); an agent on a model that left the list keeps running on it, shown as *older*. Role defaults are a
+  tier (balanced, the Tester fast) resolved to each company's current model, so new OpenAI agents start on GPT-6.1
+  Terra instead of GPT-6.1 Sol (existing agents keep their model). Tiers rank each company's models by output price.
+  API costs use the catalog's prices (Claude Sonnet 5.5's cache read is now $0.10 per 1M, as listed); request knobs
+  (effort levels, verbosity) come from the catalog, with the hand-checked levels kept as overrides.
 - **One command for local development**: `npm run dev` starts the app and the Inngest Dev Server together in one
   terminal (`concurrently`; stopping one stops both). `npm run dev:app` starts only the app, `npm run inngest:dev`
   only Inngest. The app is pinned to port 3000 so a busy port fails loudly instead of leaving Inngest pointed at the

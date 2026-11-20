@@ -4,11 +4,12 @@ import { and, eq, gte, sql } from "drizzle-orm";
 import type OpenAI from "openai";
 
 import { agentActivity, agents, db, workspaces, type AgentRow } from "@/db";
-import { modelInfo } from "@/lib/agent-config";
 import { activeAgentModel, logAgentActivity, monthSpendMicros } from "@/lib/agents";
 import { getAgentSkills, promptSkills } from "@/lib/agent-skills";
 import { getAIKeys } from "@/lib/ai-keys";
 import { anthropicClient, messageCostMicros } from "@/lib/anthropic";
+import { catalogModel } from "@/lib/model-catalog";
+import { modelProvider } from "@/lib/model-catalog-config";
 import { openAIClient, responseCostMicros } from "@/lib/openai";
 import { OPENROUTER_ROUTING, completionCostMicros, openRouterClient } from "@/lib/openrouter";
 import { skillsPromptBlock } from "@/lib/skill-runtime";
@@ -43,8 +44,10 @@ export async function answerEvaluation(agentId: number, messages: EvalMessage[])
   if ((await monthSpendMicros(agent.id)) >= agent.monthlyBudgetCents * 10_000) {
     return { ok: false, status: 429, error: "This agent has used this month's budget." };
   }
-  const provider = modelInfo(model).provider;
+  const provider = modelProvider(model);
+  if (!provider) return { ok: false, status: 503, error: "The agent's model isn't one TechTeam can run." };
   const apiKey = (await getAIKeys(workspace.id))[provider];
+  const info = await catalogModel(model);
   if (!apiKey) return { ok: false, status: 503, error: "The agent's AI provider has no API key." };
 
   // Its always-loaded skills ride in the prompt as they do in the pipeline; on-demand ones need tools it lacks here.
@@ -61,7 +64,7 @@ export async function answerEvaluation(agentId: number, messages: EvalMessage[])
       max_output_tokens: EVAL_OUTPUT_TOKENS,
     });
     content = response.output_text;
-    costMicros = responseCostMicros(model, response.usage);
+    costMicros = responseCostMicros(info?.pricing ?? null, response.usage);
   } else if (provider === "openrouter") {
     const body: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & { provider: typeof OPENROUTER_ROUTING } = {
       model,
@@ -72,7 +75,7 @@ export async function answerEvaluation(agentId: number, messages: EvalMessage[])
     };
     const response = await openRouterClient(apiKey).chat.completions.create(body);
     content = response.choices[0]?.message.content ?? "";
-    costMicros = completionCostMicros(model, response.usage);
+    costMicros = completionCostMicros(info?.pricing ?? null, response.usage);
   } else {
     const response = await anthropicClient(apiKey).messages.create({
       model,
@@ -81,7 +84,8 @@ export async function answerEvaluation(agentId: number, messages: EvalMessage[])
       messages,
     });
     content = response.content.map((block) => (block.type === "text" ? block.text : "")).join("");
-    costMicros = messageCostMicros(model, response.model, response.usage);
+    const served = response.model === model ? info : ((await catalogModel(response.model)) ?? info);
+    costMicros = messageCostMicros(served?.pricing ?? null, response.usage);
   }
 
   // Spend is always recorded: on the scan in progress (logged with its result), else on one row per agent and day

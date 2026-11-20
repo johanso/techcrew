@@ -3,7 +3,7 @@ import "server-only";
 import OpenAI from "openai";
 import type { FunctionTool } from "openai/resources/responses/responses";
 
-import { AGENT_MODELS, MICROS_PER_USD, type AgentModelId } from "@/lib/agent-config";
+import { MICROS_PER_USD, type ModelPricing } from "@/lib/agent-config";
 
 /**
  * OpenRouter: one key and one bill for other companies' models, over the OpenAI-compatible Chat Completions API
@@ -45,12 +45,12 @@ type ChatUsage = {
 
 /**
  * Cost of one completion in micro-dollars: the cost OpenRouter reports (hosts differ in price), else an estimate
- * from the model's listed price in AGENT_MODELS.
+ * from the model's listed price in the catalog (0 without one).
  */
-export function completionCostMicros(model: AgentModelId, usage: ChatUsage | null | undefined) {
+export function completionCostMicros(pricing: ModelPricing | null, usage: ChatUsage | null | undefined) {
   if (!usage) return 0;
   if (typeof usage.cost === "number" && Number.isFinite(usage.cost)) return Math.round(usage.cost * MICROS_PER_USD);
-  const { pricing } = AGENT_MODELS.find((m) => m.id === model)!;
+  if (!pricing) return 0;
   const cached = usage.prompt_tokens_details?.cached_tokens ?? 0;
   const uncached = Math.max(0, usage.prompt_tokens - cached);
   const usd = (uncached * pricing.input + cached * pricing.cachedInput + usage.completion_tokens * pricing.output) / 1_000_000;

@@ -1,6 +1,18 @@
+import {
+  closestModel,
+  isCatalogModel,
+  isModelId,
+  modelProvider,
+  pickInTier,
+  type ModelCatalog,
+  type ModelTier,
+} from "@/lib/model-catalog-config";
+import { SEED_CATALOG } from "@/lib/model-seed";
+
 /**
- * AI Team vocabulary shared by server and client: the six agent roles, the permissions catalog, the models an
- * agent can use, and each role's default configuration. No React, no DB — safe to import anywhere.
+ * AI Team vocabulary shared by server and client: the six agent roles, the permissions catalog, the companies an
+ * agent can work on, and each role's default configuration. The models themselves are data: the model catalog
+ * (lib/model-catalog-config.ts). No React, no DB — safe to import anywhere.
  */
 
 export type AgentTone = "brand" | "action" | "success" | "warning" | "error" | "neutral";
@@ -70,76 +82,21 @@ export const PROVIDERS: Record<AgentProvider, { label: string; envVar: string }>
 /** Which providers have an API key on the server. Computed server-side, passed to the client as plain data. */
 export type ProviderStatus = Record<AgentProvider, boolean>;
 
-/**
- * USD per 1M tokens, standard tier. Update when a provider changes prices.
- * OpenAI: prompts ≤ 272K tokens. Anthropic: cacheWrite is the 5-minute cache write (1.25 × input);
- * `longPrompt` is the higher rate a model charges for the whole request above that many input tokens.
- * OpenRouter: its listed price (hosts vary); the real cost comes back with every response and is what's logged.
- */
-export type ModelPricing = {
-  input: number;
-  cachedInput: number;
-  cacheWrite: number;
-  output: number;
-  longPrompt?: { aboveTokens: number; input: number; output: number };
-};
-
-/** Where a model sits on quality vs price. Moving an agent to another company keeps its tier (closestModel). */
-export type ModelTier = "flagship" | "balanced" | "efficient" | "fast";
+export type { ModelPricing, ModelTier } from "@/lib/model-catalog-config";
 
 /**
- * `vision`: the model takes image input (card references, lib/references.ts). Checked against each provider's model
- * page: OpenAI's and Anthropic's docs; OpenRouter's /models `architecture.input_modalities` (2026-11-19). Run refuses a
- * card with images when the Analyst or the Developer can't see them.
+ * A model's route id (claude-sonnet-5-5, gpt-6.1-terra, deepseek/deepseek-v4-pro-0813): data from the model catalog
+ * (lib/model-catalog.ts), not a fixed list. Its company follows from its shape (modelProvider).
  */
-export const AGENT_MODELS = [
-  { id: "gpt-6-astra", provider: "openai", maker: "OpenAI", tier: "flagship", vision: true, label: "GPT-6 Astra", hint: "Flagship · hardest reasoning and coding", pricing: { input: 10, cachedInput: 1, cacheWrite: 12.5, output: 50 } },
-  { id: "gpt-6.1-sol", provider: "openai", maker: "OpenAI", tier: "balanced", vision: true, label: "GPT-6.1 Sol", hint: "Balanced · complex coding at lower cost", pricing: { input: 2, cachedInput: 0.1, cacheWrite: 2.5, output: 10 } },
-  { id: "gpt-6.1-terra", provider: "openai", maker: "OpenAI", tier: "efficient", vision: true, label: "GPT-6.1 Terra", hint: "Efficient · everyday tasks", pricing: { input: 1, cachedInput: 0.05, cacheWrite: 1.25, output: 5 } },
-  { id: "gpt-6-luna", provider: "openai", maker: "OpenAI", tier: "fast", vision: true, label: "GPT-6 Luna", hint: "Fastest · high-volume, simple tasks", pricing: { input: 0.1, cachedInput: 0.01, cacheWrite: 0.125, output: 0.5 } },
-  { id: "claude-opus-5-5", provider: "anthropic", maker: "Anthropic", tier: "flagship", vision: true, label: "Claude Opus 5.5", hint: "Flagship · hardest reasoning and agentic coding", pricing: { input: 4, cachedInput: 0.2, cacheWrite: 5, output: 20 } },
-  { id: "claude-sonnet-5-5", provider: "anthropic", maker: "Anthropic", tier: "balanced", vision: true, label: "Claude Sonnet 5.5", hint: "Balanced · everyday coding and agents", pricing: { input: 2, cachedInput: 0.2, cacheWrite: 2.5, output: 10 } },
-  {
-    id: "claude-haiku-5-5",
-    provider: "anthropic",
-    maker: "Anthropic",
-    tier: "fast",
-    vision: true,
-    label: "Claude Haiku 5.5",
-    hint: "Fastest · high-volume, simple tasks",
-    pricing: { input: 0.1, cachedInput: 0.01, cacheWrite: 0.125, output: 0.5, longPrompt: { aboveTokens: 100_000, input: 0.5, output: 2.5 } },
-  },
-  // OpenRouter: only models whose hosts support tools and structured outputs (every stage ends on a strict finish tool).
-  // The first model of each tier is the one an agent lands on when it moves here (closestModel).
-  { id: "google/gemini-4-argon", provider: "openrouter", maker: "Google", tier: "flagship", vision: true, label: "Gemini 4 Argon", hint: "Flagship · complex engineering and long multi-step work", pricing: { input: 2, cachedInput: 0.1, cacheWrite: 0.1875, output: 10 } },
-  { id: "x-ai/grok-4.7", provider: "openrouter", maker: "xAI", tier: "flagship", vision: true, label: "Grok 4.7", hint: "Flagship · long coding tasks, checks its own work", pricing: { input: 2, cachedInput: 0.5, cacheWrite: 2, output: 6 } },
-  { id: "deepseek/deepseek-v4-pro-0813", provider: "openrouter", maker: "DeepSeek", tier: "balanced", vision: false, label: "DeepSeek V4 Pro", hint: "Balanced · strong reasoning and coding for little", pricing: { input: 0.111, cachedInput: 0.097, cacheWrite: 0.111, output: 4.44 } },
-  { id: "z-ai/glm-5.3", provider: "openrouter", maker: "Z.ai", tier: "balanced", vision: false, label: "GLM 5.3", hint: "Balanced · software engineering and long agent tasks", pricing: { input: 0.0699, cachedInput: 0.0689, cacheWrite: 0.0699, output: 1.4 } },
-  { id: "moonshotai/kimi-k3.1-pro", provider: "openrouter", maker: "Moonshot", tier: "balanced", vision: true, label: "Kimi K3.1 Pro", hint: "Balanced · long-horizon coding; pricier output", pricing: { input: 0.253, cachedInput: 0.18, cacheWrite: 0.253, output: 8.8 } },
-  { id: "google/gemini-4-hydrogen", provider: "openrouter", maker: "Google", tier: "efficient", vision: true, label: "Gemini 4 Hydrogen", hint: "Efficient · high-throughput agentic work", pricing: { input: 1.5, cachedInput: 0.075, cacheWrite: 0.0833, output: 7.5 } },
-  { id: "x-ai/grok-build-0.1", provider: "openrouter", maker: "xAI", tier: "efficient", vision: true, label: "Grok Build 0.1", hint: "Efficient · fast model trained for agentic coding", pricing: { input: 1, cachedInput: 0.2, cacheWrite: 1, output: 2 } },
-  { id: "deepseek/deepseek-v4.1-flash", provider: "openrouter", maker: "DeepSeek", tier: "fast", vision: true, label: "DeepSeek V4.1 Flash", hint: "Fastest · very cheap, routine checks", pricing: { input: 0.3, cachedInput: 0.006, cacheWrite: 0.3, output: 1.2 } },
-  { id: "z-ai/glm-5.3-flash", provider: "openrouter", maker: "Z.ai", tier: "fast", vision: true, label: "GLM 5.3 Flash", hint: "Fastest · cheapest output, efficient coding", pricing: { input: 0.15, cachedInput: 0.03, cacheWrite: 0.15, output: 0.5 } },
-  { id: "google/gemini-3.8-flash", provider: "openrouter", maker: "Google", tier: "fast", vision: true, label: "Gemini 3.8 Flash", hint: "Fast · agentic tasks and multi-step reasoning", pricing: { input: 0.825, cachedInput: 0.0825, cacheWrite: 0.0417, output: 4.125 } },
-] as const satisfies readonly { id: string; provider: AgentProvider; maker: string; tier: ModelTier; vision: boolean; label: string; hint: string; pricing: ModelPricing }[];
-
-export type AgentModelId = (typeof AGENT_MODELS)[number]["id"];
-
-export function isAgentModelId(value: unknown): value is AgentModelId {
-  return typeof value === "string" && AGENT_MODELS.some((m) => m.id === value);
-}
-
-export function modelInfo(id: AgentModelId) {
-  return AGENT_MODELS.find((m) => m.id === id)!;
-}
+export type AgentModelId = string;
 
 export function isAgentProvider(value: unknown): value is AgentProvider {
   return typeof value === "string" && (PROVIDER_IDS as readonly string[]).includes(value);
 }
 
-/** The model an agent runs on: its saved model, else (a retired id) its role's OpenAI default. Its provider follows. */
+/** The model an agent runs on: its saved model, else (an id no company takes) its role's default on OpenAI. */
 export function agentModel(key: AgentKey, model: string): AgentModelId {
-  return isAgentModelId(model) ? model : AGENT_ROLES[key].defaults.models.openai;
+  return isModelId(model) ? model : roleDefaultModel(SEED_CATALOG, key, "openai");
 }
 
 /** The company new agents start on: the first with a key (OpenAI, Anthropic, OpenRouter), else OpenAI. */
@@ -155,46 +112,35 @@ export function fallbackProvider(broke: AgentProvider, connected: ProviderStatus
   return PROVIDER_IDS.find((provider) => provider !== broke && connected[provider]) ?? null;
 }
 
-export function modelsFor(provider: AgentProvider) {
-  return AGENT_MODELS.filter((m) => m.provider === provider);
-}
-
-/** The companies behind a provider's models, in list order (OpenRouter: Google, xAI, DeepSeek …). */
-export function makersOf(provider: AgentProvider) {
-  return [...new Set(modelsFor(provider).map((m) => m.maker))];
-}
-
-// A company may lack a tier (Anthropic has no "efficient" model): try the neighbors, the more capable one first.
-const TIER_ORDER: Record<ModelTier, ModelTier[]> = {
-  flagship: ["flagship", "balanced"],
-  balanced: ["balanced", "flagship", "efficient"],
-  efficient: ["efficient", "balanced", "fast"],
-  fast: ["fast", "efficient"],
-};
-
-/** `model`'s closest equivalent on `provider`: the first model there of the same tier, else a neighboring one. */
-export function closestModel(model: AgentModelId, provider: AgentProvider): AgentModelId | null {
-  const models = modelsFor(provider);
-  for (const tier of TIER_ORDER[modelInfo(model).tier]) {
-    const match = models.find((m) => m.tier === tier);
-    if (match) return match.id;
-  }
-  return null;
+/**
+ * A role's starting model on a company: the catalog's current model of the role's tier there (pickInTier), else the
+ * seed's (a catalog without that company).
+ */
+export function roleDefaultModel(catalog: ModelCatalog, key: AgentKey, provider: AgentProvider): AgentModelId {
+  const { tier } = AGENT_ROLES[key].defaults;
+  // The seed has every company, so the second lookup always finds one.
+  return pickInTier(catalog, provider, tier) ?? pickInTier(SEED_CATALOG, provider, tier)!;
 }
 
 /**
- * The model an agent uses on `provider`: the one it was set to there before, else the closest equivalent of its
- * current model (tier for tier, closestModel), else the role default.
+ * The model an agent uses on `provider`: the one it was set to there before (while the catalog knows it), else the
+ * closest equivalent of its current model (tier for tier, closestModel), else the role default.
  */
-export function agentModelFor(key: AgentKey, provider: AgentProvider, current: string, remembered: Partial<Record<AgentProvider, AgentModelId>>) {
+export function agentModelFor(
+  catalog: ModelCatalog,
+  key: AgentKey,
+  provider: AgentProvider,
+  current: string,
+  remembered: Partial<Record<AgentProvider, AgentModelId>>
+): AgentModelId {
   const saved = remembered[provider];
-  if (saved && isAgentModelId(saved) && modelInfo(saved).provider === provider) return saved;
-  if (isAgentModelId(current)) {
-    if (modelInfo(current).provider === provider) return current;
-    const closest = closestModel(current, provider);
+  if (saved && modelProvider(saved) === provider && isCatalogModel(catalog, saved)) return saved;
+  if (isModelId(current)) {
+    if (modelProvider(current) === provider) return current;
+    const closest = closestModel(catalog, current, provider);
     if (closest) return closest;
   }
-  return AGENT_ROLES[key].defaults.models[provider];
+  return roleDefaultModel(catalog, key, provider);
 }
 
 // ── Limits (validated on the server, mirrored by the dialog) ──────────────────
@@ -211,8 +157,11 @@ export const BUDGET_PRESETS_USD = [25, 50, 100, 250];
 export type AgentDefaults = {
   description: string;
   instructions: string;
-  /** Starting model on each provider: capable models where judgment matters, a fast one for routine checks. */
-  models: Record<AgentProvider, AgentModelId>;
+  /**
+   * The tier a new agent starts on, on whichever company (roleDefaultModel): balanced where judgment matters, fast for
+   * routine checks. The model itself comes from the catalog.
+   */
+  tier: ModelTier;
   permissions: PermissionId[];
   monthlyBudgetUsd: number;
   /** Model turns per pipeline stage (see MAX_TURNS_MIN/MAX in agent-run-config). */
@@ -229,7 +178,7 @@ export const AGENT_ROLES: Record<AgentKey, AgentRole> = {
     tone: "action",
     defaults: {
       description: "Breaks cards down into clear plans with acceptance criteria, risks and estimates before work starts.",
-      models: { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5", openrouter: "deepseek/deepseek-v4-pro-0813" },
+      tier: "balanced",
       permissions: ["repo.read", "issues.read", "issues.comment", "web.research"],
       monthlyBudgetUsd: 25,
       maxTurns: 12,
@@ -260,7 +209,7 @@ Boundaries:
     tone: "brand",
     defaults: {
       description: "Implements planned cards on a branch and opens small, tested pull requests.",
-      models: { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5", openrouter: "deepseek/deepseek-v4-pro-0813" },
+      tier: "balanced",
       permissions: ["repo.read", "issues.read", "code.write", "pr.open", "tests.run", "ci.read"],
       monthlyBudgetUsd: 100,
       maxTurns: 40,
@@ -289,7 +238,7 @@ Boundaries:
     tone: "warning",
     defaults: {
       description: "Reviews pull requests for correctness, security and code quality before a human approves them.",
-      models: { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5", openrouter: "deepseek/deepseek-v4-pro-0813" },
+      tier: "balanced",
       permissions: ["repo.read", "issues.read", "pr.review", "ci.read", "issues.comment"],
       monthlyBudgetUsd: 50,
       maxTurns: 15,
@@ -318,7 +267,7 @@ Boundaries:
     tone: "error",
     defaults: {
       description: "Checks every change for leaked secrets, injection, unsafe permissions and risky dependencies.",
-      models: { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5", openrouter: "deepseek/deepseek-v4-pro-0813" },
+      tier: "balanced",
       permissions: ["repo.read", "issues.read", "pr.review", "ci.read"],
       monthlyBudgetUsd: 50,
       maxTurns: 15,
@@ -346,7 +295,7 @@ Boundaries:
     tone: "neutral",
     defaults: {
       description: "Combines the code and security reviews, decides on rework and rates the change's risk before merge.",
-      models: { openai: "gpt-6.1-sol", anthropic: "claude-sonnet-5-5", openrouter: "deepseek/deepseek-v4-pro-0813" },
+      tier: "balanced",
       permissions: ["repo.read", "issues.read", "pr.review", "ci.read"],
       monthlyBudgetUsd: 40,
       maxTurns: 8,
@@ -372,7 +321,7 @@ Boundaries:
     tone: "success",
     defaults: {
       description: "Writes and runs tests, reproduces bugs and reports results on cards and pull requests.",
-      models: { openai: "gpt-6-luna", anthropic: "claude-haiku-5-5", openrouter: "deepseek/deepseek-v4.1-flash" },
+      tier: "fast",
       permissions: ["repo.read", "issues.read", "tests.write", "tests.run", "ci.read", "issues.create"],
       monthlyBudgetUsd: 50,
       maxTurns: 12,

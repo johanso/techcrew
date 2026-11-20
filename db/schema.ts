@@ -8,6 +8,7 @@ import type { RunWaiting } from "@/lib/cli-agents-config";
 import type { TrustReport } from "@/lib/agent-trust";
 import type { CiResult } from "@/lib/ci-gate";
 import type { PendingMerge } from "@/lib/merge-config";
+import type { Effort, ModelPricing } from "@/lib/model-catalog-config";
 import type { RunPreview, StoredSandboxCommands } from "@/lib/sandbox/config";
 
 export const users = pgTable("users", {
@@ -202,7 +203,8 @@ export const agents = pgTable(
     key: text("key").notNull(),
     description: text("description").notNull(),
     instructions: text("instructions").notNull(),
-    // Model id from AGENT_MODELS, on either company: its provider is the agent's company (each agent picks its own).
+    // Route id of a model in the catalog (model_catalog: claude-sonnet-5-5, gpt-6.1-terra, deepseek/…): its company is
+    // the agent's company (each agent picks its own).
     model: text("model").notNull(),
     // The model this agent last used on each company, so an out-of-credit move there and back restores the choice.
     providerModels: jsonb("provider_models").$type<Partial<Record<AgentProvider, AgentModelId>>>().notNull().default({}),
@@ -708,3 +710,31 @@ export const notifications = pgTable(
 );
 
 export type NotificationRow = typeof notifications.$inferSelect;
+
+/**
+ * The model catalog (lib/model-catalog.ts): OpenRouter's public `/models`, filtered to the models TechTeam can offer,
+ * one row per model. Shared by every workspace and computer: one refresh serves all. Rows are never deleted: a model
+ * that leaves the catalog keeps its label and price (`listed` false) for agents that still use it.
+ */
+export const modelCatalog = pgTable("model_catalog", {
+  // The catalog's id (anthropic/claude-opus-5.5); the route id agents store is derived from it (routeOf).
+  openRouterId: text("openrouter_id").primaryKey(),
+  label: text("label").notNull(),
+  releasedAt: timestamp("released_at").notNull(),
+  expiresAt: timestamp("expires_at"),
+  vision: boolean("vision").notNull().default(false),
+  contextLength: integer("context_length"),
+  // USD per 1M tokens.
+  pricing: jsonb("pricing").$type<ModelPricing>().notNull(),
+  // The catalog's supported_parameters (tools, structured_outputs, reasoning_effort, verbosity …).
+  parameters: jsonb("parameters").$type<string[]>().notNull().default([]),
+  // reasoning.supported_efforts; null when the catalog lists none.
+  efforts: jsonb("efforts").$type<Effort[] | null>(),
+  // In the latest successful fetch.
+  listed: boolean("listed").notNull().default(true),
+  // The latest fetch that listed it: the newest seen_at is when the catalog was last refreshed.
+  seenAt: timestamp("seen_at").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type ModelCatalogRow = typeof modelCatalog.$inferSelect;

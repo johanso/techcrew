@@ -1,22 +1,26 @@
-import type { AgentModelId } from "@/lib/agent-config";
 import type { AgentStage } from "@/lib/agent-run-config";
+import type { CatalogModel, Effort } from "@/lib/model-catalog-config";
+
+export type { Effort };
 
 /**
  * Per-request knobs for agent turns, by model and stage (lib/agent-loop.ts). A parameter goes only to a model known to
  * accept it: OpenRouter routes with `require_parameters`, so a parameter a model's hosts don't list would leave no host
- * to serve it, and the native APIs answer 400 to a value a model doesn't take. Unknown model: nothing is sent.
+ * to serve it, and the native APIs answer 400 to a value a model doesn't take (OpenAI's 400 on an optional knob retries
+ * the turn without it).
  *
- * Sources (2026-11-20): OpenAI's model pages and deployment checklist (`reasoning.effort` low…max on every GPT-6 model,
- * `none` only on Terra and Luna; `text.verbosity` low/medium/high, default medium); Anthropic's effort docs (Opus,
- * Sonnet and Haiku 5.5: low…max); OpenRouter's /models `supported_parameters` and `reasoning.supported_efforts` per
- * model. No OpenRouter model of ours lists `verbosity`; `parallel_tool_calls` is listed only by some, and parallel calls
- * are on by default everywhere, so neither is sent.
+ * What a model takes comes from the model catalog (OpenRouter's /models): `reasoning.supported_efforts` for the effort
+ * levels and `supported_parameters` for `verbosity`. MODEL_EFFORTS overrides the levels for models checked against
+ * their provider's own docs. A model with `reasoning_effort` but no levels listed gets the conservative low / medium /
+ * high; a model with neither gets no effort. `parallel_tool_calls` is never sent: parallel calls are on by default.
  */
 
-export type Effort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
-
-/** Effort values each model accepts. null: unknown, never send one. */
-export const MODEL_EFFORTS: Record<AgentModelId, readonly Effort[] | null> = {
+/**
+ * Effort values checked by hand, by route id (2026-11-20): OpenAI's model pages (`none` only on Terra and Luna) and
+ * Anthropic's effort docs (low…max on the 5.5 models); OpenRouter's /models per model. null: never send one. Not a model
+ * list: models missing here take what the catalog says.
+ */
+export const MODEL_EFFORTS: Record<string, readonly Effort[] | null> = {
   "gpt-6-astra": ["low", "medium", "high", "xhigh", "max"],
   "gpt-6.1-sol": ["low", "medium", "high", "xhigh", "max"],
   "gpt-6.1-terra": ["none", "low", "medium", "high", "xhigh", "max"],
@@ -37,6 +41,19 @@ export const MODEL_EFFORTS: Record<AgentModelId, readonly Effort[] | null> = {
   "google/gemini-3.8-flash": ["low", "medium", "high"],
 };
 
+/** The conservative levels for a model that takes `reasoning_effort` but lists none. */
+export const DEFAULT_EFFORTS: readonly Effort[] = ["low", "medium", "high"];
+
+/** What a model accepts per request. */
+export type ModelKnobs = { efforts: readonly Effort[] | null; verbosity: boolean };
+
+/** A model's knobs: MODEL_EFFORTS for a checked id, else the catalog's entry (undefined: unknown model, nothing sent). */
+export function modelKnobs(id: string, model: Pick<CatalogModel, "parameters" | "efforts"> | undefined): ModelKnobs {
+  const parameters = model?.parameters ?? [];
+  const listed = model?.efforts ?? (parameters.includes("reasoning_effort") ? DEFAULT_EFFORTS : null);
+  return { efforts: id in MODEL_EFFORTS ? MODEL_EFFORTS[id] : listed, verbosity: parameters.includes("verbosity") };
+}
+
 /**
  * Effort per stage where it differs from the model's usual setting (null: leave it). The Lead weighs two reports and a
  * measured diff into one decision: low effort means fewer, more consolidated calls, and the risk floor and the reviews
@@ -52,32 +69,36 @@ export const STAGE_EFFORT: Record<AgentStage, Effort | null> = {
 };
 
 /** The effort to request for this stage on this model, or null to send none (the stage keeps the default, or the model doesn't take it). */
-export function stageEffort(model: AgentModelId, stage: AgentStage): Effort | null {
+export function stageEffort(knobs: ModelKnobs, stage: AgentStage): Effort | null {
   const wanted = STAGE_EFFORT[stage];
-  return wanted && MODEL_EFFORTS[model]?.includes(wanted) ? wanted : null;
+  return wanted && knobs.efforts?.includes(wanted) ? wanted : null;
 }
 
 // Claude's effort before per-stage tuning: agentic coding and multi-step tool use do well at medium (the 5.5 models'
 // cost-sensible setting; Sonnet 5.5 would otherwise default to high).
 const CLAUDE_EFFORT = "medium" satisfies Effort;
 
-/** OpenAI (Responses): stage effort, and short visible text outside development (reports, not code). */
-export function openAIRequestParams(model: AgentModelId, stage: AgentStage) {
-  const effort = stageEffort(model, stage);
+/** OpenAI (Responses): stage effort, and short visible text outside development (reports, not code) where it's taken. */
+export function openAIRequestParams(knobs: ModelKnobs, stage: AgentStage) {
+  const effort = stageEffort(knobs, stage);
   return {
     ...(effort ? { reasoning: { effort } } : {}),
-    ...(stage === "development" ? {} : { text: { verbosity: "low" as const } }),
+    ...(stage === "development" || !knobs.verbosity ? {} : { text: { verbosity: "low" as const } }),
   };
 }
 
-/** Anthropic (Messages): output_config.effort, medium unless the stage asks for another one the model takes. */
-export function claudeEffort(model: AgentModelId, stage: AgentStage): Exclude<Effort, "none"> {
-  const effort = stageEffort(model, stage);
-  return effort && effort !== "none" ? effort : CLAUDE_EFFORT;
+/**
+ * Anthropic (Messages): output_config.effort, medium unless the stage asks for another one the model takes; null (send
+ * none) for a model that takes no effort.
+ */
+export function claudeEffort(knobs: ModelKnobs, stage: AgentStage): Exclude<Effort, "none"> | null {
+  const effort = stageEffort(knobs, stage);
+  if (effort && effort !== "none") return effort;
+  return knobs.efforts?.includes(CLAUDE_EFFORT) ? CLAUDE_EFFORT : null;
 }
 
 /** OpenRouter (Chat Completions): `reasoning.effort` when the stage asks for one the model lists. */
-export function openRouterRequestParams(model: AgentModelId, stage: AgentStage) {
-  const effort = stageEffort(model, stage);
+export function openRouterRequestParams(knobs: ModelKnobs, stage: AgentStage) {
+  const effort = stageEffort(knobs, stage);
   return effort ? { reasoning: { effort } } : {};
 }

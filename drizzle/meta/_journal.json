@@ -120,6 +120,13 @@
       "when": 1795210184660,
       "tag": "0016_cli_agents",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1795217629998,
+      "tag": "0017_model_catalog",
+      "breakpoints": true
     }
   ]
 }

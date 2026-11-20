@@ -3,17 +3,23 @@ import "server-only";
 import OpenAI from "openai";
 import type { ResponseUsage } from "openai/resources/responses/responses";
 
-import { AGENT_MODELS, MICROS_PER_USD, type AgentModelId } from "@/lib/agent-config";
+import { MICROS_PER_USD, type ModelPricing } from "@/lib/agent-config";
 
 /** Client for one workspace's key (lib/ai-keys.ts). Clients are cheap; keys differ per workspace, so none is shared. */
 export function openAIClient(apiKey: string) {
   return new OpenAI({ apiKey, maxRetries: 2, timeout: 60_000 });
 }
 
-/** Cost of one response in micro-dollars, from the token usage OpenAI reports and AGENT_MODELS pricing. */
-export function responseCostMicros(model: AgentModelId, usage: ResponseUsage | null | undefined) {
+/**
+ * Cost of one response in micro-dollars, from the token usage OpenAI reports and the model's catalog price. Without a
+ * price (a model the catalog never listed) the cost is unknown: 0, and a warning.
+ */
+export function responseCostMicros(pricing: ModelPricing | null, usage: ResponseUsage | null | undefined) {
   if (!usage) return 0;
-  const { pricing } = AGENT_MODELS.find((m) => m.id === model)!;
+  if (!pricing) {
+    console.warn("[openai] no price for this model in the catalog; cost not counted");
+    return 0;
+  }
   const cached = usage.input_tokens_details?.cached_tokens ?? 0;
   const cacheWrite = usage.input_tokens_details?.cache_write_tokens ?? 0;
   const uncached = Math.max(0, usage.input_tokens - cached - cacheWrite);

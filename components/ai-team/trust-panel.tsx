@@ -18,7 +18,6 @@ import { scanAgentAction, switchScanAgentAction } from "@/app/dashboard/[workspa
 import { TrustRing } from "@/components/ai-team/agent-visuals";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { AGENT_MODELS } from "@/lib/agent-config";
 import { trustGrade, type TrustSeverity } from "@/lib/agent-trust";
 import type { AgentView } from "@/lib/agents";
 import { isPendingScan, type SwitchTrustStatus } from "@/lib/switch-trust-config";
@@ -56,7 +55,7 @@ export function TrustPanel({
   const [message, setMessage] = useState<{ tone: "warning" | "error"; text: string } | null>(null);
   const report = agent.trust;
   const grade = report ? trustGrade(report.score) : null;
-  const modelLabel = report?.model ? (AGENT_MODELS.find((m) => m.id === report.model)?.label ?? report.model) : null;
+  const modelLabel = agent.trustModelLabel;
   const scan = agent.scan;
   const scanning = scan !== null && isPendingScan(scan.status);
   // A failed scan matters only while it's newer than the score on screen.
