@@ -12,8 +12,9 @@ the [roadmap](roadmap.md#v07--card-references-and-sandbox-polish).
 Agent turn ─▶ run_tests / run_build / run_command          (lib/agent-tools.ts)
                └─ app: latest commit of the working branch, tarball from GitHub (the token stays in the app)
                     └─ docker CLI at SANDBOX_DOCKER_HOST     (lib/sandbox/docker.ts)
-                         1. prepare (network on):  unpack over the last checkout, install if package.json,
-                            the lockfile or the install command changed
+                         1. prepare (network techteam-sandbox: internet, no private ranges):
+                            unpack over the last checkout, install if package.json, the lockfile or the install
+                            command changed
                          2. command (network off): the test, build or command
                     └─ report: Passed / Failed / Timed out + the end of the output (12,000 characters)
 ```
@@ -25,6 +26,16 @@ Agent turn ─▶ run_tests / run_build / run_command          (lib/agent-tools.
   the app's environment never reach a container (the CLI itself gets only `PATH`, `HOME` and `DOCKER_HOST`).
 - **No network for the code.** Only the install step has network (package registries). Tests, builds and commands run
   with `--network=none`, so the repository's code can't call out.
+- **The install step's network** is `techteam-sandbox` (`SANDBOX_NETWORK`): a bridge on `172.31.252.0/24` with no
+  traffic between containers (icc off), created by the app on first use (`ensureBridgeNetwork`, shared with link
+  captures) and by `deploy/setup.sh`. A network with that name but another shape is refused, not used. `deploy/setup.sh`
+  adds DOCKER-USER rules that refuse its traffic to private, loopback, link-local (cloud metadata), CGNAT, multicast and
+  reserved ranges, the same rules as the capture network: a dependency's install script reaches the internet, never
+  the provider's private network (10.x answered from containers on the default bridge). Previews prepare the same way.
+- **DNS for installs**: on a user-defined network Docker points containers at its embedded resolver (`127.0.0.11`),
+  which doesn't answer under gVisor, and `--dns` only changes that resolver's upstreams. So the app keeps a
+  `resolv.conf` with public resolvers (1.1.1.1, 8.8.8.8, 9.9.9.9) in a small volume (`techteam-sandbox-dns`, written
+  once per app process) and mounts it read-only over `/etc/resolv.conf` (`volume-subpath`, Docker 26 or later).
 - **Limits** per container: gVisor (`--runtime=runsc`), 2 CPUs, 3 GB of memory and no swap, 512 processes, no
   capabilities, `no-new-privileges`, read-only root filesystem with a 1 GB `/tmp`, user `node`. A call has 5 minutes in
   all (`SANDBOX_TIMEOUT_SECONDS`); on timeout the container is killed by name.
@@ -118,7 +129,7 @@ parts in `browser-config.ts`). One call = one throwaway browser container:
 ```
 browse_preview { path, viewport: desktop | tablet | mobile, color_scheme: light | dark, steps: [click | fill | press | wait_for | goto …] }
   └─ docker network inspect techteam-preview-run-<id>: internal, preview container attached? else "No preview is running"
-  └─ techteam-browser:1.64.1-2 (Playwright + Chromium), on that network only, --add-host=<container>:<its address>
+  └─ techteam-browser:1.64.1-3 (Playwright + Chromium), on that network only, --add-host=<container>:<its address>
        opens internalUrl + path, runs the steps in order, returns status, console and page errors, failed requests,
        an outline of the page (≤ 6,000 characters) and a PNG screenshot
 ```
@@ -151,9 +162,17 @@ browse_preview { path, viewport: desktop | tablet | mobile, color_scheme: light 
   light and dark, and compare; a clear mismatch with what the brief says to follow is a test fail with the specific
   differences, which goes back to the Developer like any test fail.
 - **The image** is built on the sandbox host from `deploy/browser/` (`SANDBOX_BROWSER_IMAGE` overrides the tag):
-  `docker --context <host> build --pull -t techteam-browser:1.64.1-2 deploy/browser` from a checkout of this repo.
-  The tag is Playwright's version plus a revision of the scripts (`-2`: link captures, tablet, color scheme); bump the
-  revision whenever `run.mjs`, `capture.mjs` or `net-guard.mjs` change.
+  `docker --context <host> build --pull -t techteam-browser:1.64.1-3 deploy/browser` from a checkout of this repo.
+  The tag is Playwright's version plus a revision of the folder (`-2`: link captures, tablet, color scheme; `-3`:
+  fonts with real bold weights); bump the revision whenever anything in `deploy/browser/` changes (and list a new file
+  in its `.dockerignore`).
+- **Fonts**: the base image's default UI font (WenQuanYi Zen Hei) has no bold face, so until `-3` `system-ui`
+  headings and 700-weight text rendered regular and the Tester could misjudge weight against a reference. The image
+  adds Inter's variable font (`fonts-inter-variable`, 100–900, under 1 MB) and `fonts.conf` (installed as
+  `/etc/fonts/local.conf`): `system-ui`, `ui-sans-serif`, `-apple-system`, `BlinkMacSystemFont` and `Segoe UI` render
+  in Inter; Arial, Helvetica and Chromium's `sans-serif` in Liberation Sans; `serif` and `monospace` in Liberation
+  Serif and Mono. All with real bold. A page's own web fonts still win; a page that names a font it doesn't bundle
+  falls back to these (the preview has no internet).
 
 ## Link captures
 
@@ -164,7 +183,7 @@ A link reference on a card (References → **Add a link**) is captured once, whe
 addCardLinkAction ─▶ parseCaptureUrl (net-guard.mjs: http/https, no credentials, ports 80/443/8080/8443,
                      no private address literal or internal name) ─▶ the app resolves the name: every address public?
                   ─▶ network techteam-capture (bridge, 172.31.253.0/24, icc off; created on first use)
-                  ─▶ techteam-browser:1.64.1-2, the Tester's browser limits with 2 CPUs, on that network
+                  ─▶ techteam-browser:1.64.1-3, the Tester's browser limits with 2 CPUs, on that network
                        Chromium ─▶ proxy in the container ─▶ resolves with public resolvers, checks every address,
                                                               connects to the address it checked
                        desktop 1280 px and mobile 375 px, full page up to 2,400 px, JPEG; outline of the page
@@ -195,15 +214,16 @@ addCardLinkAction ─▶ parseCaptureUrl (net-guard.mjs: http/https, no credenti
    domain>`. To try certificates without Let's Encrypt's rate limits first, run the script once with
    `CADDY_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory`, then again without it (Caddy is recreated
    when its CA changes and rejoins the running previews' networks).
-5. The sandbox browser (the Tester's browser and link captures): build `techteam-browser:1.64.1-2` on the host from
-   `deploy/browser/` (see above). `deploy/setup.sh` also creates the capture network and its firewall rules.
+5. The sandbox browser (the Tester's browser and link captures): build `techteam-browser:1.64.1-3` on the host from
+   `deploy/browser/` (see above). `deploy/setup.sh` also creates the capture and install networks and their
+   private-range firewall rules.
 
 ## Limits today
 
 - **Node repositories only.** Detection reads `package.json`; other stacks can type their own commands, but the image
   is `node:24-bookworm`.
 - **Install scripts run with network.** Packages' `postinstall` scripts run during install, as on any machine; the
-  limits and gVisor still apply, and nothing secret is inside.
+  limits and gVisor still apply, nothing secret is inside, and the install network keeps them off private ranges.
 - **No disk quota per volume** yet; the sweep and the per-run removal keep the host clean.
 - **The browser sees only the preview**: no real devices, email or payments; the Tester names those as manual checks.
 - **Captures see the page as a first-time visitor**: no login, cookie banners included, no video; pages taller than

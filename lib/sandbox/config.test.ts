@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { CAPTURE_SUBNET } from "@/lib/sandbox/capture-config";
 import {
   PREVIEW_MAX_AGE_MS,
+  SANDBOX_SUBNET,
+  bridgeNetworkProblem,
   detectCommands,
   isPreviewExpired,
   isSandboxCommands,
@@ -14,6 +17,7 @@ import {
   previewUrl,
   sandboxCommandsOf,
   sandboxReport,
+  sandboxResolvConf,
   type RunPreview,
   type SandboxRun,
 } from "@/lib/sandbox/config";
@@ -190,5 +194,31 @@ describe("outputTail", () => {
     expect(tail.startsWith("… [")).toBe(true);
     expect(tail.endsWith("line 99")).toBe(true);
     expect(tail.split("\n")[1]).toMatch(/^line \d+$/);
+  });
+});
+
+describe("bridgeNetworkProblem", () => {
+  it("accepts a bridge with a route out, icc off and the expected subnet", () => {
+    expect(bridgeNetworkProblem(`false false ${SANDBOX_SUBNET}\n`, SANDBOX_SUBNET)).toBeNull();
+  });
+
+  it("refuses an internal network, icc on, another subnet or an empty answer", () => {
+    expect(bridgeNetworkProblem(`true false ${SANDBOX_SUBNET}`, SANDBOX_SUBNET)).toContain("internal=true");
+    expect(bridgeNetworkProblem(`false <no value> ${SANDBOX_SUBNET}`, SANDBOX_SUBNET)).toContain("icc=<no value>");
+    expect(bridgeNetworkProblem("false false 172.17.0.0/16", SANDBOX_SUBNET)).toContain("subnet=172.17.0.0/16");
+    expect(bridgeNetworkProblem("", SANDBOX_SUBNET)).not.toBeNull();
+  });
+
+  it("keeps the install and capture subnets apart (each has its own firewall rules)", () => {
+    expect(SANDBOX_SUBNET).not.toBe(CAPTURE_SUBNET);
+  });
+});
+
+describe("sandboxResolvConf", () => {
+  it("lists only public resolvers, never Docker's embedded one", () => {
+    const conf = sandboxResolvConf();
+    expect(conf.match(/^nameserver /gm)).toHaveLength(3);
+    expect(conf).not.toContain("127.0.0.11");
+    expect(conf.endsWith("\n")).toBe(true);
   });
 });

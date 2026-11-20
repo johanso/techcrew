@@ -140,10 +140,10 @@ The owner designs and specifies outside TechTeam (a design tool, a document); th
      `npm ci` fails. First use: a font the owner names in the card (`@fontsource/…`), bundled into the build, so it
      loads in the preview (no internet there, so a Google Fonts `<link>` falls back) and no visitor request goes to a
      font host. The owner picks fonts in the card's description; agents don't choose one on their own.
-   - The capture network's private-range rules for the sandbox's install step too: it has network, and the provider's
-     private network (10.x) answered from containers when the capture was tested.
-   - Fonts with real bold weights in the browser image: run 52's screenshots show `system-ui` headings and a 700-weight
-     amount as regular, so the Tester could misjudge weight against a reference.
+   - Done: the capture network's private-range rules for the sandbox's install step too (`techteam-sandbox`, public
+     resolvers; the rules apply once `deploy/setup.sh` runs again on the host).
+   - Done: fonts with real bold weights in the browser image (`techteam-browser:1.64.1-3`: Inter for `system-ui`
+     stacks; run 52's screenshots showed `system-ui` headings and a 700-weight amount as regular).
    - A Docker socket proxy for Caddy; an optional login in front of previews for private apps; a slimmer browser
      image pinned by digest; Draft with AI aware of the browser; git history inside the sandbox (`git diff` fails on a
      tarball checkout).

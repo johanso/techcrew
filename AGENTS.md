@@ -202,8 +202,10 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   switch-eval.ts          answerEvaluation(): an agent answers one Switch test with its model + instructions (+ its
                           always-loaded skills), cost logged.
   sandbox/                Agent sandboxes (docs/sandbox.md). config.ts: pure, client-safe (commands, detectCommands,
-                          parseSandboxCommand, sandboxReport, outputTail). docker.ts: runInSandbox (prepare with network,
-                          command without, gVisor + limits), removeSandbox, hourly sweep. index.ts: sandboxAvailable,
+                          parseSandboxCommand, sandboxReport, outputTail, the install network's constants,
+                          bridgeNetworkProblem). docker.ts: runInSandbox (prepare on the install network, command
+                          without network, gVisor + limits), ensureBridgeNetwork (install and capture networks),
+                          removeSandbox, hourly sweep. index.ts: sandboxAvailable,
                           detectRepoCommands, runRepoCommand (one volume per run), removeRunSandbox, checkSandbox.
                           preview.ts: PR previews (startRunPreview / pollRunPreview / stopRunPreview /
                           stopPullRequestPreviews / sweepPreviews, getRunPreviewEndpoint; state in agent_runs.preview).
@@ -298,9 +300,10 @@ public/                   agents/<key>.webp: one face per agent role (256×256, 
 scripts/                  db-baseline.mjs (mark migrations applied on a pushed DB), sync-agent-skills.mjs (skills:sync).
 deploy/                   setup.sh: prepares a fresh Ubuntu 24.04 VPS (firewall, swap, Docker, gVisor for agent sandboxes,
                           `techteam` user, Caddy for previews, no host services for containers; `--lock-ssh` = keys
-                          only; the link-capture network and its DOCKER-USER rules). Idempotent, so the next VPS runs
-                          the same script. browser/: the sandbox browser image (run.mjs: browse_preview; capture.mjs:
-                          link captures; net-guard.mjs: the public-address rules, also imported by the app).
+                          only; the link-capture and install networks and their DOCKER-USER private-range rules).
+                          Idempotent, so the next VPS runs the same script. browser/: the sandbox browser image (run.mjs:
+                          browse_preview; capture.mjs: link captures; net-guard.mjs: the public-address rules, also
+                          imported by the app; fonts.conf: fontconfig aliases so UI stacks render real bold).
 proxy.ts                  Optimistic cookie guard for /dashboard and /workspaces.
 ```
 
@@ -626,7 +629,10 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   - **Sandbox** (`lib/sandbox/`, [`docs/sandbox.md`](docs/sandbox.md)): with Settings → Sandbox on and `tests.run`, the
     Developer and the Tester get `run_tests` / `run_build` / `run_command` on the branch's latest commit. The repository
     goes in as a tarball (never a token); install has network, the command never does; one volume per run, removed in
-    `finishRun`. Log the command and the outcome line only (`toolStep`), never the output. The stage protocol says
+    `finishRun`. The install step (and a preview's) runs on `techteam-sandbox` (`SANDBOX_NETWORK`, icc off, a fixed
+    subnet that `deploy/setup.sh` keeps off private ranges in DOCKER-USER) with public resolvers mounted over
+    `/etc/resolv.conf` (Docker's DNS doesn't answer under gVisor and `--dns` doesn't change that). Never add a container
+    with network outside a network those rules cover. Log the command and the outcome line only (`toolStep`), never the output. The stage protocol says
     "you can't run code" only to agents without the tools.
   - **Previews** (Settings → Sandbox → Previews, `SANDBOX_PREVIEW_DOMAIN`): after the CI gate passes, a
     `preview-<round>-start` step and `-poll-<n>` steps run beside the reviews (the Lead waits for them, up to 8 min).

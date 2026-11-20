@@ -42,9 +42,20 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   intent, not pixels to copy, and gives the Tester its checks for the preview.
 
 ### Changed
-- The sandbox browser image is now `techteam-browser:1.64.1-2` (link captures, tablet, color scheme): rebuild it on
-  the sandbox host (docs/sandbox.md). `deploy/setup.sh` creates the link-capture network and adds firewall rules that
-  keep it off private ranges: run it again on the host.
+- The sandbox browser image is now `techteam-browser:1.64.1-3` (link captures, tablet, color scheme, and fonts with
+  real bold weights): rebuild it on the sandbox host (docs/sandbox.md). `system-ui` and the usual UI font stacks render
+  in Inter (100–900) and `serif` / `monospace` in Liberation Serif / Mono; before, `system-ui` headings and 700-weight
+  text showed as regular in the Tester's screenshots and link captures.
+- `deploy/setup.sh` creates the link-capture and install networks and adds firewall rules that keep both off private
+  ranges: run it again on the host.
+
+### Security
+- The sandbox's install step (unpack + install dependencies, the only step with network; previews too) runs on its
+  own network, `techteam-sandbox` (`172.31.252.0/24`, no traffic between containers), instead of Docker's default
+  bridge, where containers could reach the hosting provider's private network. `deploy/setup.sh` refuses its traffic
+  to private, loopback, link-local (cloud metadata), CGNAT, multicast and reserved ranges, as for link captures. The
+  app creates the network on first use and gives installs public DNS resolvers (Docker's own doesn't answer under
+  gVisor). Needs Docker 26 or later on the sandbox host.
 
 ### Database
 - Migration `0013_card_references`: `task_references` (one small row per reference: kind, name, type, size, S3 keys,

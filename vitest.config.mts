@@ -13,7 +13,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["**/*.test.ts"],
-    exclude: ["node_modules/**", ".next/**"],
+    // .claude/worktrees: Claude Code agent worktrees, other checkouts of this repository.
+    exclude: ["node_modules/**", ".next/**", ".claude/worktrees/**"],
     // Modules that open a database client read DATABASE_URL lazily; tests never query.
     env: { DATABASE_URL: "postgresql://test:test@localhost:5432/test", TOKEN_ENCRYPTION_KEY: "dGVzdC1rZXktdGVzdC1rZXktdGVzdC1rZXktMTIzNA==" },
   },

@@ -5,14 +5,28 @@ import { randomBytes } from "node:crypto";
 import { Readable, Transform } from "node:stream";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
-import { PREVIEW_PORT, SANDBOX_TIMEOUT_SECONDS, outputTail, previewTarget, type SandboxRun } from "@/lib/sandbox/config";
+import {
+  BRIDGE_INSPECT_FORMAT,
+  PREVIEW_PORT,
+  SANDBOX_DNS_VOLUME,
+  SANDBOX_NETWORK,
+  SANDBOX_SUBNET,
+  SANDBOX_TIMEOUT_SECONDS,
+  bridgeNetworkProblem,
+  outputTail,
+  previewTarget,
+  sandboxResolvConf,
+  type SandboxRun,
+} from "@/lib/sandbox/config";
 
 /**
  * Sandboxes on Docker, driven through the `docker` CLI at SANDBOX_DOCKER_HOST (`ssh://user@host` for a VPS,
  * `unix:///var/run/docker.sock` when the app runs next to Docker). Each call runs two throwaway containers under gVisor
  * on one volume per key (a run, or a Settings check):
  * 1. prepare, with network: unpack the repository tarball (piped in, so no token enters a container) over the
- *    previous checkout, and install dependencies when package.json or the lockfile changed since the last install;
+ *    previous checkout, and install dependencies when package.json or the lockfile changed since the last install.
+ *    It runs on techteam-sandbox (SANDBOX_NETWORK), a bridge whose subnet deploy/setup.sh keeps off private ranges,
+ *    with public resolvers (SANDBOX_DNS_VOLUME);
  * 2. the command, without network: the repository's code never reaches the internet.
  * Both run as an unprivileged user with CPU, memory, process and time limits and a read-only root filesystem.
  * A preview (launchPreview) prepares its own volume the same way, then keeps one container serving the app on an
@@ -113,6 +127,81 @@ function docker(args: string[], options: { input?: Readable; timeoutMs?: number;
   });
 }
 
+// ── Networks ───────────────────────────────────────────────────────────────────
+
+const NETWORK_TIMEOUT_MS = 30_000;
+
+/**
+ * A bridge network with internet for containers that need it (the install step here, link captures in capture.ts),
+ * created on first use: icc off and a fixed subnet, which deploy/setup.sh's DOCKER-USER rules keep off private
+ * ranges. A network with that name but another shape is refused rather than used: the firewall rules match the
+ * subnet. Returns a message for the owner when the network can't be used, else null.
+ */
+export async function ensureBridgeNetwork(network: { name: string; subnet: string; label: string; what: string }): Promise<string | null> {
+  const inspect = () => docker(["network", "inspect", `--format=${BRIDGE_INSPECT_FORMAT}`, network.name], { timeoutMs: NETWORK_TIMEOUT_MS });
+  let inspected = await inspect();
+  if (inspected.code !== 0) {
+    const created = await docker(
+      ["network", "create", `--subnet=${network.subnet}`, "--opt=com.docker.network.bridge.enable_icc=false", `--label=${network.label}`, network.name],
+      { timeoutMs: NETWORK_TIMEOUT_MS }
+    );
+    // Two calls at once may both try: the loser finds it made.
+    if (created.code !== 0) console.error(`[sandbox] ${network.name} not created`, created.output.trim().slice(-300));
+    inspected = await inspect();
+    if (inspected.code !== 0) return `The sandbox host couldn't set up the ${network.what}.`;
+  }
+  const problem = bridgeNetworkProblem(inspected.output, network.subnet);
+  if (problem) {
+    console.error(`[sandbox] ${network.name} exists with ${problem}`);
+    return `The ${network.what} on the sandbox host isn't set up as expected.`;
+  }
+  return null;
+}
+
+// Set up once per app process; cleared when it fails or Docker can't find the network or the volume any more.
+let installNetwork: Promise<string | null> | null = null;
+
+/**
+ * The install step's network (SANDBOX_NETWORK) and its resolv.conf volume (SANDBOX_DNS_VOLUME, rewritten here so a
+ * changed list of resolvers reaches the host). The volume isn't labeled as a sandbox volume, so the sweep keeps it.
+ */
+function ensureInstallNetwork(): Promise<string | null> {
+  installNetwork ??= (async () => {
+    const problem = await ensureBridgeNetwork({ name: SANDBOX_NETWORK, subnet: SANDBOX_SUBNET, label: "techteam.install-network=1", what: "install network" });
+    if (problem) return problem;
+    const volume = await docker(["volume", "create", "--label=techteam.install-network=1", SANDBOX_DNS_VOLUME], { timeoutMs: NETWORK_TIMEOUT_MS });
+    if (volume.code !== 0) return "The sandbox host couldn't set up the install network's DNS.";
+    // Root writes the file (the volume's root is root's); no network, our own content on stdin.
+    const written = await docker(
+      ["run", "--rm", "-i", ...LIMITS.filter((flag) => flag !== "--user=node"), "--user=root", "--network=none"]
+        .concat([`--mount=type=volume,src=${SANDBOX_DNS_VOLUME},dst=/dns`, image()])
+        .concat(["sh", "-c", "cat > /dns/resolv.conf.new && chmod 644 /dns/resolv.conf.new && mv /dns/resolv.conf.new /dns/resolv.conf"]),
+      { input: Readable.from([sandboxResolvConf()]), timeoutMs: SANDBOX_TIMEOUT_SECONDS * 1000 }
+    );
+    if (written.code !== 0) {
+      console.error("[sandbox] resolv.conf not written", written.output.trim().slice(-300));
+      return "The sandbox host couldn't set up the install network's DNS.";
+    }
+    return null;
+  })().then(
+    (problem) => {
+      if (problem) installNetwork = null;
+      return problem;
+    },
+    (error: unknown) => {
+      installNetwork = null;
+      throw error;
+    }
+  );
+  return installNetwork;
+}
+
+/** The prepare container's network flags: the install network, with public resolvers mounted read-only. */
+const INSTALL_NETWORK_FLAGS = [
+  `--network=${SANDBOX_NETWORK}`,
+  `--mount=type=volume,src=${SANDBOX_DNS_VOLUME},dst=/etc/resolv.conf,volume-subpath=resolv.conf,readonly`,
+];
+
 const volumeName = (key: string) => `techteam-${key.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`;
 const containerName = (key: string, step: string) => `${volumeName(key)}-${step}-${randomBytes(3).toString("hex")}`;
 
@@ -157,17 +246,22 @@ async function prepareCheckout(input: { key: string; source: RepoSource; install
   const created = await docker(["volume", "create", `--label=${LABEL}`, ...(input.labels ?? []), volume]);
   if (created.code !== 0) throw new Error(`The sandbox host refused to create a volume: ${created.output.trim().slice(0, 300)}`);
 
+  const networkProblem = await ensureInstallNetwork();
+  if (networkProblem) return { ok: false, failedStep: "prepare", exitCode: null, timedOut: false, output: networkProblem };
+
   const archive = await input.source();
   if (!archive) return { ok: false, failedStep: "prepare", exitCode: null, timedOut: false, output: "Couldn't download the repository from GitHub." };
 
   const prepareName = containerName(input.key, "prepare");
   const prepare = await docker(
-    ["run", "--rm", "-i", `--name=${prepareName}`, ...LIMITS, `--mount=type=volume,src=${volume},dst=${HOME}`, `--workdir=${HOME}`]
+    ["run", "--rm", "-i", `--name=${prepareName}`, ...LIMITS, ...INSTALL_NETWORK_FLAGS, `--mount=type=volume,src=${volume},dst=${HOME}`, `--workdir=${HOME}`]
       .concat(input.install ? [`--env=TECHTEAM_INSTALL=${input.install}`] : [])
       .concat([image(), "sh", "-c", PREPARE_SCRIPT]),
     { input: capped(archive), timeoutMs: input.deadline - Date.now(), name: prepareName }
   );
   if (prepare.timedOut || prepare.code !== 0) {
+    // 125: Docker refused to start the container (network or DNS volume removed since): set them up again next time.
+    if (prepare.code === 125) installNetwork = null;
     const unpacked = prepare.output.includes(PREPARED);
     return { ok: false, failedStep: unpacked ? "install" : "prepare", exitCode: prepare.code, timedOut: prepare.timedOut, output: prepare.output };
   }

@@ -121,6 +121,10 @@ The pipeline acts on the repository with the workspace owner's token, so its gua
   never the output. The host itself is set up by `deploy/setup.sh`: firewall (SSH, 80, 443), keys-only SSH without
   root (`--lock-ssh`), Docker publishing ports on localhost by default, fail2ban and unattended upgrades. A ufw rule
   refuses traffic from Docker bridges to the host, so no container reaches the host's SSH or other services.
+  The install step (the only one with network) runs on `techteam-sandbox` (`172.31.252.0/24`, icc off), whose traffic
+  to private, loopback, link-local (cloud metadata), CGNAT, multicast and reserved ranges is refused by the same
+  DOCKER-USER rules as link captures (below), with public resolvers in a read-only `resolv.conf`: a dependency's install
+  script reaches package registries and the internet, never the provider's private network or the metadata service.
 - **Previews** run like sandbox commands, on an `--internal` network with no route out, and are public only at a
   random host (`pr-<n>-<6 random>.<domain>`) while running (2 h at most). Anyone with the link can open it: fine for
   test repositories; a login in front of previews is a follow-up for private apps. Caddy listens on nothing inside
@@ -198,7 +202,7 @@ metadata service. What protects what:
 | The runner's proxy | `deploy/browser/capture.mjs` | Every connection Chromium makes, the first page, redirects and subresources alike, goes through a proxy in the container. It resolves the name itself (public resolvers 1.1.1.1 / 8.8.8.8 / 9.9.9.9), refuses when **any** answer is non-public, and connects to the address it checked: a second, different answer (DNS rebinding) is never used. Chromium's implicit loopback bypass is off (`<-loopback>`); QUIC and non-proxied WebRTC UDP are off; WebSockets, media, service workers, downloads and popups are blocked. Caps: 60 MB, 400 connections, 20 s per page. |
 | No DNS of its own | gVisor + Docker | Docker's embedded resolver doesn't answer under gVisor, so the page can't resolve names except through the proxy. |
 | Network | `techteam-capture` (bridge, `172.31.253.0/24`, `enable_icc=false`) | Capture containers can't reach each other; Docker isolates the bridge from the preview and Caddy networks. |
-| Host firewall | `deploy/setup.sh` | ufw refuses anything from a Docker bridge to the host itself (SSH, the public IP, the bridge gateway). DOCKER-USER rules (in ufw's `after.rules`) reject traffic from the capture subnet to 0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.0.0/24, 192.0.2/24, 192.88.99/24, 192.168/16, 198.18/15, 198.51.100/24, 203.0.113/24, multicast and reserved: a second layer if anything slipped past the proxy. |
+| Host firewall | `deploy/setup.sh` | ufw refuses anything from a Docker bridge to the host itself (SSH, the public IP, the bridge gateway). DOCKER-USER rules (in ufw's `after.rules`, one block for the capture subnet and the sandbox's install subnet `172.31.252.0/24`) reject traffic from the capture subnet to 0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.0.0/24, 192.0.2/24, 192.88.99/24, 192.168/16, 198.18/15, 198.51.100/24, 203.0.113/24, multicast and reserved: a second layer if anything slipped past the proxy. |
 | Container | The Tester's browser limits, with 2 CPUs | gVisor, no capabilities, `no-new-privileges`, read-only root, user `pwuser`, 2 CPUs, 1.5 GB, 256 processes, 100 s; no secrets inside (the URL is the only input, as JSON on stdin). |
 
 "Non-public" means: IPv4 0/8, 10/8, 100.64/10 (CGNAT), 127/8, 169.254/16 (link-local, metadata), 172.16/12,
@@ -239,12 +243,11 @@ The source URL is the owner's own; the dialog opens it with `rel="noopener noref
 | An uploaded skill's guidance can be subtly wrong or steer code style without tripping the scan. | Worse code on an agent branch; reviews and the human gate still apply. | Review skills before assigning them; prefer built-ins; keep their findings visible. |
 | The agent log stores tool targets and the first line of tool answers (paths, error messages). | Repository paths and error text are kept in Postgres. File contents never are (reads store no summary). | Nothing needed; keep `toolStep` from summarizing read tools. |
 | A link capture is a real browser on the internet with the sandbox host's IP. | The owner can make the host fetch any public page (and what it loads), up to 60 MB per capture. Nothing internal is reachable (see [Link captures](#link-captures)). | Owner-only action, one capture at a time; per-user limits with the rate limiting below. |
-| The sandbox's install step has network without the capture network's private-range rules. | A repository's install scripts could reach the provider's private network (10.x answered from containers on the VPS). | The same DOCKER-USER rules for the install step's network (roadmap: sandbox polish). |
 | No rate limiting on Server Actions or route handlers. | Brute-force or abuse of create/sync endpoints. | Add per-user limits (e.g. Upstash Ratelimit) on sync, create and run. |
 | Workspaces have no members or roles. | Not a risk today, but anything shared later needs an access model. | Add memberships before any sharing feature. |
 | Disconnecting GitHub doesn't revoke the token on GitHub. | The (encrypted, deleted) token stays valid on GitHub's side until the user revokes it. | Call GitHub's "delete an app token" endpoint on disconnect. |
 | Caddy mounts the Docker socket (caddy-docker-proxy reads container labels). | A compromised Caddy, which faces the internet, could control Docker on the sandbox host (root-equivalent there, not in the app). | A Docker socket proxy that only allows reading containers and networks. |
-| The sandbox's install step has network, and packages' install scripts run there. | A malicious dependency can reach the internet during install. It still runs under gVisor and the limits, with no secrets inside, and the command step has no network. | Allow-list registries through a proxy; per-volume disk quotas. |
+| The sandbox's install step has network, and packages' install scripts run there. | A malicious dependency can reach the internet during install. It still runs under gVisor and the limits, with no secrets inside, on a network kept off private ranges (`techteam-sandbox`), and the command step has no network. | Allow-list registries through a proxy; per-volume disk quotas. |
 | Content Security Policy is not configured. | Defense-in-depth only. | Add CSP headers in `next.config.ts` or `proxy.ts`. |
 | The repository a workspace links to is fixed at creation. | If access is lost, the board can't sync (it says so). | Add a "change repository" setting with the same re-check as creation. |
 

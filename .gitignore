@@ -35,3 +35,6 @@ next-env.d.ts
 
 # browser captures (Playwright MCP)
 playwright-screenshots/
+
+# Claude Code's agent worktrees
+.claude/worktrees/
