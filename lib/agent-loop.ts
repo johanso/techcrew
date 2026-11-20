@@ -306,7 +306,9 @@ async function openRouterTurn<T>(input: TurnInput, state: Extract<LoopState, { p
   const body: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & { provider: typeof OPENROUTER_ROUTING } = {
     model: state.model,
     messages,
-    tools: chatTools([...input.tools, input.finish]),
+    // Many hosts reject a forced tool, and models ignore the last-turn message (run 53: DeepSeek edited a file instead),
+    // so the last turn offers only the finish tool.
+    tools: chatTools(input.forceFinish ? [input.finish] : [...input.tools, input.finish]),
     tool_choice: "auto",
     max_tokens: OPENROUTER_MAX_TOKENS,
     provider: OPENROUTER_ROUTING,

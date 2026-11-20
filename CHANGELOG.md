@@ -76,6 +76,10 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 - `deploy/setup.sh` creates the link-capture and install networks and adds firewall rules that keep both off private
   ranges: run it again on the host.
 
+### Fixed
+- OpenRouter agents' last turn offers only the stage's finish tool. Models ignored the last-turn message and kept
+  editing (live run 53: DeepSeek V4 Pro used its 40th turn on another edit), so the stage ended without a result.
+
 ### Security
 - The sandbox's install step (unpack + install dependencies, the only step with network; previews too) runs on its
   own network, `techteam-sandbox` (`172.31.252.0/24`, no traffic between containers), instead of Docker's default
