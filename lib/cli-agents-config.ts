@@ -138,14 +138,12 @@ export function describeAccount(auth: Pick<CliAuth, "email" | "orgName" | "subsc
 }
 
 /**
- * Whether the plan includes the model in its CLI. Claude Pro doesn't include Opus in Claude Code ("Claude Opus is not
- * available with the Claude Pro plan"); other plans do. A model the CLI later refuses is remembered on this computer
- * (`unusable` in resolveRoute) and routed to the API key.
+ * Whether the plan may carry the model in its CLI: any plan login, any model. Which models a plan includes changes
+ * over time (Pro runs Opus in Claude Code today), so TechTeam doesn't guess: a model the CLI refuses is remembered on
+ * this computer (`unusable` in resolveRoute) and routed to the API key, or the stage stops with the reason.
  */
-export function planIncludesModel(subscriptionType: string | null, model: AgentModelId) {
-  if (!subscriptionType) return false;
-  if (subscriptionType === "pro" && model.startsWith("claude-opus")) return false;
-  return true;
+export function planIncludesModel(subscriptionType: string | null, _model: AgentModelId) {
+  return Boolean(subscriptionType);
 }
 
 // ── Route resolution ───────────────────────────────────────────────────────────

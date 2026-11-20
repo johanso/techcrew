@@ -17,7 +17,7 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   permissions, agent log, references, skills and sandbox. Plan stages record turns and tokens plus the API-equivalent
   cost as a reference, never as spend, and budgets don't apply to them. See [docs/cli-agents.md](docs/cli-agents.md).
 - **When the plan runs out**: wait for the reset and resume the same session (the card says when), continue on the
-  API key, or switch company (auto failover). A model the plan doesn't include (Opus on Pro) takes the API key.
+  API key, or switch company (auto failover). A model the plan refuses is remembered on that computer and takes the API key (or the stage stops with the reason).
 - AI Team cards show each agent's route on this computer ("Your Claude plan" / "API key"); spending tiles, the run log
   and Metrics say **API** spend, and Settings shows this month's plan usage.
 - `AGENTS_AUTO_PICKUP=false` keeps auto pickup off on one computer; a card can have only one run in flight, whichever
