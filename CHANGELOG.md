@@ -8,6 +8,8 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-20
+
 ### Added
 - **References on a card**: attach images (PNG, JPEG, WebP), Markdown or text files and PDFs in the card dialog's
   References section, several at once, for any saved card (GitHub cards too). Up to 10 per card; images up to 5 MB and
@@ -359,7 +361,8 @@ takes a card from analysis to a merged pull request, with cost, trust and human 
   budget mid-run, Draft with AI with a real key, automatic provider switch.
 - Switch shows caps but not spend until usage is reported through the Switch SDK.
 
-[Unreleased]: https://github.com/jricardomillion/techcrew/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/jricardomillion/techcrew/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.7.0
 [0.5.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.5.0
 [0.4.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.4.0
 [0.3.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.3.0
