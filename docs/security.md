@@ -106,8 +106,8 @@ The pipeline acts on the repository with the workspace owner's token, so its gua
 - **Protected paths**: agents can't write `.github/workflows/*` (a workflow could exfiltrate repository secrets),
   `.env*` files (except `.env.example`) or `.git/`. Dependency manifests and lockfiles need *Manage dependencies*.
   Paths with `..`, empty segments or a leading `/` are rejected.
-- **Prompt injection**: issue text, code, comments and CI output reach the model inside `<task>` or as tool output; the
-  system prompt's operating protocol (which overrides the configurable instructions) treats them as data.
+- **Prompt injection**: issue text, code, comments, CI output and card references reach the model inside `<task>` or as
+  tool output; the system prompt's operating protocol (which overrides the configurable instructions) treats them as data.
 - **Merging** is never an agent tool: it happens only through `mergeAgentPullRequest` (manual button or the workspace's
   auto-merge setting), and only when GitHub reports the PR mergeable with every check green.
 - **Spend** is bounded per stage by max turns and per month by each agent's budget, both re-checked every turn.
@@ -155,14 +155,42 @@ Skills are text that reaches agent prompts, so they're treated like any other un
 - **Trust score**: enabled uploaded skills' findings count in every agent's rule-based trust scan; switching a skill
   on or off, a new version or a delete rescans the affected agents. Built-ins count as reviewed.
 
+## Card references
+
+Files the owner attaches to a card for the agents ([features.md](features.md#card-references)):
+
+- **Checked by content.** PNG, JPEG and WebP by their magic bytes (and a readable header ≤ 8000 × 8000 px), PDFs by
+  their `%PDF-` header, Markdown and text only as UTF-8 without NUL bytes; the name's extension must agree with the
+  content (`detectReferenceFormat`, tested). No SVG, GIF or HTML. Size per kind (image 5 MB, text 1 MB, PDF 5 MB), 10
+  per card, counted again under a row lock on the card when the row is written. One file per Server Action call, so
+  each fits the 6 MB body limit.
+- **Where they live.** The file and a PDF's extracted text are in the private bucket under
+  `card-references/<workspace>/<card>/<uuid>.<ext>`; the database keeps a small row (no content). The owner-checked
+  route (`/api/workspaces/[id]/references/[referenceId]`) serves the stored type with `nosniff`, `Cache-Control:
+  private` and `Content-Security-Policy: default-src 'none'; sandbox`; text as `text/plain`, PDFs only as a download.
+  Removing a card deletes its references (S3 deletes are best effort and logged).
+- **PDF parsing** runs once at upload with unpdf (PDF.js's serverless build: no worker, no canvas, XFA off), with page
+  and character caps. Password-protected or broken PDFs are refused.
+- **What goes to the model providers.** Only when an agent calls `read_reference`: text as tool output, images as
+  base64 inside the request (OpenAI `function_call_output` → `input_image`; Anthropic `tool_result` → `image`;
+  OpenRouter as a user message after the tool messages, under the same routing rules as the code: hosts that keep no
+  data). Never a URL: the bucket stays private and no presigned link leaves the server. A model without vision gets a
+  note instead of the image.
+- **Nothing stored twice.** The conversation (`agent_run_messages`, OpenAI's pending tool outputs in the Inngest step
+  state) holds a placeholder for each image; it's loaded from S3 for each request and becomes a note if the reference
+  was removed. The agent log keeps the reference's name only, never its content.
+- **Prompt injection.** References are the owner's requirements, but the operating protocol lists them as data: they
+  can't change the protocol, the agent's role or its tools, and read_reference frames their text as reference material.
+
 ## File uploads
 
-- Workspace logos: PNG, JPEG, WebP or GIF only, ≤ 1 MB, checked on the client and again on the server.
+- Workspace logos: PNG, JPEG, WebP or GIF only, ≤ 1 MB, checked on the client and again on the server. Card references:
+  see [Card references](#card-references).
 - **SVG is rejected** on purpose: it can carry scripts and would be served from the app's own origin.
 - Stored in a private bucket under a random UUID key; served with `X-Content-Type-Options: nosniff` and
   `Cache-Control: private`.
-- Server Action body limit is raised to 6 MB (`next.config.ts`) to fit a 5 MB skill upload (and the 1 MB logo) plus
-  multipart overhead.
+- Server Action body limit is raised to 6 MB (`next.config.ts`) to fit a 5 MB skill upload, a 5 MB card reference (one
+  per call) and the 1 MB logo, plus multipart overhead.
 
 ## Redirects and CSRF
 

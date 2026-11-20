@@ -136,3 +136,23 @@ describe("skill tools", () => {
     expect(toolStep("search_skill", JSON.stringify({ skill: "web", query: "dialog" }), "2 matches …").target).toBe("web: dialog");
   });
 });
+
+describe("reference tools", () => {
+  const references = { items: [{ id: 7 } as never], vision: true };
+
+  it("are offered in every stage only when the card has references", () => {
+    for (const stage of ["analysis", "development", "review", "security", "approval", "testing"] as const) {
+      expect(toolsFor({ stage, permissions: ["repo.read"], branch: null, references }).map((t) => t.name), stage).toEqual(
+        expect.arrayContaining(["list_references", "read_reference"])
+      );
+      expect(toolsFor({ stage, permissions: [], branch: null, references: { items: [], vision: true } }).map((t) => t.name)).not.toContain("read_reference");
+      expect(toolsFor({ stage, permissions: [], branch: null, references: null }).map((t) => t.name)).not.toContain("list_references");
+    }
+  });
+
+  it("never log what a reference says", () => {
+    const step = toolStep("read_reference", JSON.stringify({ id: 7, offset: null }), "spec.md (characters 0–40 of 40; …)\n<reference>secret plan</reference>");
+    expect(step).toEqual({ tool: "read_reference", target: null, ok: true, summary: null });
+    expect(toolStep("read_reference", JSON.stringify({ id: 99, offset: null }), "Error: no reference with id 99 on this card.").ok).toBe(false);
+  });
+});

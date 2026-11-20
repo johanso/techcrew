@@ -6,6 +6,7 @@ import { db, tasks, workspaces, type Task, type Workspace } from "@/db";
 import type { BoardCardRun } from "@/lib/agent-run-config";
 import { getLatestRuns } from "@/lib/agent-runs";
 import { getAgent, taskKeyPrefix, type AgentId } from "@/lib/agents";
+import { deleteTaskReferences, getReferenceCounts } from "@/lib/references";
 import {
   DESCRIPTION_MAX,
   emptyColumns,
@@ -31,7 +32,7 @@ type BoardWorkspace = Pick<Workspace, "id" | "name">;
 /** Cards of this workspace that are still on the board. */
 const onBoard = (workspace: BoardWorkspace) => and(eq(tasks.workspaceId, workspace.id), isNull(tasks.removedAt));
 
-function toBoardCard(task: Task, workspace: BoardWorkspace, run: BoardCardRun | null = null): BoardCard {
+function toBoardCard(task: Task, workspace: BoardWorkspace, run: BoardCardRun | null = null, references = 0): BoardCard {
   return {
     id: String(task.id),
     key: `${taskKeyPrefix(workspace.name)}-${task.number}`,
@@ -49,20 +50,22 @@ function toBoardCard(task: Task, workspace: BoardWorkspace, run: BoardCardRun | 
       task.githubIssueNumber !== null && task.githubIssueUrl
         ? { number: task.githubIssueNumber, url: task.githubIssueUrl, state: task.githubIssueState === "closed" ? "closed" : "open" }
         : null,
+    references,
   };
 }
 
 
 export async function getBoardData(workspace: BoardWorkspace): Promise<BoardData> {
-  const [rows, runs] = await Promise.all([
+  const [rows, runs, references] = await Promise.all([
     db.select().from(tasks).where(onBoard(workspace)).orderBy(asc(tasks.position), asc(tasks.id)),
     getLatestRuns(workspace.id),
+    getReferenceCounts(workspace.id),
   ]);
 
   const cards: BoardData["cards"] = {};
   const columns = emptyColumns();
   for (const row of rows) {
-    const card = toBoardCard(row, workspace, runs.get(row.id) ?? null);
+    const card = toBoardCard(row, workspace, runs.get(row.id) ?? null, references.get(row.id) ?? 0);
     cards[card.id] = card;
     // Rows with an unknown status (e.g. a renamed column) fall back to Todo instead of disappearing.
     columns[isBoardColumnId(row.status) ? row.status : "todo"].push(card.id);
@@ -241,7 +244,8 @@ export async function reorderTasks(workspace: BoardWorkspace, columns: Partial<R
 
 /**
  * Takes a card off the board. The row stays as a tombstone: keys are never reused, and the next sync
- * doesn't import a GitHub issue again (the issue itself stays open on GitHub). False if it's already gone.
+ * doesn't import a GitHub issue again (the issue itself stays open on GitHub). Its references are deleted (rows, then
+ * S3 objects, best effort). False if it's already gone.
  */
 export async function removeTask(workspace: BoardWorkspace, taskId: number) {
   const removed = await db
@@ -249,7 +253,10 @@ export async function removeTask(workspace: BoardWorkspace, taskId: number) {
     .set({ removedAt: new Date(), updatedAt: new Date() })
     .where(and(eq(tasks.id, taskId), onBoard(workspace)))
     .returning({ id: tasks.id });
-  return removed.length > 0;
+  if (!removed.length) return false;
+  // The card is gone either way; a reference that couldn't be deleted is logged, not shown to the user.
+  await deleteTaskReferences({ workspaceId: workspace.id, taskId }).catch((error) => console.error("[board] references not deleted", taskId, error));
+  return true;
 }
 
 /** Assigns a card to an agent (null unassigns). Returns the updated card, or null if it's gone. */
@@ -269,7 +276,8 @@ export async function getBoardCard(workspace: BoardWorkspace, taskId: number) {
     .from(tasks)
     .where(and(eq(tasks.id, taskId), onBoard(workspace)));
   if (!row) return null;
-  return toBoardCard(row, workspace, (await getLatestRuns(workspace.id)).get(taskId) ?? null);
+  const [runs, references] = await Promise.all([getLatestRuns(workspace.id), getReferenceCounts(workspace.id)]);
+  return toBoardCard(row, workspace, runs.get(taskId) ?? null, references.get(taskId) ?? 0);
 }
 
 /**

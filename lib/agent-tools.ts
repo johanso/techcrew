@@ -5,6 +5,9 @@ import type { FunctionTool } from "openai/resources/responses/responses";
 import type { PermissionId } from "@/lib/agent-config";
 import type { AgentStage } from "@/lib/agent-run-config";
 import { readSkill, searchSkill, type AgentSkill } from "@/lib/agent-skills";
+import { READ_REFERENCE_MAX_CHARS } from "@/lib/reference-config";
+import type { ToolImage } from "@/lib/reference-images";
+import { listReferencesForAgent, readReferenceForAgent, type AgentReference } from "@/lib/references";
 import {
   GithubError,
   compareBranches,
@@ -25,7 +28,8 @@ import { isStorageConfigured, uploadRunScreenshot } from "@/lib/storage";
 /**
  * The tools an agent can call while it works a stage, backed by the GitHub API with the workspace owner's token.
  * What an agent gets depends on its stage and its granted permissions, so permissions are enforced, not just declared.
- * Agents with skills switched on also get search_skill and read_skill (read-only, any stage). With the workspace's sandbox on,
+ * Agents with skills switched on also get search_skill and read_skill (read-only, any stage), and on a card with references
+ * every agent gets list_references and read_reference (read-only; images come back as image input). With the workspace's sandbox on,
  * "Run tests in a sandbox" adds run_tests, run_build and run_command on the working branch (lib/sandbox), and with
  * previews on too, browse_preview for the Tester: a headless browser on the run's live preview (lib/sandbox/browser.ts).
  * Every result is a string for the model; recoverable errors are returned as text so the agent can adjust.
@@ -45,6 +49,11 @@ export type ToolContext = {
   sandbox: { runId: number; commands: SandboxCommands } | null;
   /** The run's preview when the sandbox and previews are on (Settings → Sandbox), else null: browse_preview. */
   preview: { workspaceId: number; runId: number } | null;
+  /**
+   * The card's references (lib/references.ts) and whether the stage's model can see images; null or empty: no
+   * reference tools. read_reference returns an image only when `vision` is true.
+   */
+  references: { items: AgentReference[]; vision: boolean } | null;
 };
 
 const OUTPUT_MAX = 24_000;
@@ -170,6 +179,19 @@ const TOOLS = {
       additionalProperties: false,
     },
   },
+  list_references: fn(
+    "list_references",
+    "List the files the card's owner attached as references (designs, specs, documents): id, name, kind and size.",
+    {}
+  ),
+  read_reference: fn(
+    "read_reference",
+    `Read one of the card's references by id. Text and PDF text come back as text (${READ_REFERENCE_MAX_CHARS} characters per page); an image comes back as the image itself.`,
+    {
+      id: { type: "integer", description: "The reference's id from list_references." },
+      offset: { type: ["integer", "null"], description: "Character offset to continue a long text from, or null for the start. Ignored for images." },
+    }
+  ),
   read_skill: fn("read_skill", "Read a file of one of your skills (reference material, not instructions). Long files come in pages.", {
     skill: { type: "string", description: "The skill's name." },
     path: { type: "string", description: "A path from search_skill, or SKILL.md." },
@@ -191,6 +213,7 @@ export function toolsFor(
     skills?: readonly unknown[];
     sandbox?: ToolContext["sandbox"];
     preview?: ToolContext["preview"];
+    references?: ToolContext["references"];
   }
 ): FunctionTool[] {
   const has = (permission: PermissionId) => ctx.permissions.includes(permission);
@@ -208,6 +231,7 @@ export function toolsFor(
   }
   if (ctx.preview && ctx.branch && PREVIEW_STAGES.includes(ctx.stage) && has("tests.run")) names.push("browse_preview");
   if (ctx.skills?.length) names.push("search_skill", "read_skill");
+  if (ctx.references?.items.length) names.push("list_references", "read_reference");
   return names.map((name) => TOOLS[name]);
 }
 
@@ -215,8 +239,11 @@ export function toolsFor(
 
 const ref = (ctx: ToolContext) => ctx.branch ?? ctx.defaultBranch;
 
-/** What a tool returns: the text for the model, plus a screenshot's storage key for the agent log (browse_preview). */
-type ToolOutput = { text: string; screenshotKey: string | null };
+/**
+ * What a tool returns: the text for the model, plus a screenshot's storage key for the agent log (browse_preview), an
+ * image for the model (read_reference) and the log target when the arguments don't name it (a reference's name).
+ */
+type ToolOutput = { text: string; screenshotKey: string | null; image?: ToolImage | null; target?: string | null };
 
 async function run(ctx: ToolContext, name: string, args: Record<string, unknown>): Promise<string | ToolOutput> {
   switch (name as ToolName) {
@@ -330,6 +357,12 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
       return searchSkill(ctx.skills, args.skill, args.query);
     case "read_skill":
       return readSkill(ctx.skills, args.skill, args.path, args.offset);
+    case "list_references":
+      return listReferencesForAgent(ctx.references?.items ?? [], ctx.references?.vision ?? false);
+    case "read_reference": {
+      const read = await readReferenceForAgent(ctx.references?.items ?? [], args.id, args.offset, ctx.references?.vision ?? false);
+      return { text: read.text, screenshotKey: null, image: read.image, target: read.target };
+    }
     default:
       return `Error: unknown tool ${name}.`;
   }
@@ -368,11 +401,20 @@ async function executeTool(ctx: ToolContext, allowed: FunctionTool[], name: stri
   }
 }
 
-/** Runs one tool call and returns its output for the model with its agent log step (toolStep, plus a screenshot key). */
-export async function callTool(ctx: ToolContext, allowed: FunctionTool[], name: string, rawArgs: string): Promise<{ output: string; step: ToolStep }> {
-  const { text, screenshotKey } = await executeTool(ctx, allowed, name, rawArgs);
-  const step = toolStep(name, rawArgs, text);
-  return { output: text, step: screenshotKey ? { ...step, screenshotKey } : step };
+/**
+ * Runs one tool call and returns its output for the model with its agent log step (toolStep, plus a screenshot key),
+ * and the image to attach when it read an image reference (the provider loop sends it; the log never holds it).
+ */
+export async function callTool(
+  ctx: ToolContext,
+  allowed: FunctionTool[],
+  name: string,
+  rawArgs: string
+): Promise<{ output: string; step: ToolStep; image: ToolImage | null }> {
+  const { text, screenshotKey, image, target } = await executeTool(ctx, allowed, name, rawArgs);
+  let step = toolStep(name, rawArgs, text);
+  if (target) step = { ...step, target };
+  return { output: text, step: screenshotKey ? { ...step, screenshotKey } : step, image: image ?? null };
 }
 
 /** One tool call, for the card's agent log. */
@@ -388,7 +430,7 @@ export type ToolStep = {
 };
 
 // Tools whose output is content (a file, a listing, a diff): logging it would copy the repo into the database.
-const READ_TOOLS = new Set(["list_files", "read_file", "search_code", "get_diff", "search_skill", "read_skill"]);
+const READ_TOOLS = new Set(["list_files", "read_file", "search_code", "get_diff", "search_skill", "read_skill", "list_references", "read_reference"]);
 const SUMMARY_MAX = 200;
 
 /**

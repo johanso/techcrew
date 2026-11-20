@@ -80,6 +80,7 @@ app/
     github/connect/           Starts GitHub OAuth for repository access (state + PKCE).
     github/callback/          Finishes it; stores the encrypted token.
     workspaces/[id]/logo/     Streams a workspace logo from S3 to its owner.
+    workspaces/[id]/references/[referenceId]/  Streams a card reference from S3 to the workspace owner (sandboxed).
     inngest/                  Inngest handler (serves the agent pipeline and auto pickup).
     switch-trust/scans/[scanId]/  Cloudhike job target: advances one SwitchAgent scan (single-use bearer token).
     switch-trust/agents/[agentId]/  OpenAI-compatible endpoint Switch evaluates an agent through (+ v1/chat/completions,
@@ -100,7 +101,8 @@ app/
                           (auth + validation).
       board/actions.ts    createCardAction, updateCardAction, moveCardsAction, removeCardAction, runCardAction,
                           answerCardAction (answer the analyst + run again), stopCardAction, mergeCardAction, switchProviderAndRetryAction (out of credit), getRunLogAction
-                          (agent log), syncIssuesAction (also refreshes agent PRs) (auth + validation).
+                          (agent log), syncIssuesAction (also refreshes agent PRs), listCardReferencesAction /
+                          uploadCardReferenceAction (one file per call) / removeCardReferenceAction (auth + validation).
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
       settings/           Your account: profile (#account), AI providers (#ai: account keys for every project, then "This
                           workspace only": automatic switch + optional workspace keys), spending this month across
@@ -119,6 +121,7 @@ components/
   auth/                   Auth-only UI (forms, social buttons, brand icons, FormMessage).
   workspace/              Workspace UI (avatar, create form, appearance + repo pickers, draft storage).
   board/                  Kanban: kanban-board (state + DndContext), board-column, board-card, card-dialog (create + edit),
+                          card-references (the dialog's References section: upload, list, remove),
                           board-toolbar (search + type tabs), board-filters (pure matching logic),
                           use-github-sync (polling hook), github-sync-controls (Refresh button, sync notice),
                           issue-meta (type/priority/column colors + PriorityBadge, IssueTypePill, DueDate — reuse everywhere),
@@ -167,13 +170,13 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   ai-keys.ts              AI provider keys: getAIKeys (owner's account key, else workspace key, else env; keyInUse),
                           getProviderKeyViews (masked), verifyProviderKey, saveProviderKey / removeProviderKey (account
                           or workspace scope, encrypted).
-  storage.ts              S3 uploads/reads, logo limits.
+  storage.ts              S3 uploads/reads/deletes (logos, screenshots, card references), logo limits.
   workspaces.ts           Workspace queries (always scoped by owner) + getDashboardContext().
   overview.ts             getOverviewData(): stats + upcoming tasks from getBoardData, recent work activity.
   activity.ts             getActivityFeed(): agent_activity + cards people created + task_events, newest first;
                           WORK_ACTIVITY_KINDS.
   agent-config.ts         AI Team vocabulary shared by server + client: roles + defaults (models per provider), PERMISSIONS,
-                          AGENT_MODELS (provider, maker, tier, pricing), PROVIDER_IDS / PROVIDERS, closestModel (same
+                          AGENT_MODELS (provider, maker, tier, vision, pricing), PROVIDER_IDS / PROVIDERS, closestModel (same
                           tier), agentModelFor, fallbackProvider, limits.
   agent-trust.ts          Trust Score: scanAgentRules() (deterministic; permissions, instructions, budget, enabled uploaded
                           skills' scan findings), trustGrade(). Pure.
@@ -245,12 +248,24 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           agent_run_messages, last-turn message);
                           modelUnavailableReason(), initialLoopState().
   agent-tools.ts          Agent tools on the GitHub API, filtered by stage + permissions; search_skill / read_skill when the
-                          agent has skills; protected paths, manifest gate;
+                          agent has skills; list_references / read_reference when the card has references; protected
+                          paths, manifest gate;
                           toolStep() (a call → agent log step; never stores file contents).
   pull-requests.ts        Agent PRs: mergeAgentPullRequest (mergeable + CI green, else Tester follow-up card),
                           mergeManually (user merge: card or PR page), refreshOpenPullRequests, getRerunPullRequest +
                           adoptPullRequest (rerun on the same PR), listPullRequests.
   board-config.ts         Board vocabulary shared by server + client: columns, issue types, priorities, BoardCard.
+  reference-config.ts     Card references vocabulary shared by server + client: kinds, limits, detectReferenceFormat (magic
+                          bytes), imageDimensions, validateReference, ReferenceView, what agents read (list, paged text,
+                          notes), referenceVisionProblem. Pure, tested.
+  references.ts           Card references persistence: addTaskReference (validate → S3 → PDF text → row under a card
+                          lock), listTaskReferences, removeTaskReference, deleteTaskReferences (card removed),
+                          getReferenceCounts, getOwnedReferenceFile (route); agents: getAgentReferences,
+                          readReferenceForAgent, loadReferenceImage.
+  reference-images.ts     Pure: reference images as model input per provider, as placeholders (`techteam-reference:<id>`)
+                          hydrated from S3 per request (OpenAI function_call_output, Anthropic tool_result, OpenRouter
+                          user message after the tool messages). Tested.
+  reference-pdf.ts        extractPdfText (unpdf, page and character caps) at upload.
   board.ts                Board persistence (tasks table): getBoardData (with latest runs), getBoardCard, createTask,
                           updateTask, reorderTasks, removeTask, assignTask, createAgentTask (agent-filed cards),
                           parseCardInput / parseBoardInput (server-side validation).
@@ -490,6 +505,15 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   Collapsed columns show `COLUMN_PREVIEW` cards (`previewCards` in `board-filters.ts`, tested) plus the dragged and
   highlighted card, with **Show N more** / **Show less** (`expanded` in `KanbanBoard`, per visit); filters show all;
   a drop past the preview opens the column.
+- **References** (`CardReferences` in the card dialog, `lib/references.ts`, [`docs/features.md`](docs/features.md#card-references)):
+  files the owner attaches to a saved card (GitHub cards too: board-owned) for the agents. Rules:
+  - **Type by content**, never the name alone (`detectReferenceFormat`): PNG/JPEG/WebP, UTF-8 Markdown/text, PDF. No
+    SVG. Limits live in `lib/reference-config.ts` only (10 per card; image 5 MB, text 1 MB, PDF 5 MB). The dialog sends
+    one file per Server Action call so each fits `serverActions.bodySizeLimit` (6 MB).
+  - **Files and PDF text live in S3** (`card-references/<workspace>/<task>/<uuid>.<ext>`); `task_references` keeps a
+    small row. Never put file content or base64 in the database. Served only by the owner-checked route.
+  - **Removing a card deletes its references** (`removeTask` → `deleteTaskReferences`: rows, then S3 best effort, logged).
+  - The board card shows a paperclip + `BoardCard.references` (count); the dialog reports changes back to the board.
 - **Board filters** (`BoardToolbar` + `board-filters.ts`): a search box (title or key — "ACM-142", "acm142",
   "#142", "142"; `/` focuses it, Escape clears) and segmented type tabs (All / Features / Bugs / Issues, counts follow
   the search). Filters only *hide* cards — `columns` keeps the full order, so drag and drop stays consistent while
@@ -599,6 +623,15 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     container per call on the preview's network (`--add-host`: Docker's DNS doesn't work under gVisor). The agent log
     keeps the path and the first line (`browseReport`, never page text) plus the screenshot key; the client only gets
     `RunLogStep.screenshot: boolean`. Tool call sites use `callTool` (output + log step).
+  - **References** (`list_references`, `read_reference`): offered in every stage when the card has references, read-only,
+    loaded every turn. Text and PDF text come back paged; images as image input, **never stored**: the conversation
+    (and OpenAI's pending outputs) keep a placeholder that `lib/reference-images.ts` hydrates from S3 per request (a
+    removed reference becomes a note). Keep the fixed-position rules of `agent_run_messages`. A model without `vision`
+    gets a note instead of the image. The agent log keeps the reference's name only. The protocol frames references as
+    the owner's requirements but data; the Analyst's brief lists the ones to follow (`AnalystBrief.references`).
+    Run and auto pickup refuse a card with images when the Analyst or the Developer can't see them
+    (`referenceModelProblem`; pickup then takes the next card without images, `nextPickupTask`); models are never
+    switched for the user.
   - **Permissions are enforced as tools** (`toolsFor` in `lib/agent-tools.ts`). Adding a capability = a tool gated by a
     permission there, not a prompt instruction. ("Skills" are knowledge, not capabilities: see Agent skills below.) Agents never write `.github/workflows/`, `.env*` (except `.env.example`) or
     `.git/`; manifests need `deps.manage`. Tool output is untrusted data — the stage protocol in `systemPrompt` says so.
@@ -640,7 +673,7 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     rewrite instead of duplicating. Never log tool *content* (file reads, diffs): only targets and short confirmations
     or errors (`toolStep`). The log sheet shows parallel stages as separate blocks, both live at once.
   - **Simulated mode** (`AGENTS_SIMULATED=true`) scripts every stage, including Security (pass) and the Lead (approve,
-    low risk), so the whole flow runs without a model. With the sandbox on, the Developer and the Tester also call
+    low risk), so the whole flow runs without a model. On a card with references each stage lists them and reads the first. With the sandbox on, the Developer and the Tester also call
     `run_tests` and `run_build` for real, and with previews on the Tester browses `/`.
   - **Out of credit** (`isOpenAIOutOfCredit` / `isAnthropicOutOfCredit` / `isOpenRouterOutOfCredit`) is not a generic failure: the run stops with
     `agent_runs.failure = { kind: "out_of_credit", provider }` and the board offers switch-and-retry

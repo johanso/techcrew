@@ -43,6 +43,8 @@ export type BoardCard = {
   updatedAt: string;
   /** The GitHub issue this card mirrors, or null for cards created in the app. */
   github: { number: number; url: string; state: "open" | "closed" } | null;
+  /** How many references (files for the agents) the card has. */
+  references: number;
 };
 
 /** Fields a user can set when creating or editing a card. */

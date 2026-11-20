@@ -87,35 +87,41 @@ export type ModelPricing = {
 /** Where a model sits on quality vs price. Moving an agent to another company keeps its tier (closestModel). */
 export type ModelTier = "flagship" | "balanced" | "efficient" | "fast";
 
+/**
+ * `vision`: the model takes image input (card references, lib/references.ts). Checked against each provider's model
+ * page: OpenAI's and Anthropic's docs; OpenRouter's /models `architecture.input_modalities` (2026-11-19). Run refuses a
+ * card with images when the Analyst or the Developer can't see them.
+ */
 export const AGENT_MODELS = [
-  { id: "gpt-6-astra", provider: "openai", maker: "OpenAI", tier: "flagship", label: "GPT-6 Astra", hint: "Flagship · hardest reasoning and coding", pricing: { input: 10, cachedInput: 1, cacheWrite: 12.5, output: 50 } },
-  { id: "gpt-6.1-sol", provider: "openai", maker: "OpenAI", tier: "balanced", label: "GPT-6.1 Sol", hint: "Balanced · complex coding at lower cost", pricing: { input: 2, cachedInput: 0.1, cacheWrite: 2.5, output: 10 } },
-  { id: "gpt-6.1-terra", provider: "openai", maker: "OpenAI", tier: "efficient", label: "GPT-6.1 Terra", hint: "Efficient · everyday tasks", pricing: { input: 1, cachedInput: 0.05, cacheWrite: 1.25, output: 5 } },
-  { id: "gpt-6-luna", provider: "openai", maker: "OpenAI", tier: "fast", label: "GPT-6 Luna", hint: "Fastest · high-volume, simple tasks", pricing: { input: 0.1, cachedInput: 0.01, cacheWrite: 0.125, output: 0.5 } },
-  { id: "claude-opus-5-5", provider: "anthropic", maker: "Anthropic", tier: "flagship", label: "Claude Opus 5.5", hint: "Flagship · hardest reasoning and agentic coding", pricing: { input: 4, cachedInput: 0.2, cacheWrite: 5, output: 20 } },
-  { id: "claude-sonnet-5-5", provider: "anthropic", maker: "Anthropic", tier: "balanced", label: "Claude Sonnet 5.5", hint: "Balanced · everyday coding and agents", pricing: { input: 2, cachedInput: 0.2, cacheWrite: 2.5, output: 10 } },
+  { id: "gpt-6-astra", provider: "openai", maker: "OpenAI", tier: "flagship", vision: true, label: "GPT-6 Astra", hint: "Flagship · hardest reasoning and coding", pricing: { input: 10, cachedInput: 1, cacheWrite: 12.5, output: 50 } },
+  { id: "gpt-6.1-sol", provider: "openai", maker: "OpenAI", tier: "balanced", vision: true, label: "GPT-6.1 Sol", hint: "Balanced · complex coding at lower cost", pricing: { input: 2, cachedInput: 0.1, cacheWrite: 2.5, output: 10 } },
+  { id: "gpt-6.1-terra", provider: "openai", maker: "OpenAI", tier: "efficient", vision: true, label: "GPT-6.1 Terra", hint: "Efficient · everyday tasks", pricing: { input: 1, cachedInput: 0.05, cacheWrite: 1.25, output: 5 } },
+  { id: "gpt-6-luna", provider: "openai", maker: "OpenAI", tier: "fast", vision: true, label: "GPT-6 Luna", hint: "Fastest · high-volume, simple tasks", pricing: { input: 0.1, cachedInput: 0.01, cacheWrite: 0.125, output: 0.5 } },
+  { id: "claude-opus-5-5", provider: "anthropic", maker: "Anthropic", tier: "flagship", vision: true, label: "Claude Opus 5.5", hint: "Flagship · hardest reasoning and agentic coding", pricing: { input: 4, cachedInput: 0.2, cacheWrite: 5, output: 20 } },
+  { id: "claude-sonnet-5-5", provider: "anthropic", maker: "Anthropic", tier: "balanced", vision: true, label: "Claude Sonnet 5.5", hint: "Balanced · everyday coding and agents", pricing: { input: 2, cachedInput: 0.2, cacheWrite: 2.5, output: 10 } },
   {
     id: "claude-haiku-5-5",
     provider: "anthropic",
     maker: "Anthropic",
     tier: "fast",
+    vision: true,
     label: "Claude Haiku 5.5",
     hint: "Fastest · high-volume, simple tasks",
     pricing: { input: 0.1, cachedInput: 0.01, cacheWrite: 0.125, output: 0.5, longPrompt: { aboveTokens: 100_000, input: 0.5, output: 2.5 } },
   },
   // OpenRouter: only models whose hosts support tools and structured outputs (every stage ends on a strict finish tool).
   // The first model of each tier is the one an agent lands on when it moves here (closestModel).
-  { id: "google/gemini-4-argon", provider: "openrouter", maker: "Google", tier: "flagship", label: "Gemini 4 Argon", hint: "Flagship · complex engineering and long multi-step work", pricing: { input: 2, cachedInput: 0.1, cacheWrite: 0.1875, output: 10 } },
-  { id: "x-ai/grok-4.7", provider: "openrouter", maker: "xAI", tier: "flagship", label: "Grok 4.7", hint: "Flagship · long coding tasks, checks its own work", pricing: { input: 2, cachedInput: 0.5, cacheWrite: 2, output: 6 } },
-  { id: "deepseek/deepseek-v4-pro-0813", provider: "openrouter", maker: "DeepSeek", tier: "balanced", label: "DeepSeek V4 Pro", hint: "Balanced · strong reasoning and coding for little", pricing: { input: 0.111, cachedInput: 0.097, cacheWrite: 0.111, output: 4.44 } },
-  { id: "z-ai/glm-5.3", provider: "openrouter", maker: "Z.ai", tier: "balanced", label: "GLM 5.3", hint: "Balanced · software engineering and long agent tasks", pricing: { input: 0.0699, cachedInput: 0.0689, cacheWrite: 0.0699, output: 1.4 } },
-  { id: "moonshotai/kimi-k3.1-pro", provider: "openrouter", maker: "Moonshot", tier: "balanced", label: "Kimi K3.1 Pro", hint: "Balanced · long-horizon coding; pricier output", pricing: { input: 0.253, cachedInput: 0.18, cacheWrite: 0.253, output: 8.8 } },
-  { id: "google/gemini-4-hydrogen", provider: "openrouter", maker: "Google", tier: "efficient", label: "Gemini 4 Hydrogen", hint: "Efficient · high-throughput agentic work", pricing: { input: 1.5, cachedInput: 0.075, cacheWrite: 0.0833, output: 7.5 } },
-  { id: "x-ai/grok-build-0.1", provider: "openrouter", maker: "xAI", tier: "efficient", label: "Grok Build 0.1", hint: "Efficient · fast model trained for agentic coding", pricing: { input: 1, cachedInput: 0.2, cacheWrite: 1, output: 2 } },
-  { id: "deepseek/deepseek-v4.1-flash", provider: "openrouter", maker: "DeepSeek", tier: "fast", label: "DeepSeek V4.1 Flash", hint: "Fastest · very cheap, routine checks", pricing: { input: 0.3, cachedInput: 0.006, cacheWrite: 0.3, output: 1.2 } },
-  { id: "z-ai/glm-5.3-flash", provider: "openrouter", maker: "Z.ai", tier: "fast", label: "GLM 5.3 Flash", hint: "Fastest · cheapest output, efficient coding", pricing: { input: 0.15, cachedInput: 0.03, cacheWrite: 0.15, output: 0.5 } },
-  { id: "google/gemini-3.8-flash", provider: "openrouter", maker: "Google", tier: "fast", label: "Gemini 3.8 Flash", hint: "Fast · agentic tasks and multi-step reasoning", pricing: { input: 0.825, cachedInput: 0.0825, cacheWrite: 0.0417, output: 4.125 } },
-] as const satisfies readonly { id: string; provider: AgentProvider; maker: string; tier: ModelTier; label: string; hint: string; pricing: ModelPricing }[];
+  { id: "google/gemini-4-argon", provider: "openrouter", maker: "Google", tier: "flagship", vision: true, label: "Gemini 4 Argon", hint: "Flagship · complex engineering and long multi-step work", pricing: { input: 2, cachedInput: 0.1, cacheWrite: 0.1875, output: 10 } },
+  { id: "x-ai/grok-4.7", provider: "openrouter", maker: "xAI", tier: "flagship", vision: true, label: "Grok 4.7", hint: "Flagship · long coding tasks, checks its own work", pricing: { input: 2, cachedInput: 0.5, cacheWrite: 2, output: 6 } },
+  { id: "deepseek/deepseek-v4-pro-0813", provider: "openrouter", maker: "DeepSeek", tier: "balanced", vision: false, label: "DeepSeek V4 Pro", hint: "Balanced · strong reasoning and coding for little", pricing: { input: 0.111, cachedInput: 0.097, cacheWrite: 0.111, output: 4.44 } },
+  { id: "z-ai/glm-5.3", provider: "openrouter", maker: "Z.ai", tier: "balanced", vision: false, label: "GLM 5.3", hint: "Balanced · software engineering and long agent tasks", pricing: { input: 0.0699, cachedInput: 0.0689, cacheWrite: 0.0699, output: 1.4 } },
+  { id: "moonshotai/kimi-k3.1-pro", provider: "openrouter", maker: "Moonshot", tier: "balanced", vision: true, label: "Kimi K3.1 Pro", hint: "Balanced · long-horizon coding; pricier output", pricing: { input: 0.253, cachedInput: 0.18, cacheWrite: 0.253, output: 8.8 } },
+  { id: "google/gemini-4-hydrogen", provider: "openrouter", maker: "Google", tier: "efficient", vision: true, label: "Gemini 4 Hydrogen", hint: "Efficient · high-throughput agentic work", pricing: { input: 1.5, cachedInput: 0.075, cacheWrite: 0.0833, output: 7.5 } },
+  { id: "x-ai/grok-build-0.1", provider: "openrouter", maker: "xAI", tier: "efficient", vision: true, label: "Grok Build 0.1", hint: "Efficient · fast model trained for agentic coding", pricing: { input: 1, cachedInput: 0.2, cacheWrite: 1, output: 2 } },
+  { id: "deepseek/deepseek-v4.1-flash", provider: "openrouter", maker: "DeepSeek", tier: "fast", vision: true, label: "DeepSeek V4.1 Flash", hint: "Fastest · very cheap, routine checks", pricing: { input: 0.3, cachedInput: 0.006, cacheWrite: 0.3, output: 1.2 } },
+  { id: "z-ai/glm-5.3-flash", provider: "openrouter", maker: "Z.ai", tier: "fast", vision: true, label: "GLM 5.3 Flash", hint: "Fastest · cheapest output, efficient coding", pricing: { input: 0.15, cachedInput: 0.03, cacheWrite: 0.15, output: 0.5 } },
+  { id: "google/gemini-3.8-flash", provider: "openrouter", maker: "Google", tier: "fast", vision: true, label: "Gemini 3.8 Flash", hint: "Fast · agentic tasks and multi-step reasoning", pricing: { input: 0.825, cachedInput: 0.0825, cacheWrite: 0.0417, output: 4.125 } },
+] as const satisfies readonly { id: string; provider: AgentProvider; maker: string; tier: ModelTier; vision: boolean; label: string; hint: string; pricing: ModelPricing }[];
 
 export type AgentModelId = (typeof AGENT_MODELS)[number]["id"];
 

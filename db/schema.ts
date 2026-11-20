@@ -368,6 +368,45 @@ export const taskEvents = pgTable(
 );
 
 /**
+ * A file the owner attached to a card for the agents to build from (an image, a Markdown or text file, a PDF). The
+ * file and a PDF's extracted text live in private S3 (lib/references.ts); this row only says what and where, so it
+ * stays tiny. Deleted with its S3 objects when the card is removed (rows of a deleted workspace cascade).
+ */
+export const taskReferences = pgTable(
+  "task_references",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    taskId: integer("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    // REFERENCE_KINDS in lib/reference-config.ts: "image" | "text" | "pdf".
+    kind: text("kind").notNull(),
+    // Display name (the uploaded file's name, cleaned).
+    name: text("name").notNull(),
+    // Detected from the bytes, not the browser's claim.
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    // S3 key: card-references/<workspaceId>/<taskId>/<uuid>.<ext>. Never sent to a client.
+    storageKey: text("storage_key").notNull(),
+    // PDFs: S3 key of the extracted text (null when the PDF had none), its length and the page count.
+    textKey: text("text_key"),
+    textLength: integer("text_length"),
+    pageCount: integer("page_count"),
+    // Images: pixel size.
+    width: integer("width"),
+    height: integer("height"),
+    createdById: integer("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("task_references_task_idx").on(table.taskId)]
+);
+
+export type TaskReferenceRow = typeof taskReferences.$inferSelect;
+
+/**
  * A workspace's Switch Trust account (Settings → Switch Trust). Agents are registered there and evaluated by it;
  * see lib/switch-trust.ts.
  */

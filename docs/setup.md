@@ -51,7 +51,7 @@ All variables live in `.env`. Restart `npm run dev` after changing them.
 | `S3_ENDPOINT` | for logos | `lib/storage.ts` | S3 API endpoint, e.g. `https://s3.us-east-1.amazonaws.com`. Any S3-compatible service works. |
 | `S3_REGION` | for logos | `lib/storage.ts` | Bucket region. |
 | `S3_BUCKET` | for logos | `lib/storage.ts` | Bucket name. Keep it **private**; logos are served through the app. |
-| `S3_ACCESS_KEY_ID` | for logos | `lib/storage.ts` | Access key with `s3:PutObject` and `s3:GetObject` on the bucket. |
+| `S3_ACCESS_KEY_ID` | for logos | `lib/storage.ts` | Access key with `s3:PutObject`, `s3:GetObject` and `s3:DeleteObject` on the bucket (logos, screenshots, card references). |
 | `S3_SECRET_ACCESS_KEY` | for logos | `lib/storage.ts` | Matching secret. |
 | `OPENAI_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback; users normally save their own key once in Settings → Your account → AI keys. Agents on GPT models; **Draft with AI** and AI-assisted trust scans (on `gpt-6.1-sol`). Without any provider key the page works with default instructions and rule-based scans. Model cost is charged to the agent's monthly budget. |
 | `ANTHROPIC_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback, as above. Agents on Claude models (Opus / Sonnet / Haiku 5.5). Also drafting and trust scans (on `claude-sonnet-5-5`) when `OPENAI_API_KEY` isn't set. A Console API key (pay as you go); a Claude.ai subscription can't be used. |
@@ -117,8 +117,11 @@ approve the OAuth App (GitHub → Organization settings → Third-party access) 
 
 ### S3 bucket (optional)
 
-Create a private bucket (block all public access) and an access key limited to that bucket. Logos are stored
-under `workspace-logos/<ownerId>/<uuid>.<ext>` and streamed to their owner by `/api/workspaces/[id]/logo`.
+Create a private bucket (block all public access) and an access key limited to that bucket, with `s3:PutObject`,
+`s3:GetObject` and `s3:DeleteObject`. Logos are stored under `workspace-logos/<ownerId>/<uuid>.<ext>` and streamed to
+their owner by `/api/workspaces/[id]/logo`; card references under `card-references/<workspaceId>/<taskId>/<uuid>.<ext>`
+(served by `/api/workspaces/[id]/references/[referenceId]`, deleted with their card). Without a bucket, the card
+dialog says references can't be added.
 
 ### Inngest
 

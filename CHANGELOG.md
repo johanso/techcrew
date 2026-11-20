@@ -8,6 +8,26 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+### Added
+- **References on a card**: attach images (PNG, JPEG, WebP), Markdown or text files and PDFs in the card dialog's
+  References section, several at once, for any saved card (GitHub cards too). Up to 10 per card; images up to 5 MB and
+  8000 × 8000 px, text up to 1 MB, PDFs up to 5 MB. Files are checked by their content (an SVG or a renamed file is
+  refused), kept in the private bucket and opened through an owner-only link. A PDF's text (up to 100 pages) is
+  extracted once at upload; a scanned PDF says it has none. The board card shows a paperclip with the count. Removing
+  the card deletes its references.
+- **Agents read references** with two read-only tools in every stage, `list_references` and `read_reference`: text and
+  PDF text in pages, images as image input on OpenAI, Anthropic and OpenRouter (sent as base64 from private storage,
+  never a link). The Analyst's brief names the references the Developer must follow; the Developer follows them, and
+  the Reviewer, the Lead and the Tester can check the work against them. References are the owner's requirements but
+  still data for the operating protocol. Simulated agents list and read the first reference.
+- Every model in AI Team → Configure is marked as seeing images or not. **Run** (and auto pickup) refuses a card with
+  images when the Analyst's or the Developer's model can't see them (DeepSeek V4 Pro, GLM 5.3), with a link to the AI
+  Team page. Models are never switched for you.
+
+### Database
+- Migration `0013_card_references`: `task_references` (one small row per reference: kind, name, type, size, S3 keys,
+  PDF pages and text length, image size; files and PDF text live in S3; additive).
+
 ## [0.5.0] — 2026-11-19
 
 Agents run the code: a sandbox for tests and builds, a live preview of each pull request that the Tester tries in a

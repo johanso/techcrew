@@ -105,27 +105,42 @@ Run TechTeam itself on the VPS, so nothing has to run on a laptop: open `https:/
 - **Project skills**: read skills from the linked repository (e.g. `.agents/skills/`, `.claude/skills/`) as a third
   source (`agent_skills.source = 'project'` is reserved), scanned like uploads.
 
-### v0.7 — Designer agent and sandbox polish
-The next step on the sandbox (milestones 1 and 2 shipped in v0.5), tested against `techteam-sandbox-demo`.
-1. **Designer agent** (seventh role, a reviewer first)
-   - Reviews in parallel with the Reviewer and Security: screenshots of the changed pages at 375 / 768 / 1280 px in
-     light and dark from the run's preview (`browse_preview` with `PREVIEW_STAGES` including `review`), read by a
-     vision model; findings go to the Lead.
-   - Face, defaults, AI Team card, live process and metrics like every role.
-2. **Sandbox polish**
+### v0.7 — Card references and sandbox polish
+The owner designs and specifies outside TechTeam (a design tool, a document); the agents build from it. Tested against
+`techteam-sandbox-demo`.
+1. **References on a card**
+   - Attach images (PNG, JPEG, WebP), Markdown or text and PDFs to a card, plus reference URLs. Private S3 like logos,
+     served through owner-checked routes; limits on count and size. Files and extracted PDF text live in S3; the
+     database keeps only a small row per reference. Removing the card deletes its references.
+   - A reference URL is captured once, when it's added (screenshot + page outline, by the sandbox browser with network
+     but no access to anything internal), and kept as an attachment: agents never browse the internet.
+   - Agents read references on demand, like skills (`list_references` / `read_reference`): Markdown and PDF text as
+     text, images as image input. The Analyst's brief says which references matter; the Developer follows them.
+   - Models that see images are flagged in `AGENT_MODELS`; Run warns when a card has images and the Developer's model
+     can't see them (DeepSeek can't). Image input per provider (OpenAI, Anthropic, OpenRouter), also from tool results.
+   - References are the owner's requirements but still data: they can't change the operating protocol or add tools.
+2. **The Tester compares with the reference**: screenshots of the preview at the reference's size (375 / 768 / 1280 px,
+   light and dark) seen next to it; a clear difference is a test fail and goes back to the Developer. Feeding the
+   Tester's own screenshots to its model comes with this (today they only reach the agent log).
+3. **A UI/UX skill**: a built-in design skill (vendored with its license) for the Developer and the Tester, so a rough
+   image becomes a good page (spacing, states, accessibility, mobile, dark mode) instead of a copy of its flaws.
+4. **Sandbox polish**
    - Sandbox numbers on the Metrics page; limits per workspace; cleanup of stale containers, previews, images and
      screenshot objects (they stay in S3 today).
    - Still unseen live: the Developer fixing a failure it found, and a preview stopping on merge.
    - A Docker socket proxy for Caddy; an optional login in front of previews for private apps; a slimmer browser
      image pinned by digest; Draft with AI aware of the browser; git history inside the sandbox (`git diff` fails on a
      tarball checkout).
-3. Docs, test plan rows, CHANGELOG, release **v0.7.0**.
+5. Docs, test plan rows, CHANGELOG, release **v0.7.0**.
 
 ### v0.8 — Brain
 - A project memory every agent reads before working: repository conventions, decisions, what earlier cards learned.
   Kept per workspace, editable by the owner.
 
 ### Later
+- **Designer agent**: builds on v0.7's references and image input. Design QA first (the preview against the approved
+  reference), then a Design phase before development: two or three directions from the card's prompt as HTML mockups,
+  improved by looking at their own screenshots, and the owner picks one before the Developer starts.
 - **Production** step after merge (deploy, check, roll back).
 - Throughput: several cards at once per workspace.
 

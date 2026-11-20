@@ -3,8 +3,8 @@ import "server-only";
 import { eq } from "drizzle-orm";
 
 import { db, tasks, workspaces } from "@/db";
-import { pipelineModelProblem } from "@/lib/agent-pipeline";
-import { createRun, findAutoPickupCandidates } from "@/lib/agent-runs";
+import { pipelineModelProblem, referenceModelProblem } from "@/lib/agent-pipeline";
+import { createRun, findAutoPickupCandidates, nextPickupTask } from "@/lib/agent-runs";
 import { checkAgentCanRun, logAgentActivity, taskKeyPrefix } from "@/lib/agents";
 import { inngest } from "@/lib/inngest/client";
 import { AGENT_TASK_RUN, type AgentTaskRunData } from "@/lib/inngest/agent-run";
@@ -25,20 +25,28 @@ export const agentAutoPickup = inngest.createFunction(
         if (!allowed.ok) continue;
         // No key for an agent's model (Settings → AI providers): don't start a run that would stop halfway.
         if (await pipelineModelProblem(pick.workspaceId)) continue;
-        const run = await createRun({ workspaceId: pick.workspaceId, taskId: pick.taskId, trigger: "auto" });
-        started.push({ workspaceId: pick.workspaceId, taskId: pick.taskId, runId: run.id });
-        // Like Run on the board, the activity feed says who took the card; here nobody clicked, so it says why.
+        // Images on the card and an Analyst or Developer that can't see them: like Run, that card waits for a model
+        // change, and the next card without images goes instead.
+        if (await referenceModelProblem(pick.workspaceId, pick.taskId, `#${pick.taskId}`)) {
+          const next = await nextPickupTask(pick.workspaceId, { withoutImages: true });
+          if (next === null) continue;
+          pick.taskId = next;
+        }
         const [card] = await db
           .select({ number: tasks.number, title: tasks.title, workspace: workspaces.name })
           .from(tasks)
           .innerJoin(workspaces, eq(workspaces.id, tasks.workspaceId))
           .where(eq(tasks.id, pick.taskId));
+        const key = card ? `${taskKeyPrefix(card.workspace)}-${card.number}` : `#${pick.taskId}`;
+        const run = await createRun({ workspaceId: pick.workspaceId, taskId: pick.taskId, trigger: "auto" });
+        started.push({ workspaceId: pick.workspaceId, taskId: pick.taskId, runId: run.id });
+        // Like Run on the board, the activity feed says who took the card; here nobody clicked, so it says why.
         if (card) {
           await logAgentActivity({
             workspaceId: pick.workspaceId,
             agentId: allowed.row.id,
             kind: "task_assigned",
-            title: `Picked up ${taskKeyPrefix(card.workspace)}-${card.number}`,
+            title: `Picked up ${key}`,
             detail: `${card.title} (auto pickup)`,
             taskId: pick.taskId,
           }).catch((error) => console.error("[pickup] activity not logged", error));

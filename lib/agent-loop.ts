@@ -19,6 +19,16 @@ import { callTool, type ToolContext, type ToolStep } from "@/lib/agent-tools";
 import { anthropicClient, messageCostMicros, toClaudeSchema } from "@/lib/anthropic";
 import { openAIClient, responseCostMicros } from "@/lib/openai";
 import { OPENROUTER_ROUTING, completionCostMicros, openRouterClient, parseFinishArguments } from "@/lib/openrouter";
+import {
+  chatImagesMessage,
+  claudeToolResultContent,
+  hydrateChatMessages,
+  hydrateClaudeMessages,
+  hydrateOpenAIInput,
+  memoLoader,
+  openAIToolOutput,
+  type ImageLoader,
+} from "@/lib/reference-images";
 
 /**
  * One turn of an agent's tool loop, on the agent's model provider. The pipeline calls it once per Inngest step,
@@ -29,6 +39,9 @@ import { OPENROUTER_ROUTING, completionCostMicros, openRouterClient, parseFinish
  * - Anthropic (Messages API) and OpenRouter (Chat Completions) are stateless: the conversation is stored in
  *   agent_run_messages and the state only says how many of its messages are committed, so a retried turn overwrites
  *   its own rows instead of appending.
+ *
+ * Images an agent reads (read_reference) are kept as placeholders in the state and the stored history, and loaded
+ * from private storage for each request (lib/reference-images.ts): no base64 in the database or in step output.
  *
  * A stage ends when the agent calls its finish tool (structured result). On the last allowed turn the agent is
  * told to finish (OpenAI: the finish tool is forced; Claude 5.5 models and many OpenRouter hosts reject forced
@@ -98,6 +111,8 @@ type TurnInput = {
   toolContext: ToolContext;
   state: LoopState;
   forceFinish: boolean;
+  /** Loads a reference image of the run's card as base64 for the request (null when it was removed since). */
+  loadImage: ImageLoader;
 };
 
 export async function agentTurn<T>(input: TurnInput): Promise<TurnOutcome<T>> {
@@ -121,7 +136,7 @@ async function openAITurn<T>(input: TurnInput, state: Extract<LoopState, { provi
     {
       model: state.model,
       instructions: input.instructions,
-      input: state.pending,
+      input: await hydrateOpenAIInput(state.pending, memoLoader(input.loadImage)),
       tools,
       tool_choice: input.forceFinish ? { type: "function", name: input.finish.name } : "auto",
       previous_response_id: state.previousResponseId,
@@ -145,8 +160,8 @@ async function openAITurn<T>(input: TurnInput, state: Extract<LoopState, { provi
   const pending: ResponseInput = [];
   const steps: ToolStep[] = [];
   for (const call of calls) {
-    const { output, step } = await callTool(input.toolContext, input.tools, call.name, call.arguments);
-    pending.push({ type: "function_call_output", call_id: call.call_id, output });
+    const { output, step, image } = await callTool(input.toolContext, input.tools, call.name, call.arguments);
+    pending.push({ type: "function_call_output", call_id: call.call_id, output: openAIToolOutput(output, image) });
     steps.push(step);
   }
   return { state: next(pending), costMicros, steps, result: null };
@@ -194,7 +209,7 @@ async function claudeTurn<T>(input: TurnInput, state: Extract<LoopState, { provi
   if (!input.apiKey) throw new NonRetriableError("The Anthropic API key was removed. Add it again in Settings → AI providers.");
   const anthropic = anthropicClient(input.apiKey);
 
-  const history = await loadMessages<BetaMessageParam>(state.runId, state.conversation, state.length);
+  const history = await hydrateClaudeMessages(await loadMessages<BetaMessageParam>(state.runId, state.conversation, state.length), memoLoader(input.loadImage));
   // The last-turn instruction rides as a mid-conversation system message: it isn't stored, and the stage ends here.
   const messages: BetaMessageParam[] = input.forceFinish ? [...history, { role: "system", content: lastTurn(input.finish.name) }] : history;
   const fallback = FALLBACK_MODELS.includes(state.model);
@@ -241,13 +256,13 @@ async function claudeTurn<T>(input: TurnInput, state: Extract<LoopState, { provi
       results.push({ type: "tool_result", tool_use_id: block.id, is_error: true, content: "Your output was cut off before this call was complete. Send it again, in smaller pieces if needed." });
       continue;
     }
-    const { output, step } = await callTool(input.toolContext, input.tools, block.name, args);
-    results.push({ type: "tool_result", tool_use_id: block.id, content: output });
+    const { output, step, image } = await callTool(input.toolContext, input.tools, block.name, args);
+    results.push({ type: "tool_result", tool_use_id: block.id, content: claudeToolResultContent(output, image) });
     steps.push(step);
   }
   const reply: BetaMessageParam = results.length ? { role: "user", content: results } : { role: "user", content: NUDGE };
 
-  // Stored verbatim: thinking and fallback blocks must go back to the API unchanged.
+  // Stored verbatim (images as placeholders): thinking and fallback blocks must go back to the API unchanged.
   await saveMessages(state.runId, state.conversation, state.length, [{ role: "assistant", content: response.content }, reply]);
   return { state: { ...state, turn: state.turn + 1, length: state.length + 2 }, costMicros, steps, result: null };
 }
@@ -280,7 +295,7 @@ async function openRouterTurn<T>(input: TurnInput, state: Extract<LoopState, { p
   if (!input.apiKey) throw new NonRetriableError("The OpenRouter API key was removed. Add it again in Settings → AI providers.");
   const client = openRouterClient(input.apiKey);
 
-  const history = await loadMessages<ChatCompletionMessageParam>(state.runId, state.conversation, state.length);
+  const history = await hydrateChatMessages(await loadMessages<ChatCompletionMessageParam>(state.runId, state.conversation, state.length), memoLoader(input.loadImage));
   // The last-turn instruction isn't stored: the stage ends here. A user message, since hosts differ on late system ones.
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: input.instructions },
@@ -316,6 +331,7 @@ async function openRouterTurn<T>(input: TurnInput, state: Extract<LoopState, { p
   // Every tool call must be answered, each with its own tool message.
   const replies: ChatCompletionMessageParam[] = [];
   const steps: ToolStep[] = [];
+  const images: Parameters<typeof chatImagesMessage>[0] = [];
   for (const call of calls) {
     const { name, arguments: args } = call.function;
     let output: string;
@@ -325,9 +341,13 @@ async function openRouterTurn<T>(input: TurnInput, state: Extract<LoopState, { p
       const called = await callTool(input.toolContext, input.tools, name, args);
       output = called.output;
       steps.push(called.step);
+      if (called.image) images.push({ ...called.image, name: called.step.target ?? `reference ${called.image.referenceId}` });
     }
     replies.push({ role: "tool", tool_call_id: call.id, content: output });
   }
+  // Tool messages carry text only: this turn's images follow them in one user message.
+  const imagesMessage = chatImagesMessage(images);
+  if (imagesMessage) replies.push(imagesMessage);
   if (!replies.length) replies.push({ role: "user", content: NUDGE });
 
   const turnMessages = [assistantReply(choice.message), ...replies];

@@ -11,6 +11,7 @@ import {
   ExternalLinkIcon,
   GitMergeIcon,
   MessageCircleReplyIcon,
+  PaperclipIcon,
   PlayIcon,
   ScrollTextIcon,
   Trash2Icon,
@@ -73,6 +74,16 @@ export function BoardCardView({
       <div className="flex items-center justify-between gap-2 border-t border-border/70 pt-3 text-xs text-muted-foreground">
         <PriorityBadge priority={card.priority} />
         <div className="flex min-w-0 items-center gap-2.5">
+          {card.references > 0 && (
+            <span
+              className="inline-flex items-center gap-1 font-medium tabular-nums"
+              title={`${card.references} reference${card.references === 1 ? "" : "s"}`}
+            >
+              <PaperclipIcon className="size-3" aria-hidden />
+              {card.references}
+              <span className="sr-only">{card.references === 1 ? " reference" : " references"}</span>
+            </span>
+          )}
           {card.github && (
             <span className="inline-flex items-center gap-1 font-medium tabular-nums" title={`GitHub issue #${card.github.number}`}>
               <GitHubIcon className="size-3" />#{card.github.number}

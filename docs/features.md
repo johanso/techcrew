@@ -154,8 +154,8 @@ A search or type filter shows every match. A card dropped below a closed column'
 - type pill (Feature ✦, Bug 🐞, Issue ◉) and the key (`ACM-142`, always);
 - title (up to three lines), labels;
 - priority (Urgent / High / Medium / Low, as a colored dot), GitHub issue number for synced cards (`#12`), due date
-  ("Today", "Tomorrow", or the date; red with a calendar-x icon when overdue — not in Done), and the assigned agent's
-  avatar;
+  ("Today", "Tomorrow", or the date; red with a calendar-x icon when overdue — not in Done), a paperclip with the
+  number of [references](#card-references) when it has some, and the assigned agent's avatar;
 - a **▶ Run** button and a **⋯** menu (see [Card actions](#card-actions-run-and-remove)).
 
 **Creating** — **New** (header) opens a menu: Feature, Bug or Issue. Each column's **+** does the same with that column
@@ -186,6 +186,39 @@ to the end of that column. For GitHub cards, title, description and labels are r
 **Layout** — the board scrolls horizontally when the six columns don't fit (snapping to columns on mobile).
 
 Code: `components/board/*`, `lib/board.ts`, `lib/board-config.ts`, `app/dashboard/[workspaceId]/board/actions.ts`.
+
+## Card references
+
+Files the owner attaches to a card so the agents build from them: a design exported from a design tool, a spec, a
+document. They're in the **References** section of the card dialog, for every saved card (GitHub cards too: references
+belong to the board, not to the issue). A new card says "Save the card to add references."
+
+- **Add files** takes several at once: PNG, JPEG or WebP images (up to 5 MB and 8000 × 8000 px), Markdown or text
+  (up to 1 MB), PDFs (up to 5 MB). Up to **10 per card**. Each file is checked by its content, not its name: an SVG, a
+  GIF or a PDF renamed `.png` is refused with a reason. Files upload one by one ("Uploading home.png…"), so one bad
+  file doesn't stop the others.
+- Each row shows a thumbnail (images) or an icon, the name (opens the file in a new tab; PDFs download) and what it is
+  ("1280 × 800 · 240 KB", "12 pages · 2 MB", "no text found" for a scanned PDF). The trash button asks **Remove** /
+  **Keep** in place before deleting.
+- The board card shows a paperclip and the count.
+- **PDFs** are read once, at upload: the text of up to 100 pages (300,000 characters) is kept for the agents. A scanned
+  PDF has no text; the agents are told so.
+- **Removing the card** deletes its references, files included. Without file storage on the server (`S3_*`), the
+  section says references can't be added.
+
+**What the agents do with them.** Every agent gets `list_references` and `read_reference` on a card with references,
+like skills: Markdown, text and PDF text come back as text (in pages), images as the image itself. The task lists the
+references by name; the Analyst names in its brief the ones the Developer must follow and what each is for; the
+Developer reads and follows them (the card's text wins where they disagree, and it says so); the Reviewer, the Lead and
+the Tester read them to check the work. References are the owner's requirements but still data: nothing in them can
+change the agents' rules or tools.
+
+**Models that can't see images.** Run is refused when the card has images and the **Analyst** or the **Developer** uses a
+model without vision (DeepSeek V4 Pro, GLM 5.3), with a link to the AI Team page; auto pickup leaves such a card in Todo
+and takes the next card without images. Models are never switched for you. Another agent on such a model that reads an image gets a note instead.
+
+Code: `components/board/card-references.tsx`, `lib/references.ts`, `lib/reference-config.ts`, `lib/reference-images.ts`,
+`lib/reference-pdf.ts`, `app/api/workspaces/[id]/references/[referenceId]/route.ts`.
 
 ## GitHub issues on the board
 
@@ -224,8 +257,9 @@ card's drag area, so using them never starts a drag or opens the dialog.
 
 - **Run** starts the agent pipeline (see [Agent pipeline](#agent-pipeline)): the card moves to **Analysis**, the
   Analyst's avatar appears and the card shows "Queued for the agents". ▶ stays disabled (spinner) while the agents
-  work. Run is refused when the agents are already on the card, when an agent's model has no provider key (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`; `AGENTS_SIMULATED=true` runs scripted agents instead), or while the Analyst is
-  paused or over budget.
+  work. Run is refused when the agents are already on the card, when an agent's model has no provider key (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`; `AGENTS_SIMULATED=true` runs scripted agents instead), while the Analyst is
+  paused or over budget, or when the card has image references and the Analyst's or the Developer's model can't see
+  images (the error links to the AI Team page).
 - **Stop agents** (while a run is active) cancels it between steps. The card is unassigned and stays in its column
   (back to Todo if it was still in Analysis); the branch and pull request, if any, are kept.
 - **Remove task** asks for confirmation, then takes the card off the board. For GitHub cards the issue stays open
@@ -290,6 +324,8 @@ Review, so the board still has six columns:
   *Manage dependencies*; CI workflows, `.env*` files (except `.env.example`) and `.git/` can never be written.
 - **Skills** (see [Agent skills](#agent-skills)): an agent with skills switched on sees them listed in its prompt and
   gets two read-only tools in every stage, `search_skill` and `read_skill`; always-loaded skills ride in the prompt.
+- **References** (see [Card references](#card-references)): on a card with references every agent gets
+  `list_references` and `read_reference` in every stage; the Analyst's brief lists the ones to follow.
 - If one of the two parallel reviewers stops (paused, budget, error), the other stops at its next turn and the run
   ends with the first reason (one notification).
 - Each card shows its run: phase in progress ("Reviewing…", "Waiting for CI on PR #n…", "Approving…"), "Analyst needs info" + the question, "Agents stopped" + the reason,

@@ -10,6 +10,7 @@ The hosted auth service keeps identities elsewhere (its own `auth` schema); the 
 - [user_ai_keys](#user_ai_keys)
 - [ai_provider_keys](#ai_provider_keys)
 - [tasks](#tasks)
+- [task_references](#task_references)
 - [agents](#agents)
 - [agent_skills, agent_skill_files, agent_skill_assignments](#agent_skills)
 - [agent_activity](#agent_activity)
@@ -44,6 +45,8 @@ erDiagram
     workspaces ||--o| switch_connections : "Switch account (0..1)"
     agents ||--o{ trust_scans : "SwitchAgent scans"
     tasks ||--o{ task_events : "moved, edited, removed"
+    tasks ||--o{ task_references : "files for the agents"
+    users |o--o{ task_references : "uploaded (nullable)"
     users |o--o{ task_events : "by (nullable)"
     workspaces ||--o{ agent_skills : "skill library"
     agent_skills ||--o{ agent_skill_files : "uploaded files"
@@ -281,6 +284,33 @@ Indexes and constraints:
 | `tasks_workspace_github_issue_unique` | `(workspace_id, github_issue_id)` | One card per GitHub issue, even with concurrent syncs. |
 | `tasks_workspace_status_position_idx` | `(workspace_id, status, position)` | Loading and ordering columns. |
 
+## task_references
+
+A file the owner attached to a card for the agents (an image, a Markdown or text file, a PDF): see
+[features.md](features.md#card-references). The file itself, and a PDF's extracted text, live in the private S3
+bucket under `card-references/<workspace_id>/<task_id>/<uuid>.<ext>`; the row only says what and where, so it stays a
+few hundred bytes. Limits (10 per card, sizes per kind) are in [`lib/reference-config.ts`](../lib/reference-config.ts).
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | serial | no | | Primary key. The id agents use in `read_reference`. |
+| `workspace_id` | integer | no | | → `workspaces.id`, cascade. |
+| `task_id` | integer | no | | → `tasks.id`, cascade. Indexed. |
+| `kind` | text | no | | `image` \| `text` \| `pdf`. |
+| `name` | text | no | | The uploaded file's name, without a path or control characters, ≤ 120 characters. |
+| `content_type` | text | no | | Detected from the bytes: `image/png`, `image/jpeg`, `image/webp`, `text/markdown`, `text/plain` or `application/pdf`. |
+| `size_bytes` | integer | no | | |
+| `storage_key` | text | no | | S3 key of the file. Never sent to a client. |
+| `text_key` | text | yes | | PDFs: S3 key of the extracted text; null when the PDF had none (a scan). |
+| `text_length` | integer | yes | | PDFs: characters of extracted text (0 = none). |
+| `page_count` | integer | yes | | PDFs: pages in the document. |
+| `width`, `height` | integer | yes | | Images: pixel size, read from the file's header. |
+| `created_by_id` | integer | yes | | → `users.id`, set null. |
+| `created_at` | timestamp | no | `now()` | |
+
+Removing a card deletes its references (rows, then S3 objects, best effort and logged), unlike the card itself, which
+stays as a tombstone.
+
 ## agents
 
 One row per agent role per workspace. The six roles (`analyst`, `developer`, `reviewer`, `security`, `lead`,
@@ -422,7 +452,7 @@ shows each card's latest run.
 | `status` | text | no | | `RUN_STATUSES`: `queued`, `running`, `awaiting_merge`, `completed`, `needs_info`, `failed`, `cancelled`. |
 | `stage` | text | yes | | The current phase, `RUN_STAGES`: `analysis`, `development`, `review` (Reviewer and Security in parallel), `approval` (Lead), `testing`, `merge`. |
 | `branch` | text | yes | | `agent/<key>-<slug>` (suffix `-r<id>` if a previous run left that name). |
-| `brief` | jsonb | yes | | `AnalystBrief`: decision, summary, acceptance criteria, plan, relevant files, notes, question. |
+| `brief` | jsonb | yes | | `AnalystBrief`: decision, summary, acceptance criteria, plan, relevant files, the references to follow (from v0.7), notes, question. |
 | `review` | jsonb | yes | | `ReviewReport` (Reviewer): verdict, summary, findings. |
 | `security_report` | jsonb | yes | | `SecurityReport` (Security, same round as `review`): verdict `pass`/`issues`, summary, findings with severity (critical…low), category (secrets, injection, permissions, dependencies, other), path, detail. |
 | `approval` | jsonb | yes | | `LeadDecision`: decision (`approve` / `request_changes`), final risk (`low`/`medium`/`high`, already raised to `riskFloor`), risk reasons, summary, required changes (source, path, detail). |
@@ -448,7 +478,7 @@ history on every turn.
 | `run_id` | integer | no | | → `agent_runs.id`, cascade. |
 | `conversation` | text | no | | `<agent stage>:<rework round>`, e.g. `development:1`, `security:0`. |
 | `seq` | integer | no | | Position in the conversation. **Unique with `run_id`, `conversation`**: a retried turn overwrites its own rows. |
-| `message` | jsonb | no | | The provider's message param, verbatim: Anthropic (thinking blocks must go back unchanged) or Chat Completions (OpenRouter; tool calls and `reasoning_details` go back unchanged). |
+| `message` | jsonb | no | | The provider's message param, verbatim: Anthropic (thinking blocks must go back unchanged) or Chat Completions (OpenRouter; tool calls and `reasoning_details` go back unchanged). A reference image an agent read is stored as a placeholder (`techteam-reference:<id>`), never as base64; each request loads it from S3 again (`lib/reference-images.ts`). |
 | `created_at` | timestamp | no | `now()` | |
 
 ## agent_run_steps
@@ -537,8 +567,8 @@ cards can't be read, edited, moved, assigned or run.
 `SELECT … FROM workspaces WHERE id = ? FOR UPDATE` inside a transaction, which serializes numbering and syncs per
 workspace.
 
-**Deleting a user or workspace** cascades to everything below it (connections, workspaces, tasks, agents, agent activity, runs, pull requests). There's no UI
-for either yet.
+**Deleting a user or workspace** cascades to everything below it (connections, workspaces, tasks, card references, agents, agent activity, runs, pull requests). There's no UI
+for either yet. S3 objects (logos, screenshots, card references) aren't deleted by a cascade.
 
 ## Schema changes
 

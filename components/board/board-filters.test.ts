@@ -12,6 +12,7 @@ const card = (overrides: Partial<BoardCard> = {}): BoardCard => ({
   priority: "medium",
   assignee: null,
   run: null,
+  references: 0,
   labels: [],
   dueDate: null,
   createdAt: "2026-11-01T00:00:00.000Z",

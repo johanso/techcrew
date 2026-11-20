@@ -71,6 +71,8 @@ export const TOOL_LABEL: Record<string, string> = {
   get_checks: "Checked CI",
   search_skill: "Searched skill",
   read_skill: "Read skill",
+  list_references: "Listed references",
+  read_reference: "Read reference",
   run_tests: "Ran the tests",
   run_build: "Ran the build",
   run_command: "Ran",
@@ -130,6 +132,8 @@ export type AnalystBrief = {
   relevantFiles: string[];
   /** Extra guidance for the developer. */
   developerNotes: string;
+  /** The card's references the developer must follow, each with what it's for (absent on briefs before v0.7). */
+  references?: string[];
   /** What the analyst needs answered (decision = needs_info). */
   question: string;
 };

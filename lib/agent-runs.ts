@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, asc, desc, eq, inArray, isNull, max, min, ne, notExists, sql } from "drizzle-orm";
 
-import { agentRunSteps, agentRuns, db, pullRequests, tasks, workspaces, type AgentRunRow } from "@/db";
+import { agentRunSteps, agentRuns, db, pullRequests, taskReferences, tasks, workspaces, type AgentRunRow } from "@/db";
 import type { AgentKey, AgentModelId } from "@/lib/agent-config";
 import {
   ACTIVE_RUN_STATUSES,
@@ -244,16 +244,37 @@ export async function findAutoPickupCandidates() {
 
   const picks: { workspaceId: number; taskId: number }[] = [];
   for (const { id } of enabled) {
-    const neverRun = db.select({ id: agentRuns.id }).from(agentRuns).where(eq(agentRuns.taskId, tasks.id));
-    const [task] = await db
-      .select({ id: tasks.id })
-      .from(tasks)
-      .where(and(eq(tasks.workspaceId, id), eq(tasks.status, "todo"), isNull(tasks.removedAt), notExists(neverRun)))
-      .orderBy(tasks.position, tasks.id)
-      .limit(1);
-    if (task) picks.push({ workspaceId: id, taskId: task.id });
+    const taskId = await nextPickupTask(id);
+    if (taskId !== null) picks.push({ workspaceId: id, taskId });
   }
   return picks;
+}
+
+/**
+ * The top Todo card of a workspace that was never run, or null. `withoutImages` skips cards with image references (the
+ * Analyst or the Developer can't see them), so such a card doesn't hold up the rest of the column.
+ */
+export async function nextPickupTask(workspaceId: number, { withoutImages = false } = {}) {
+  const neverRun = db.select({ id: agentRuns.id }).from(agentRuns).where(eq(agentRuns.taskId, tasks.id));
+  const images = db
+    .select({ id: taskReferences.id })
+    .from(taskReferences)
+    .where(and(eq(taskReferences.taskId, tasks.id), eq(taskReferences.kind, "image")));
+  const [task] = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.workspaceId, workspaceId),
+        eq(tasks.status, "todo"),
+        isNull(tasks.removedAt),
+        notExists(neverRun),
+        withoutImages ? notExists(images) : undefined
+      )
+    )
+    .orderBy(tasks.position, tasks.id)
+    .limit(1);
+  return task?.id ?? null;
 }
 
 // ── Agent log ──────────────────────────────────────────────────────────────────

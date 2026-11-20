@@ -3,8 +3,8 @@
 Agents with the **Run tests in a sandbox** permission (`tests.run`; on for the Developer and the Tester by default) can
 run the repository's code: install its dependencies, run its tests and build, or one command. They run in throwaway
 Docker containers under [gVisor](https://gvisor.dev) on a Docker host, a VPS in practice. Introduced in v0.5,
-with previews of each pull request and a browser for the Tester. The Designer agent and the loose ends are v0.7; see
-the [roadmap](roadmap.md#v07--designer-agent-and-sandbox-polish).
+with previews of each pull request and a browser for the Tester. References on cards (images, documents, URLs) and the loose ends are v0.7; see
+the [roadmap](roadmap.md#v07--card-references-and-sandbox-polish).
 
 ## How a call runs
 
