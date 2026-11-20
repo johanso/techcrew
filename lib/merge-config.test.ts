@@ -172,6 +172,14 @@ describe("pickContinuedPullRequest", () => {
 });
 
 describe("continuationNote", () => {
+  it("passes on the Lead's changes from an earlier run that stopped before making them", () => {
+    const base = { prNumber: 6, branch: "agent/x", defaultBranch: "main", origin: null, mergeError: null, conflict: false };
+    const note = continuationNote({ ...base, stage: "development", earlierRequired: ["[lead] src/a.ts: round to cents first"] });
+    expect(note).toContain("Make them");
+    expect(note).toContain("- [lead] src/a.ts: round to cents first");
+    expect(continuationNote({ ...base, stage: "development", earlierRequired: [] })).not.toContain("requested changes");
+  });
+
   const input = { prNumber: 2, branch: "agent/san-2-totals", defaultBranch: "main", mergeError: null, conflict: false };
 
   it("tells the developer of a follow-up card whose pull request it continues, and to merge main first", () => {

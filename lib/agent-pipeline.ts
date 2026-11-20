@@ -363,6 +363,12 @@ type StageAbilities = {
 const DEPENDENCY_GUIDANCE = `- add_dependency adds an npm package: npm resolves it in a sandbox and package.json and the lockfile are committed to your branch together. It's the only way to add a package: never edit dependencies in package.json or the lockfile by hand. Add one only when the card needs it, and prefer what the repository already uses.
 - A font the card names is added as a bundled package (e.g. @fontsource/<font>, or @fontsource-variable/<font> when the font has a variable version) and imported in the app's code, so it ships with the build. Never load fonts from a third-party host (a Google Fonts <link> or @import, next/font/google): previews have no internet and visitors shouldn't call a font host. Don't pick a font the card doesn't name.`;
 
+/**
+ * Without add_dependency (no Manage dependencies, or no sandbox): a font or package the card asks for can't be added
+ * properly, so the Developer says so instead of reaching for a font host (live run 55 added a Google Fonts <link>).
+ */
+const NO_DEPENDENCY_GUIDANCE = `- You can't add npm packages in this stage. If the card names a font or needs a package, don't load it from a third-party host (no Google Fonts <link> or @import) and don't edit package.json or the lockfile: keep the existing fonts, finish the rest, and say in your summary that the owner must give you "Manage dependencies" for it.`;
+
 /** The Developer's merge tools (lib/branch-merge.ts): how a merge with conflicts goes, and what to keep. */
 const MERGE_GUIDANCE = (defaultBranch: string) => `- merge_default_branch brings ${defaultBranch}'s latest commits into your branch as a merge commit, so the pull request merges cleanly. Use it when the task says your branch conflicts with ${defaultBranch} or must catch up with it, before anything else; otherwise you don't need it. Without conflicts it commits right away. With conflicts it keeps the merge open and lists the files: read_conflict each one (your lines, the merge base and ${defaultBranch}'s lines between conflict markers), resolve_conflict it with the whole merged file, then finish_merge with outcome "commit".
 - Resolve by keeping both sides' intent: ${defaultBranch}'s changes are merged work, never drop them to keep yours; combine the two where they touch the same lines. Lockfiles take ${defaultBranch}'s version on their own. While a merge is open, writes to the branch are refused. If a conflict can't be resolved sensibly, finish_merge with outcome "abort" and say why in your summary.
@@ -399,7 +405,7 @@ const STAGE_PROTOCOL: Record<AgentStage, (ctx: RunContext, can: StageAbilities) 
 - write_file, replace_in_file and delete_file each commit to that branch. You can't touch any other branch.
 - Read the code before changing it and follow the repository's conventions. Keep the change focused on the acceptance criteria.
 - Edit with replace_in_file (several in one turn when they're independent) rather than rewriting whole files; read only the line ranges you need of a big file.
-${canMerge ? `${MERGE_GUIDANCE(ctx.workspace.githubDefaultBranch)}\n` : ""}${canAddDependency ? `${DEPENDENCY_GUIDANCE}\n` : ""}${
+${canMerge ? `${MERGE_GUIDANCE(ctx.workspace.githubDefaultBranch)}\n` : ""}${canAddDependency ? `${DEPENDENCY_GUIDANCE}\n` : `${NO_DEPENDENCY_GUIDANCE}\n`}${
   canRun
     ? "- run_tests, run_build and run_command run your branch's latest commit in a sandbox (dependencies are installed first; no network). Run them after a batch of edits, not after each one, and fix what you broke. If something still fails and isn't yours to fix, say so in your summary."
     : "- You can't run code or tests here, so read your changes back to check them."
@@ -650,7 +656,24 @@ async function continuationBlock(ctx: RunContext, stage: "analysis" | "developme
     origin: origin ? { key: `${taskKeyPrefix(ctx.workspace.name)}-${origin.number}`, title: origin.title, description: origin.description } : null,
     mergeError: pr.mergeError,
     conflict: live?.mergeable === false,
+    earlierRequired: await earlierRequiredChanges(ctx.run.id, pr.headBranch),
   });
+}
+
+/**
+ * The Lead's last required changes from the previous run on `branch`, when its last decision sent the work back and
+ * the run ended there (stopped or failed before the rework). A new run's verdicts start fresh; this list shouldn't.
+ */
+async function earlierRequiredChanges(runId: number, branch: string) {
+  const [earlier] = await db
+    .select({ approval: agentRuns.approval })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.branch, branch), lt(agentRuns.id, runId)))
+    .orderBy(desc(agentRuns.id))
+    .limit(1);
+  const approval = earlier?.approval;
+  if (!approval || approval.decision !== "request_changes") return [];
+  return approval.requiredChanges.map((c) => `[${c.source}] ${c.path}: ${c.detail}`);
 }
 
 /**

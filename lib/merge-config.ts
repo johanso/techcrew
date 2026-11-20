@@ -256,6 +256,8 @@ export function continuationNote(input: {
   mergeError: string | null;
   /** GitHub says the branch conflicts with the default branch now. */
   conflict: boolean;
+  /** The changes the Lead required in an earlier run on this branch that ended before they were made. */
+  earlierRequired?: readonly string[];
 }) {
   const { stage, prNumber, branch, defaultBranch, origin } = input;
   const developer = stage === "development";
@@ -279,6 +281,11 @@ ${description || "(no description)"}
     );
   }
   if (input.mergeError) lines.push(`The last merge attempt failed: ${input.mergeError}`);
+  if (input.earlierRequired?.length) {
+    lines.push(
+      `That run ended before the Lead's requested changes were made. ${developer ? "Make them" : "The Developer makes them"} (check each against the branch first; some may be done):\n${input.earlierRequired.map((change) => `- ${change}`).join("\n")}`
+    );
+  }
   if (input.conflict || input.mergeError?.startsWith("Merge conflict")) {
     lines.push(
       developer

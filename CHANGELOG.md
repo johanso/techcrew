@@ -102,6 +102,10 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   ranges: run it again on the host.
 
 ### Fixed
+- A run that continues a pull request gets the Lead's required changes from the earlier run on that branch when that
+  run ended before making them (live run 54 was stopped mid-rework; run 55 had to find the same issues again).
+- A Developer without *Manage dependencies* no longer loads a font the card names from a font host: it keeps the
+  existing fonts and says the permission is needed (live run 55 added a Google Fonts `<link>`, which fails in previews).
 - OpenRouter agents' last turn offers only the stage's finish tool. Models ignored the last-turn message and kept
   editing (live run 53: DeepSeek V4 Pro used its 40th turn on another edit), so the stage ended without a result.
 
