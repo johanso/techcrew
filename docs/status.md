@@ -1,7 +1,7 @@
 # Project status
 
 Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-24**
-(latest release **v0.9.0**, which also carries **v0.8** (agents on your Claude plan): TechTeam runs on your own computer for one user, with nothing remote but GitHub and the model providers; phases 1–7 of [local-first-plan.md](local-first-plan.md) are done). For what has been tested and how to test the agents, see [testing.md](testing.md).
+(latest release **v0.10.0**: TechTeam runs on your own computer for one user, with nothing remote but GitHub and the model providers; the [local-first plan](local-first-plan.md) is done, apart from trying it by hand on Linux and macOS). For what has been tested and how to test the agents, see [testing.md](testing.md).
 
 - [Feature status](#feature-status)
 - [Dummy data and placeholders](#dummy-data-and-placeholders)
@@ -110,13 +110,12 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 The plan lives in [roadmap.md](roadmap.md). Done: smarter gates and the live process (v0.2), agent skills (v0.3), CI in
 the loop with a Metrics page (v0.4), the sandbox, previews, account keys and OpenRouter (v0.5), references on cards
-(v0.7), agents on your Claude plan (v0.8) and local-first (v0.9, phases 1–7), both released as v0.9.0. What remains for
-the next release (v0.10):
+(v0.7), agents on your Claude plan (v0.8) and local-first (v0.9), released as v0.9.0, and the sandbox on your own Docker,
+the smoke test and the schema cleanup (v0.10). What remains:
 
-1. **Phase 0**: a smoke test (one simulated card through the whole pipeline against a throwaway repository), which does
-   not exist yet.
-2. **Phase 8**: a sandbox that needs no Docker host (WSL2 + bubblewrap, previews on `localhost`).
-3. Try it on Linux and macOS by hand, and leave `npm run start:local` running for a few days.
+1. Try it on Linux and macOS by hand (the sandbox's local mode and `npm run smoke` were only run on Windows), and leave
+   `npm run start:local` running for a few days.
+2. A sandbox that needs no Docker at all (WSL2 + bubblewrap) was considered and dropped for now.
 
 Then v0.11, a project memory (the Brain). Hosting TechTeam for several people is not planned.
 
@@ -124,6 +123,7 @@ Then v0.11, a project memory (the Brain). Hosting TechTeam for several people is
 
 | Commit | Change |
 | --- | --- |
+| `v0.10.0` | **Eighth release**: the agent sandbox on your own computer's Docker (`npm run sandbox:setup`, previews on `127.0.0.1`, install scripts off by default), `npm run smoke` (one card through the whole pipeline in simulated mode against a throwaway repository) and the schema cleanup (migration 0020). |
 | `v0.9.0` | **Seventh release** (carries v0.8): GitHub device-flow sign-in, loopback only, embedded Postgres, local files, backup and restore, `npm run doctor` and `start:local`, the Get started checklist, the interrupted-run sweeper, the fallback order; the hosted auth service, S3, Cloudhike Jobs, Switch Trust and the tunnel removed (migrations 0018–0019). |
 | `feat/cli-agents` | **v0.8, released in v0.9.0**: agents on the owner's Claude plan through Claude Code, the live model catalog (migrations 0016–0017). |
 | `v0.7.0` | **Sixth release** (before v0.6): references on cards (files and captured links) for the agents, the Tester comparing the preview with them, the `interface-design` skill, the install step off private ranges, bold fonts in the browser image, `add_dependency`, agents fixing merge conflicts, leaner turns and no lost work at the turn limit (migrations 0013–0015; live runs 52–55). Next: v0.6 deploy. |

@@ -8,6 +8,13 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-11-24
+
+The agent sandbox now runs on your own computer's Docker (no VPS needed), there is a smoke test of the whole agent
+pipeline, and the database is cleaned of the schema nothing uses. **Existing installations**: run `npm run backup`
+first, then `npm run db:migrate` (migration 0020 deletes the data in tables nothing uses; `npm run dev` applies it at
+start). To use the sandbox, start Docker and run `npm run sandbox:setup` once.
+
 ### Added
 - **`npm run smoke`**: one card through the whole agent pipeline in simulated mode against a throwaway GitHub repository,
   on its own stack (separate build folder, ports, temp database and data folder, so a running TechTeam is untouched).
@@ -516,7 +523,8 @@ takes a card from analysis to a merged pull request, with cost, trust and human 
   budget mid-run, Draft with AI with a real key, automatic provider switch.
 - Switch shows caps but not spend until usage is reported through the Switch SDK.
 
-[Unreleased]: https://github.com/johanso/techcrew/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/johanso/techcrew/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/johanso/techcrew/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/johanso/techcrew/compare/v0.7.0...v0.9.0
 [0.7.0]: https://github.com/johanso/techcrew/releases/tag/v0.7.0
 [0.5.0]: https://github.com/johanso/techcrew/releases/tag/v0.5.0
