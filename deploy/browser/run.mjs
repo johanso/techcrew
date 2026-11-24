@@ -93,7 +93,10 @@ async function main() {
 
   // Chromium's own sandbox on: under gVisor its renderers get their own user and PID namespaces even without
   // capabilities, so a renderer exploit still lands inside a second sandbox before the container's.
-  const browser = await chromium.launch({ args: CHROMIUM_ARGS, chromiumSandbox: true, timeout: 30_000 });
+  // TECHTEAM_CHROMIUM_NO_SANDBOX=1 (local Docker only, lib/sandbox/docker-args.ts): the default runtime's seccomp profile
+  // refuses the namespaces Chromium's sandbox needs once capabilities are dropped, so the container is the boundary.
+  const chromiumSandbox = process.env.TECHTEAM_CHROMIUM_NO_SANDBOX !== "1";
+  const browser = await chromium.launch({ args: CHROMIUM_ARGS, chromiumSandbox, timeout: 30_000 });
   try {
     const context = await browser.newContext({
       ...(Object.hasOwn(VIEWPORTS, input.viewport) ? VIEWPORTS[input.viewport] : VIEWPORTS.desktop),

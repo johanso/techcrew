@@ -19,7 +19,8 @@ export const FORWARDER_SUFFIX = "-fwd";
 
 /** The names Docker Desktop (and `host-gateway` setups) give the host: pinned to loopback inside every local container. */
 const HOST_ALIASES = ["host.docker.internal", "gateway.docker.internal"];
-const hostAliasFlags = (mode: SandboxMode) => (mode === "local" ? HOST_ALIASES.map((name) => `--add-host=${name}:127.0.0.1`) : []);
+// Both address families: with only an IPv4 entry, `getent hosts` still got the engine's IPv6 address for the host from DNS.
+const hostAliasFlags = (mode: SandboxMode) => (mode === "local" ? HOST_ALIASES.flatMap((name) => [`--add-host=${name}:127.0.0.1`, `--add-host=${name}:::1`]) : []);
 
 /** Flags every sandbox container carries (the command, install, preview and read-back containers). */
 export function sandboxLimits(mode: SandboxMode): string[] {
@@ -312,6 +313,9 @@ export function browserRunArgs(input: { mode: SandboxMode; name: string; network
     `--network=${input.network}`,
     // Docker's DNS doesn't answer under gVisor: give the browser the preview's address, and nothing else.
     `--add-host=${input.container}:${input.address}`,
+    // Chromium's own sandbox can't start under the default runtime with every capability dropped (seccomp refuses its
+    // namespaces), and relaxing seccomp would be worse: locally the container is the boundary (docs/sandbox.md).
+    ...(input.mode === "local" ? ["--env=TECHTEAM_CHROMIUM_NO_SANDBOX=1"] : []),
     input.image,
   ];
 }

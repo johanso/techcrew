@@ -116,7 +116,7 @@ are no secrets to put there: you sign in from the app, and your AI keys are save
 | `TECHTEAM_CLI_HOME`, `CLAUDE_CLI_PATH` | `~/.techteam/cli`, found automatically | Where TechTeam keeps Claude Code's login, and Claude Code's binary when it isn't in a known place. |
 | `AGENTS_AUTO_PICKUP` | on | `false` keeps the auto-pickup cron off on this computer (only matters when computers share a database). |
 | `SANDBOX_DOCKER_HOST`, `SANDBOX_IMAGE` | unset, `node:24-bookworm` | A remote Docker host for the agent sandbox (unset: this computer's Docker) and the sandbox image. [Sandbox](#agent-sandbox-optional), [sandbox.md](sandbox.md). |
-| `SANDBOX_PREVIEW_DOMAIN`, `SANDBOX_BROWSER_IMAGE` | unset, `techteam-browser:1.64.1-3` | Remote hosts only: the wildcard domain for PR previews. The browser image's tag (`npm run sandbox:setup` builds it). |
+| `SANDBOX_PREVIEW_DOMAIN`, `SANDBOX_BROWSER_IMAGE` | unset, `techteam-browser:1.64.1-4` | Remote hosts only: the wildcard domain for PR previews. The browser image's tag (`npm run sandbox:setup` builds it). |
 | `TECHTEAM_SANDBOX` | on | `off` switches the agent sandbox off on this computer, local or remote. Not in `.env.example`. |
 
 `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` still switch the Inngest client to Cloud Mode, but a hosted setup isn't

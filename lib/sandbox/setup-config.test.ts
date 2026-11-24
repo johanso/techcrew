@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { BROWSER_IMAGE_TAG, SANDBOX_IMAGE_DEFAULT, browserImageName, sandboxImageName } from "./engine.mjs";
 import { describeStep, formatImageSize, parseSetupArgs, setupPlan } from "./setup-config.mjs";
 
-const images = { sandbox: "node:24-bookworm", browser: "techteam-browser:1.64.1-3" };
+const images = { sandbox: "node:24-bookworm", browser: "techteam-browser:1.64.1-4" };
 const linux = { kind: "engine" as const, osType: "linux", version: "27" };
 const plan = (overrides: Partial<Parameters<typeof setupPlan>[0]> = {}) =>
   setupPlan({ remoteHost: null, remoteFlag: false, engine: linux, present: { sandbox: false, browser: false }, images, ...overrides });

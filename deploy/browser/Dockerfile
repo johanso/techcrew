@@ -1,7 +1,7 @@
 # The sandbox browser: headless Chromium driven by run.mjs, one throwaway container per browse_preview call
 # (lib/sandbox/browser.ts) or link capture (capture.mjs, lib/sandbox/capture.ts). Build it on the sandbox host, from
 # the repository root:
-#   docker build --pull -t techteam-browser:1.64.1-3 deploy/browser
+#   docker build --pull -t techteam-browser:1.64.1-4 deploy/browser
 # The tag is Playwright's version, then a revision of this folder (bump it when anything here changes: run.mjs,
 # capture.mjs, net-guard.mjs, fonts.conf or this file, so an app never runs an image older than it expects). Bump the
 # base image, playwright-core in package.json and BROWSER_IMAGE in lib/sandbox/browser-config.ts together:

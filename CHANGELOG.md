@@ -32,6 +32,8 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   CLI needs, never `DOCKER_HOST` locally and never the app's secrets.
 - `sandboxAvailable()` and `previewsAvailable()` are async. Link captures stay remote-only (their safety rests on the
   host firewall rules), with the reason shown where links are added.
+- The sandbox browser image is now `techteam-browser:1.64.1-4`: in local mode Chromium's own sandbox is off (the default
+  runtime can't run it with capabilities dropped; the container is the boundary). Run `npm run sandbox:setup` again.
 - Phase 8 of the local-first plan is done with Docker; WSL2 + bubblewrap is dropped from it.
 
 ## [0.9.0] — 2026-11-24

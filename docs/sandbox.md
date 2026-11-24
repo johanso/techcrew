@@ -31,7 +31,7 @@ What changes on your own Docker, and what it does **not** protect (read this bef
 | Install scripts | Run (with the network rules above) | **Off:** installs run with `--ignore-scripts` (`localInstallCommand`: `npm ci`, `npm install`, `pnpm install`, `yarn install`, also in chains with `&&` and after `npx` / env prefixes). Settings → Sandbox has **Allow install scripts (some packages need them)**, stored in `sandbox_commands` (`allowInstallScripts`, no migration; absent = off). Turn it on only for repositories you trust. The protection doesn't depend on the command's shape: the prepare container also gets `npm_config_ignore_scripts=true` and `YARN_IGNORE_SCRIPTS=true`, so a quoted `sh -c "npm ci"` or a wrapper stays script-free too. |
 | Command step | `--network=none` | `--network=none`, the same |
 | Previews | Caddy, HTTPS, `pr-<n>-<random>.<domain>` | `http://127.0.0.1:<port>`, loopback only (below) |
-| The host's names | | `host.docker.internal` and `gateway.docker.internal` are pinned to `127.0.0.1` inside every container, so the usual names for your computer don't lead to it |
+| The host's names | | `host.docker.internal` and `gateway.docker.internal` are pinned to `127.0.0.1` and `::1` inside every container, so the usual names for your computer don't lead to it |
 | Link captures | Yes | **No**: their safety rests on the host firewall (`linkCaptureAvailable()` is false; the link field says why) |
 
 Always, in both modes (every argument list is built in `lib/sandbox/docker-args.ts` and one test checks them all): no
@@ -46,7 +46,7 @@ you don't trust, use a remote host.
 
 **Setting up this computer:** install Docker (Docker Desktop with Linux containers, or Docker Engine), start it, then
 `npm run sandbox:setup` once. It downloads the sandbox image (`node:24-bookworm`, `SANDBOX_IMAGE`) when it's missing and
-builds the browser image from `deploy/browser` with the tag the app expects (`techteam-browser:1.64.1-3`,
+builds the browser image from `deploy/browser` with the tag the app expects (`techteam-browser:1.64.1-4`,
 `SANDBOX_BROWSER_IMAGE`); it prints the sizes, is safe to run again, never removes anything, and with
 `-- --check` only reports. It refuses when `SANDBOX_DOCKER_HOST` is set (remote hosts are prepared by `deploy/setup.sh`)
 unless you pass `-- --remote`. Then Settings → Sandbox → save the commands → **Test the sandbox**. `npm run doctor`
@@ -231,7 +231,7 @@ parts in `browser-config.ts`). One call = one throwaway browser container:
 ```
 browse_preview { path, viewport: desktop | tablet | mobile, color_scheme: light | dark, steps: [click | fill | press | wait_for | goto …] }
   └─ docker network inspect techteam-preview-run-<id>: internal, preview container attached? else "No preview is running"
-  └─ techteam-browser:1.64.1-3 (Playwright + Chromium), on that network only, --add-host=<container>:<its address>
+  └─ techteam-browser:1.64.1-4 (Playwright + Chromium), on that network only, --add-host=<container>:<its address>
        opens internalUrl + path, runs the steps in order, returns status, console and page errors, failed requests,
        an outline of the page (≤ 6,000 characters) and a PNG screenshot
 ```
@@ -265,7 +265,11 @@ browse_preview { path, viewport: desktop | tablet | mobile, color_scheme: light 
   differences, which goes back to the Developer like any test fail.
 - **The image** is built from `deploy/browser/` (`SANDBOX_BROWSER_IMAGE` overrides the tag): `npm run sandbox:setup` does
   it for this computer's Docker; for a remote host,
-  `docker --context <host> build --pull -t techteam-browser:1.64.1-3 deploy/browser` from a checkout of this repo.
+  `docker --context <host> build --pull -t techteam-browser:1.64.1-4 deploy/browser` from a checkout of this repo.
+  Local mode runs Chromium with its own sandbox off (`TECHTEAM_CHROMIUM_NO_SANDBOX=1`, image revision `-4`): under the
+  default runtime Docker's seccomp profile refuses the namespaces it needs once capabilities are dropped, and loosening
+  seccomp would be worse. The container is the boundary there (no capabilities, `no-new-privileges`, read-only root,
+  an internal network with only the preview, no secrets); a remote host keeps Chromium's sandbox on under gVisor.
   The browser works the same in local mode: the default runtime, the same image, the preview's internal network and the
   preview's address by `--add-host`; its screenshots go to local storage as always.
   The tag is Playwright's version plus a revision of the folder (`-2`: link captures, tablet, color scheme; `-3`:
@@ -288,7 +292,7 @@ A link reference on a card (References → **Add a link**) is captured once, whe
 addCardLinkAction ─▶ parseCaptureUrl (net-guard.mjs: http/https, no credentials, ports 80/443/8080/8443,
                      no private address literal or internal name) ─▶ the app resolves the name: every address public?
                   ─▶ network techteam-capture (bridge, 172.31.253.0/24, icc off; created on first use)
-                  ─▶ techteam-browser:1.64.1-3, the Tester's browser limits with 2 CPUs, on that network
+                  ─▶ techteam-browser:1.64.1-4, the Tester's browser limits with 2 CPUs, on that network
                        Chromium ─▶ proxy in the container ─▶ resolves with public resolvers, checks every address,
                                                               connects to the address it checked
                        desktop 1280 px and mobile 375 px, full page up to 2,400 px, JPEG; outline of the page
@@ -320,7 +324,7 @@ addCardLinkAction ─▶ parseCaptureUrl (net-guard.mjs: http/https, no credenti
    domain>`. To try certificates without Let's Encrypt's rate limits first, run the script once with
    `CADDY_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory`, then again without it (Caddy is recreated
    when its CA changes and rejoins the running previews' networks).
-5. The sandbox browser (the Tester's browser and link captures): build `techteam-browser:1.64.1-3` on the host from
+5. The sandbox browser (the Tester's browser and link captures): build `techteam-browser:1.64.1-4` on the host from
    `deploy/browser/` (see above). `deploy/setup.sh` also creates the capture and install networks and their
    private-range firewall rules.
 

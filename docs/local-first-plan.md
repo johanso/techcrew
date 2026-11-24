@@ -29,7 +29,7 @@ As of 2026-11-24, on `main`:
 | 5 Backup and restore | Done | `npm run backup` / `npm run restore`, no secrets in the archive. |
 | 6 First run and easy operation | Done, with changes | `npm run doctor`, `npm run start:local` (stable mode), a **Get started** checklist on the Overview instead of a wizard, and a sweeper that ends runs left behind when TechTeam stopped. The README quickstart was run on a clean clone. |
 | 7 Model routes | Done | `workspaces.ai_fallback_order`; the credit failover, the board's switch and retry and the plan-limit "Switch company" policy follow it. |
-| 8 Pluggable sandbox | Done in code (Docker local); real-Docker verification pending | The sandbox runs on this computer's Docker (`npm run sandbox:setup`), previews on `127.0.0.1`. WSL2 + bubblewrap dropped from this phase. |
+| 8 Pluggable sandbox | Done (Docker local), verified on Docker Desktop for Windows | The sandbox runs on this computer's Docker (`npm run sandbox:setup`), previews on `127.0.0.1`. WSL2 + bubblewrap dropped from this phase. |
 | Final cleanup | **Pending** | One migration dropping the unused tables and columns listed in [data-model.md](data-model.md#unused-tables-and-columns), and the stack rows that still mention them. |
 
 ## Decisions

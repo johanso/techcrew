@@ -27,7 +27,7 @@ import {
 import type { SandboxMode } from "@/lib/sandbox/mode";
 
 const IMAGE = "node:24-bookworm";
-const BROWSER = "techteam-browser:1.64.1-3";
+const BROWSER = "techteam-browser:1.64.1-4";
 const MODES: SandboxMode[] = ["remote", "local"];
 
 type Built = { name: string; mode: SandboxMode | "both"; args: string[]; /** Containers the repository's code or a browser runs in. */ container: boolean };
@@ -97,9 +97,9 @@ function everyArgumentList(): Built[] {
   return lists;
 }
 
-const ALLOWED_ENV = /^--env=(CI=true|TECHTEAM_INSTALL=.+|PORT=\d+|HOST=0\.0\.0\.0|__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=[a-z0-9.,-]+|npm_config_ignore_scripts=true|YARN_IGNORE_SCRIPTS=true)$/;
-const HARMLESS_ENV_NAMES = ["TECHTEAM_INSTALL", "CI", "PORT", "HOST", "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS", "npm_config_ignore_scripts", "YARN_IGNORE_SCRIPTS"];
-const HOST_ALIASES = ["--add-host=host.docker.internal:127.0.0.1", "--add-host=gateway.docker.internal:127.0.0.1"];
+const ALLOWED_ENV = /^--env=(CI=true|TECHTEAM_INSTALL=.+|PORT=\d+|HOST=0\.0\.0\.0|__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=[a-z0-9.,-]+|npm_config_ignore_scripts=true|YARN_IGNORE_SCRIPTS=true|TECHTEAM_CHROMIUM_NO_SANDBOX=1)$/;
+const HARMLESS_ENV_NAMES = ["TECHTEAM_INSTALL", "CI", "PORT", "HOST", "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS", "npm_config_ignore_scripts", "YARN_IGNORE_SCRIPTS", "TECHTEAM_CHROMIUM_NO_SANDBOX"];
+const HOST_ALIASES = ["host.docker.internal", "gateway.docker.internal"].flatMap((name) => [`--add-host=${name}:127.0.0.1`, `--add-host=${name}:::1`]);
 
 describe("every docker argument list", () => {
   const lists = everyArgumentList();
@@ -319,6 +319,8 @@ describe("local mode", () => {
     expect(args).toContain("--network=n");
     expect(args).toContain("--add-host=techteam-preview-run-7:172.18.0.2");
     expect(args[args.length - 1]).toBe(BROWSER);
+    expect(args).toContain("--env=TECHTEAM_CHROMIUM_NO_SANDBOX=1");
+    expect(browserRunArgs({ mode: "remote", name: "b", network: "n", container: "c", address: "172.18.0.2", image: BROWSER }).some((a) => a.includes("NO_SANDBOX"))).toBe(false);
   });
 
   it("makes the preview network internal in both modes", () => {
