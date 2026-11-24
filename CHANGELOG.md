@@ -9,12 +9,22 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 ## [Unreleased]
 
 ### Added
+- **`npm run doctor`** checks this computer (Node, git, tar, data folder and disk, ports, database and migrations, app
+  address, encryption key, GitHub sign-in, Claude Code, Docker/WSL, obsolete `.env` settings) and prints a fix for each
+  problem. `--json` for scripts. It never prints a secret or a value from `.env`.
+- **`npm run start:local`**: the stable way to leave agents working. One terminal runs the production build (built first
+  when the code changed), the embedded database and the Inngest Dev Server; Ctrl+C stops all three.
+  `TECHTEAM_PORT` and `TECHTEAM_INNGEST_PORT` move the ports.
 - **Choose the order companies fall back in.** Settings → AI → This workspace only lists your companies with move up and
   move down buttons: when one runs out of credit, or your Claude plan runs out with "Switch company", agents go to the
   first company in that order with a key (default: OpenAI, Anthropic, OpenRouter). New column
   `workspaces.ai_fallback_order`; applied at start.
 
 ### Fixed
+- **Agents work under `npm start`.** The Inngest SDK took a production build for Inngest Cloud and never reached the
+  local Dev Server. Without Inngest Cloud keys the app now always uses the Dev Server.
+- **The Inngest Dev Server is pinned** (1.53.0) instead of downloading the latest at every start, and listens on
+  127.0.0.1 only under `start:local`.
 - **A secret that can't be read no longer breaks the app.** After the encryption key changed or was removed, every saved
   AI key and GitHub token became undecryptable and the board answered 500 (Settings too, so the keys couldn't be
   entered again). Such a secret now counts as not set: Settings shows "The saved key can't be read, probably because

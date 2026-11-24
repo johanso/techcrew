@@ -148,7 +148,8 @@ for a blocked merge is picked up like any other and continues on that pull reque
 
 ```bash
 npm run dev            # app on :3000 + Inngest Dev Server, one terminal (concurrently)
-npm run inngest:dev    # only the Dev Server: npx inngest-cli@latest dev -u http://127.0.0.1:3000/api/inngest
+npm run inngest:dev    # only the Dev Server: npx inngest-cli@1.53.0 dev -u http://127.0.0.1:3000/api/inngest (pinned)
+npm run start:local    # production build + database + the Dev Server, one terminal (stable mode)
 ```
 
 - Dev Server UI: <http://localhost:8288> — see events, runs, step output and logs; replay runs.
@@ -157,7 +158,9 @@ npm run inngest:dev    # only the Dev Server: npx inngest-cli@latest dev -u http
 - **If the Dev Server isn't running**, the SDK falls back to Inngest Cloud with the placeholder `INNGEST_EVENT_KEY`
   and gets `401 Event key not found`. Run then fails with "Is the Inngest Dev Server running? Start the app with
   `npm run dev` (it starts Inngest too)." — the run is marked failed and nothing is assigned.
-- Force a mode with `INNGEST_DEV=1` (dev) or `INNGEST_DEV=0` (cloud).
+- Cloud mode needs the keys: without `INNGEST_EVENT_KEY` or
+  `INNGEST_SIGNING_KEY` the client is always in dev mode (`lib/inngest/client.ts`), also under `next start`, where the
+  SDK would infer cloud mode from `NODE_ENV=production`.
 
 ## Production
 

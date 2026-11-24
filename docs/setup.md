@@ -207,6 +207,12 @@ exist, so run `npm run db:baseline` once. It marks the migrations as applied wit
 npm run dev            # http://localhost:3000 + the Inngest Dev Server (needed for the board's Run action)
 ```
 
+To leave agents working for hours, use the stable mode instead: `npm run start:local` runs the production build, the
+embedded database and the Inngest Dev Server in one terminal (it builds first when the code changed, or with
+`-- --rebuild`) and Ctrl+C stops all three. `npm run doctor` checks the computer and says how to fix what it finds.
+Optional variables, for running a second copy beside one that is already up: `TECHTEAM_PORT` (the app, default
+3000) and `TECHTEAM_INNGEST_PORT` (the Dev Server, default 8288); `TECHTEAM_PG_PORT` moves the database.
+
 ## 6. First-run walkthrough
 
 1. Open <http://localhost:3000> (it redirects to sign-in) → **Continue with GitHub**. Type the code shown on the page at github.com and authorize.
