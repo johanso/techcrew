@@ -12,6 +12,7 @@ Identity is GitHub's: a `users` row is found by its GitHub id (`users.github_use
 - [task_references](#task_references)
 - [agents](#agents)
 - [agent_skills, agent_skill_files, agent_skill_assignments](#agent_skills)
+- [memory_notes](#memory_notes)
 - [agent_activity](#agent_activity)
 - [agent_runs](#agent_runs)
 - [agent_run_messages](#agent_run_messages)
@@ -52,6 +53,8 @@ erDiagram
     agent_skills ||--o{ agent_skill_assignments : "used by"
     agents ||--o{ agent_skill_assignments : "has on/off"
     users |o--o{ agent_skills : "uploaded (nullable)"
+    users ||--o{ memory_notes : "owner's notes"
+    workspaces |o--o{ memory_notes : "a project's notes (null = global)"
 
     users {
         serial id PK
@@ -215,6 +218,8 @@ A workspace is bound to **exactly one** GitHub repository, chosen at creation. O
 | `ai_auto_failover` | boolean | no | Default `false`. Settings → AI providers: when a company runs out of credit mid-run and the other has a key, move the agents on it there and restart the stage. |
 | `sandbox_enabled` | boolean | no | Default `false`. Settings → Sandbox: agents with `tests.run` get the sandbox tools (migration 0009). |
 | `sandbox_commands` | jsonb | yes | `{ install, test, build }` (each a command or null), saved with the switch, prefilled from `package.json`. See [sandbox.md](sandbox.md). |
+| `memory_mode` | text | no | Default `repo` (migration 0021). Brain → Settings (`MEMORY_MODES`): where the project's memory lives: `repo` (files under `.techteam/memory/` in the repository), `local` (`memory_notes` rows of this workspace) or `off` (agents get no memory, not even the owner's). Unknown values read as `repo`. |
+| `memory_bootstrapped_at` | timestamp | yes | When the Brain was first built from the repository (a later part of the Brain; null = never). |
 | `created_at`, `updated_at` | timestamp | no | |
 
 The repository metadata is captured once. If the repo is renamed or its default branch changes on GitHub, these
@@ -356,6 +361,36 @@ validated; **unique with `skill_id`**), `content` (text), `title` and `summary` 
 (→ `agent_skills.id`, cascade, indexed), `enabled`, timestamps; **unique (`agent_id`, `skill_id`)**. Switching a skill
 off keeps the row with `enabled = false`, so `ensureBuiltinSkills` (which only inserts missing rows for a built-in's
 default roles) never turns it back on.
+
+## memory_notes
+
+The Brain's notes that live in the database ([brain-plan.md](brain-plan.md), migration `0021_brain_notes`): the owner's
+**global** notes (`workspace_id` null: every project of theirs reads them) and, in memory mode `local`, a project's
+notes. In mode `repo` the repository's files are the truth and only the global notes are rows. A note is a short summary
+(body ≤ 2,000 characters), never file contents or secrets. No secret column: backups include the table (it is
+exported by the schema-driven [backup registry](../lib/backup/registry.mjs), and `registry.test.ts` pins it).
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | serial | no | | Primary key. |
+| `user_id` | integer | no | | → `users.id`, cascade. The owner. Every query is scoped by it. |
+| `workspace_id` | integer | yes | | → `workspaces.id`, cascade. Null for a global note. Indexed. |
+| `scope` | text | no | | `global` \| `project`; global exactly when `workspace_id` is null (`visibleNotes` hides a row where they disagree). |
+| `type` | text | no | | `convention` \| `decision` \| `pitfall` \| `command` \| `preference` \| `lesson`. |
+| `title` | text | no | | ≤ 120 characters, one line. |
+| `body` | text | no | | ≤ 2,000 characters, plain Markdown. |
+| `load` | text | no | | `always` (in every prompt, within the block's caps) \| `on_demand` (found with `search_memory`). |
+| `status` | text | no | `active` | `active` \| `stale` \| `disabled`. Only active notes reach agents. |
+| `paths` | text[] | yes | | Up to 10 globs (`src/**/*.test.ts`): the note ranks higher when the files being worked on match. |
+| `source` | jsonb | no | `{}` | Where it came from: a few short facts (`{ "kind": "owner" }`, later `run`, `pr`). |
+| `origin` | text | no | | `owner` \| `agent` \| `bootstrap`. Notes written on the Brain page are `owner`. |
+| `content_hash` | text | no | | sha256 of the normalized title and body (`noteHash`). |
+| `created_at`, `updated_at` | timestamp | no | `now()` | |
+
+Indexes: `memory_notes_user_idx` (`user_id`, `scope`), `memory_notes_workspace_idx`, and two partial unique indexes that stop
+the same text twice in one place: `memory_notes_global_unique` (`user_id`, `content_hash` where `workspace_id` is null) and
+`memory_notes_project_unique` (`user_id`, `workspace_id`, `content_hash` where it is not). At most 200 notes per place
+(checked on create). `memory_proposals` and `memory_signals` come with the later parts of the Brain.
 
 ## task_events
 
@@ -545,7 +580,8 @@ Agent ids (`assignee_agent_id`, `agents.key`) are the role keys in `AGENT_KEYS`
 ([`lib/agent-config.ts`](../lib/agent-config.ts)): `analyst`, `developer`, `reviewer`, `security`, `lead`, `tester`. An unknown id renders
 as unassigned. `skills` (permissions) are validated against `PERMISSIONS` by `parseAgentConfigInput`; `model` by its shape
 there (`isModelId`), and a new model must be one the catalog offers now (`saveAgentAction`).
-Skill `type`, `load` and `source` values live in [`lib/agent-skills-config.ts`](../lib/agent-skills-config.ts).
+Skill `type`, `load` and `source` values live in [`lib/agent-skills-config.ts`](../lib/agent-skills-config.ts); note `type`,
+`load`, `status`, `origin` and the memory modes in [`lib/memory-config.ts`](../lib/memory-config.ts).
 
 ## Behaviors worth knowing
 

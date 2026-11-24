@@ -173,6 +173,20 @@ Each is its own branch and pull request, verified for real before the next start
 Real checks per part use `roadmapfront` and the throwaway repository: start a memory, create two cards, reject one pull
 request with a reason, and watch the proposal appear.
 
+## Status
+
+| Part | State | What exists | What does not |
+| --- | --- | --- | --- |
+| **A. Foundation** | Built, in review | Migration `0021` (`memory_notes`, `workspaces.memory_mode` and `memory_bootstrapped_at`), the note format and parser (`lib/memory-config.ts`), the scanner (`lib/memory-scan.ts`), the loader (repository files in `repo` mode through `lib/memory-loader.ts`, rows in `local` mode and for the owner's notes, `lib/memory.ts`), the Memory block pinned per stage, `search_memory` / `read_memory`, the Reviewer's check, the Brain page (notes, your memory, what agents get, settings), tests, backup coverage | No `memory_proposals` or `memory_signals` tables, no signals, no librarian, no proposals inbox, no memory pull request (the page says to edit the files in the repository), no bootstrap from a repository, no promotion, no stale detection, no usage counters, no "Brain" line in a run's header; not yet exercised by a full live or simulated pipeline run |
+| **B. Signals** | Not started | | |
+| **C. The librarian** | Not started | | |
+| **D. Promotion and release** | Not started | | |
+
+Choices made while building A: a note's key is `project/<name>` or `global/<name>-<id>`; `load` is written `on-demand` in
+files and `on_demand` in the database (both read); links are limited to github.com and docs.github.com (loopback is
+allowed); with mode `off` the owner's notes are not loaded either; notes written on the page keep their status when
+edited (switch off and on are separate actions).
+
 ## Risks
 
 | Risk | Answer |

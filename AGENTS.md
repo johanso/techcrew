@@ -102,7 +102,7 @@ app/
       page.tsx            Overview.
       actions.ts          Workspace-wide reads: getTeamStatusAction (live team), getNotificationsAction,
                           markNotificationsReadAction.
-      board/ ai-team/ pull-requests/ metrics/ activity/   One page.tsx per sidebar section.
+      board/ ai-team/ brain/ pull-requests/ metrics/ activity/   One page.tsx per sidebar section.
       ai-team/actions.ts  saveAgentAction, scanAgentAction, generateAgentAction
                           (auth + validation).
       board/actions.ts    createCardAction, updateCardAction, moveCardsAction, removeCardAction, runCardAction,
@@ -111,6 +111,8 @@ app/
                           uploadCardReferenceAction (one file per call) / addCardLinkAction (captures a link) /
                           removeCardReferenceAction (auth + validation).
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
+      brain/actions.ts    saveNoteAction (create/edit, owner's place only), setNoteStatusAction, deleteNoteAction,
+                          saveMemoryModeAction (auth + validation + scan).
       settings/           Your account: GitHub identity + Sign out (#account), AI (#ai: "Plans on this computer" when running locally —
                           Claude Code switch, sign-in, confirmed account, plan-limit choice — then API keys for every
                           project, then Models (updated when, Refresh models), then "This workspace only": automatic
@@ -162,6 +164,10 @@ components/
                           search/filter, tested), skill-upload-button (the dialog), skill-upload (choose → inspect → confirm → install → Done, in a
                           dialog), skill-badges (SkillBadges, SkillScanChip,
                           SkillAgents, agentOf), skill-findings, agent-checkboxes ("Assign to" the six agents).
+  brain/                  The Brain page: brain-view (markup; the page only loads data), repo-notes (mode repo: read-only
+                          notes + SkippedList), note-library (notes in the database: create/edit/switch off/delete),
+                          note-editor (NoteDialog: the form, scan findings), note-row, block-preview ("What agents get"),
+                          memory-mode-form (Settings: repo / local / off).
   dashboard/              Overview sections: stat-tile, upcoming-tasks, team-status (AI team card, live), recent-activity,
                           agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS), activity-kind (ACTIVITY_KIND,
                           ActivityAvatar).
@@ -227,6 +233,16 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   skill-runtime.ts        Pure: skillsPromptBlock (always vs on demand), rankSkillFiles + formatSearchResults, pageSkillFile.
   skill-install.ts        inspectSkillUpload (rules → AI review, sealed token) / installSkillUpload, setAgentSkill,
                           setSkillAssignments, deleteUploadedSkill; every change rescans the affected agents' trust.
+  memory-config.ts        The Brain's vocabulary, pure and client-safe (docs/brain-plan.md): modes, types, limits, MemoryNote,
+                          parseNoteFile / serializeNote / validateNote, visibleNotes (THE rule for which notes an agent
+                          may see), globMatches + rankNotes (lexical, path boost), buildMemoryBlock / memoryPromptBlock
+                          (the byte-stable Memory block). Tested.
+  memory-scan.ts          Pure: scanMemoryNote (deterministic security rules for a note; critical findings block), blocksNote.
+  memory-loader.ts        Pure apart from a reader: loadRepoNotes (.techteam/memory/ through a RepoReader: skipped files with
+                          reasons), repoMemoryCache (~60 s, re-reads when the branch head moved). Tested on a fake repository.
+  memory.ts               Server: loadMemory / loadAgentMemory (repo files, rows, the owner's notes; scan again at load;
+                          visibleNotes), searchMemory / readMemory (the two tools), owner CRUD for rows (create/update/
+                          setMemoryNoteStatus/delete), noteHash, getMemoryMode.
   sandbox/                Agent sandboxes (docs/sandbox.md). config.ts: pure, client-safe (commands, detectCommands,
                           parseSandboxCommand, sandboxReport, outputTail, the install network's constants,
                           bridgeNetworkProblem). mode.ts: pure, client-safe (SandboxMode remote/local, resolveSandboxStatus,
@@ -797,7 +813,7 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     (closest viewport, light and dark; a clear mismatch is a test fail).
   - **Permissions are enforced as tools** (`toolsFor` in `lib/agent-tools.ts`). Adding a capability = a tool gated by a
     permission there, not a prompt instruction. ("Skills" are knowledge, not capabilities: see Agent skills below.) Agents never write `.github/workflows/`, `.env*` (except `.env.example`) or
-    `.git/`; manifests need `deps.manage` (adding a package: `add_dependency`). The rules live in `lib/repo-paths.ts`
+    `.git/`, `.techteam/` (the Brain's notes); manifests need `deps.manage` (adding a package: `add_dependency`). The rules live in `lib/repo-paths.ts`
     and apply to merge resolutions too. Tool output is untrusted data — the stage protocol in `systemPrompt` says so.
   - **Merging the default branch** (`lib/branch-merge.ts`, Developer with `code.write` on its branch): `merge_default_branch`
     tries GitHub's merge API (`POST /merges`: a real merge commit); on a conflict it plans the merge from the merge base's,
@@ -913,6 +929,23 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     re-enables it. Every change logs on the agent and rescans its trust (`skill-install.ts`). Built-ins can't be
     deleted. `agents.skills` is the **permissions** column (`permissions` in Drizzle): don't rename it while the dev
     database is shared with older branches.
+- **Brain** (`/dashboard/[id]/brain`, [`docs/brain-plan.md`](docs/brain-plan.md); part A): notes agents read before they work, like
+  skills **reference data, never executed and never instructions**. Rules:
+  - **Notes are untrusted text.** Every note (a repository file in mode `repo`, a row otherwise) goes through `parseNoteFile` /
+    `validateNote` and `scanMemoryNote` on save **and at load time**; a critical finding or an invalid file is skipped and
+    counted, never an error for a run. A note can never add a tool or a permission, and the operating protocol says so.
+  - **Isolation lives in `visibleNotes`** (`lib/memory-config.ts`): a workspace's agents see that workspace's project notes and
+    its owner's global notes, nothing else. Every read path (loader, prompt block, `search_memory`, `read_memory`) goes
+    through it; never query `memory_notes` for an agent any other way. Server actions touch a row only in the owner's place.
+  - **Modes** (`workspaces.memory_mode`): `repo` reads `.techteam/memory/conventions.md` (the always-loaded core) and
+    `notes/*.md` from the default branch with the owner's token (`lib/memory-loader.ts`, cached ~60 s); `local` reads
+    `memory_notes` rows of the workspace; `off` loads nothing, not even the owner's notes. This version never writes to the
+    repository (`.techteam/` is in `PROTECTED_PATHS`: no agent write tool or merge resolution can touch it); proposals and memory pull requests are later parts.
+  - **The Memory block is pinned per stage** in `LoopState.memoryBlock` (first turn), like the model, so the system prompt is
+    byte-identical across turns; it sits after the skills block (`buildMemoryBlock`: project core ≤ 2,000 characters, then the
+    owner's ≤ 1,000, whole notes, fixed order). `search_memory` / `read_memory` are read-only, offered in every stage when notes
+    exist, listed in `READ_TOOLS`, logged by key. New limits live in `lib/memory-config.ts` only.
+  - Brain actions need the same care as other forms: field errors per field, the scan's findings returned for the dialog.
 - **Pull Requests** (`/dashboard/[id]/pull-requests`): the page calls `refreshOpenPullRequests` (picks up merges/closes
   made on GitHub), then renders `PullRequestsView`: approval (the Lead), tests and risk chips. **Merge** only for PRs
   the Lead approved and tests passed.

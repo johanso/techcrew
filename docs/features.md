@@ -512,6 +512,36 @@ never executed. Not to be confused with **permissions**, which decide what an ag
   (medium). Non-critical findings install with the skill and count in the **trust score** of every agent that has
   it on; built-ins count as reviewed.
 
+## Brain
+
+`/dashboard/[workspaceId]/brain` (sidebar **Brain**): the notes agents read before they work, and where they live
+([brain-plan.md](brain-plan.md); this is part A, the foundation: notes by hand, no learning yet).
+
+- **A note** is a short Markdown summary (≤ 2,000 characters) with a title, a type (convention, decision, pitfall,
+  command, preference, lesson), when it loads (**always**: in every prompt; **on demand**: found by search), optional
+  file patterns it is relevant to, and a status (active, stale, disabled; only active notes reach agents).
+- **Two layers.** *Project notes* belong to this repository; *Your memory* belongs to you and every project of yours
+  reads it (keep it free of project details).
+- **Where the project's notes live** (Brain → **Settings**, per workspace): **In the repository** (default): the files
+  `.techteam/memory/conventions.md` (the always-loaded core; no header needed) and `.techteam/memory/notes/<name>.md` on
+  the default branch, read with your GitHub connection (cached about a minute, read again when the branch moves).
+  Nothing is written to the repository by this version: edit the files there. A notice warns that notes in a public
+  repository are public. **On this computer**: notes kept by TechTeam (create, edit, switch off, delete on the page),
+  nothing added to the repository. **Off**: agents get no memory at all.
+- **What the page shows**: the project's notes (read-only in `repo` mode, with the file and **N files skipped** and why: a
+  bad header, a file over 6,000 bytes, a note over 2,000 characters, or a security-scan block); your own notes with
+  create, edit, switch off and delete in a dialog (the scan's findings show there: critical ones refuse the note,
+  warnings are listed after saving); and **What agents get**: the exact block added to every stage's prompt, with its
+  size against the limits (2,000 characters of project core, 1,000 of yours) and how many notes are left to search.
+- **What agents do with it.** Every stage's system prompt gets a **Memory** block after the skills: the project's core
+  first, then yours, framed as reference data that never overrides the operating protocol. The block is fixed on the
+  stage's first turn (provider prompt caching), so a note changed mid-stage applies from the next stage. When notes
+  exist, every agent also gets read-only `search_memory` (ranked like skills, boosted by the files it names) and
+  `read_memory`; they appear in the agent log by key only. The Reviewer checks the change against the notes and reports
+  a violation as a finding. Memory never adds a tool or a permission, and no agent can write to `.techteam/`.
+- **Not yet**: signals from rejected pull requests, the librarian, proposals and memory pull requests, promotion to your
+  memory (parts B, C and D of the plan).
+
 ## Live process
 
 On the AI Team page, below the agents: the pipeline as six vertical steps — Analysis, Development, Review (Reviewer +
