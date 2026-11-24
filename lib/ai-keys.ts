@@ -66,7 +66,12 @@ export function resolveKey(rows: KeyRow[], provider: AgentProvider, environment:
 export async function getAIKeys(workspaceId: number): Promise<AIKeys> {
   const [owner] = await db.select({ id: workspaces.ownerId }).from(workspaces).where(eq(workspaces.id, workspaceId));
   if (!owner) return perProvider(envKey);
-  const rows = await accountRows(owner.id);
+  return getOwnerAIKeys(owner.id);
+}
+
+/** The same for a user who may own no workspace yet: their account keys first, then the environment's. */
+export async function getOwnerAIKeys(userId: number): Promise<AIKeys> {
+  const rows = await accountRows(userId);
   return perProvider((provider) => resolveKey(rows, provider, envKey(provider)));
 }
 

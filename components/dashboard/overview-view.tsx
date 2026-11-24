@@ -2,21 +2,25 @@ import { CircleDotDashedIcon, GitPullRequestArrowIcon, ListTodoIcon } from "luci
 
 import { dashboardHref } from "@/components/dashboard/nav";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
+import { SetupChecklist } from "@/components/dashboard/setup-checklist";
 import { StatTile } from "@/components/dashboard/stat-tile";
 import { TeamStatus } from "@/components/dashboard/team-status";
 import { UpcomingTasks } from "@/components/dashboard/upcoming-tasks";
 import { LiveTeamProvider } from "@/components/ai-team/live-team";
 import type { OverviewData } from "@/lib/overview";
+import type { SetupStep } from "@/lib/setup-status";
 
 /** Overview content. Presentational: the page loads the data. */
 export function OverviewView({
   userName,
   workspace,
   data,
+  setup,
 }: {
   userName: string | null;
   workspace: { id: number; name: string };
   data: OverviewData;
+  setup: SetupStep[];
 }) {
   const { stats } = data;
 
@@ -29,6 +33,8 @@ export function OverviewView({
         </h1>
         <p className="text-sm text-muted-foreground">Here&apos;s what&apos;s happening in {workspace.name} today.</p>
       </div>
+
+      <SetupChecklist steps={setup} variant="started" />
 
       <section className="grid gap-4 sm:grid-cols-3" aria-label="Task summary">
         <StatTile icon={ListTodoIcon} label="Open tasks" value={stats.open.count} hint={stats.open.hint} tone="text-brand-emphasis" />
