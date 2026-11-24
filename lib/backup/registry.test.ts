@@ -85,6 +85,25 @@ describe("schema coverage", () => {
     expect(names).toContain("agent_run_messages");
   });
 
+  it("exports the Brain's notes whole: no secret column, no exclusion, its foreign keys and the workspace columns", () => {
+    expect(EXCLUDED_TABLES).not.toHaveProperty("memory_notes");
+    expect(SECRET_COLUMNS).not.toHaveProperty("memory_notes");
+    const tables = new Map(exportTables().map((table) => [table.name, table]));
+    const notes = tables.get("memory_notes");
+    expect(notes?.columns.map((column) => column.name)).toEqual([
+      "id", "user_id", "workspace_id", "scope", "type", "title", "body", "load", "status", "paths", "source", "origin", "content_hash", "created_at", "updated_at",
+    ]);
+    expect(notes?.columns.find((column) => column.name === "paths")?.kind).toBe("array");
+    expect(notes?.columns.find((column) => column.name === "source")?.kind).toBe("jsonb");
+    expect(notes?.foreignKeys).toEqual([
+      { column: "user_id", references: "users", nullable: false },
+      { column: "workspace_id", references: "workspaces", nullable: true },
+    ]);
+    const workspace = tables.get("workspaces")?.columns;
+    expect(workspace?.find((column) => column.name === "memory_mode")).toMatchObject({ kind: "text", notNull: true, hasDefault: true });
+    expect(workspace?.find((column) => column.name === "memory_bootstrapped_at")).toMatchObject({ kind: "timestamp", notNull: false });
+  });
+
   it("has `id` as the primary key of every table with a serial column", () => {
     for (const table of exportTables()) {
       if (table.serialColumns.length > 0) expect(table.primaryKey, table.name).toBe("id");

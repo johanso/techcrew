@@ -86,6 +86,11 @@ export const workspaces = pgTable(
     sandboxCommands: jsonb("sandbox_commands").$type<StoredSandboxCommands>(),
     // Settings → Sandbox → Previews: each agent PR gets a preview on SANDBOX_PREVIEW_DOMAIN that the Tester can browse.
     sandboxPreview: boolean("sandbox_preview").default(false).notNull(),
+    // Brain → Settings: where the project's memory lives ("repo" | "local" | "off", MEMORY_MODES). `repo`: files under
+    // .techteam/memory/ in the repository; `local`: memory_notes rows of this workspace; `off`: no memory at all.
+    memoryMode: text("memory_mode").default("repo").notNull(),
+    // When the Brain was first built from the repository (bootstrap, a later version). Null: never.
+    memoryBootstrappedAt: timestamp("memory_bootstrapped_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -646,3 +651,50 @@ export const modelCatalog = pgTable("model_catalog", {
 });
 
 export type ModelCatalogRow = typeof modelCatalog.$inferSelect;
+
+/**
+ * The Brain's notes that live in the database (lib/memory.ts, docs/brain-plan.md): the owner's global notes
+ * (`workspace_id` null) and, in `local` memory mode, a project's notes. In `repo` mode the repository's files are the
+ * truth and this table holds only the global notes. A note is a short Markdown summary (at most 2,000 characters) that
+ * agents read as reference data; never file contents or secrets. Tables here hold no secrets, so backups include it.
+ */
+export const memoryNotes = pgTable(
+  "memory_notes",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Null for a global note (every project of the owner reads it).
+    workspaceId: integer("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }),
+    // "global" | "project" (MEMORY_SCOPES): global exactly when workspace_id is null.
+    scope: text("scope").notNull(),
+    // "convention" | "decision" | "pitfall" | "command" | "preference" | "lesson".
+    type: text("type").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    // "always" | "on_demand": the core is in every prompt, the rest is searched.
+    load: text("load").notNull(),
+    // "active" | "stale" | "disabled": only active notes reach agents.
+    status: text("status").notNull().default("active"),
+    // Optional globs: the note ranks higher when a card touches matching files.
+    paths: text("paths").array(),
+    // Where it came from (MemorySource): a person, a run, a pull request.
+    source: jsonb("source").$type<Record<string, string | number>>().notNull().default({}),
+    // "owner" | "agent" | "bootstrap".
+    origin: text("origin").notNull(),
+    // sha256 of the normalized title and body (noteHash): the same note can't be saved twice in one place.
+    contentHash: text("content_hash").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("memory_notes_user_idx").on(table.userId, table.scope),
+    index("memory_notes_workspace_idx").on(table.workspaceId),
+    // NULLs are distinct in a unique index, so a global note and a project note each get their own rule.
+    uniqueIndex("memory_notes_global_unique").on(table.userId, table.contentHash).where(sql`${table.workspaceId} is null`),
+    uniqueIndex("memory_notes_project_unique").on(table.userId, table.workspaceId, table.contentHash).where(sql`${table.workspaceId} is not null`),
+  ]
+);
+
+export type MemoryNoteRow = typeof memoryNotes.$inferSelect;
