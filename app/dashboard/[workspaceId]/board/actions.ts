@@ -1,7 +1,7 @@
 "use server";
 
 import { agentOnPlan, answerAnalyst, pipelineModelProblem, referenceModelProblem } from "@/lib/agent-pipeline";
-import { PROVIDERS, fallbackProvider } from "@/lib/agent-config";
+import { PROVIDERS, fallbackProvider, normalizeFallbackOrder } from "@/lib/agent-config";
 import { parseAnswer } from "@/lib/agent-run-config";
 import { getAIKeys, keyStatus } from "@/lib/ai-keys";
 import { finishRun, getActiveRun, getLatestRuns, getTaskRunLog, placeTask, releaseTask, type RunLog } from "@/lib/agent-runs";
@@ -259,7 +259,7 @@ export async function getBoardAction(workspaceId: number): Promise<BoardData | n
 
 /**
  * A card whose run stopped because its provider ran out of credit: moves the agents still on the broke company to the
- * first other company with a key (fallbackProvider) and runs the card again. A rerun continues on its open PR.
+ * next company with a key in the workspace's fallback order (fallbackProvider) and runs the card again. A rerun continues on its open PR.
  */
 export async function switchProviderAndRetryAction(workspaceId: number, cardId: string): Promise<CardActionResult> {
   const auth = await authorize(workspaceId);
@@ -270,7 +270,7 @@ export async function switchProviderAndRetryAction(workspaceId: number, cardId: 
   if (failure?.kind !== "out_of_credit") return { ok: false, error: "This card didn't stop for lack of credit." };
 
   if ((await teamProviders(auth.workspace.id))[failure.provider]) {
-    const other = fallbackProvider(failure.provider, keyStatus(await getAIKeys(auth.workspace.id)));
+    const other = fallbackProvider(failure.provider, keyStatus(await getAIKeys(auth.workspace.id)), normalizeFallbackOrder(auth.workspace.aiFallbackOrder));
     if (!other) return { ok: false, error: "Add another company's API key in Settings first." };
     await moveAgentsToProvider(auth.workspace.id, failure.provider, other, `${PROVIDERS[failure.provider].label} was out of credit (Switch and retry on the board).`);
   }

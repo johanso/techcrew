@@ -16,12 +16,13 @@ const BILLING_URL: Record<AgentProvider, string> = {
 
 /**
  * Above the board when cards stopped because a provider ran out of credit: which cards, and the way out — move the
- * agents on that company to another one with a key (the first, as the retry action does) and retry them, or add credit.
+ * agents on that company to the next one in the workspace's fallback order (as the retry action does) and retry them, or add credit.
  */
 export function CreditNotice({
   cards,
   inUse,
   connected,
+  fallbackOrder,
   settingsHref,
   retrying,
   onRetry,
@@ -31,6 +32,8 @@ export function CreditNotice({
   /** The companies the agents run on now. */
   inUse: ProviderStatus;
   connected: ProviderStatus;
+  /** The workspace's saved fallback order, or null for the built-in one. */
+  fallbackOrder: AgentProvider[] | null;
   settingsHref: string;
   retrying: boolean;
   onRetry: () => void;
@@ -38,7 +41,7 @@ export function CreditNotice({
   const failure = cards.map((card) => card.run?.failure).find((f) => f?.kind === "out_of_credit");
   if (failure?.kind !== "out_of_credit") return null;
   const broke = failure.provider;
-  const other = fallbackProvider(broke, connected);
+  const other = fallbackProvider(broke, connected, fallbackOrder);
   // No agent left on the broke company (moved by hand or auto failover): retrying just runs the cards again.
   const switched = !inUse[broke];
   const canRetry = switched || other !== null;

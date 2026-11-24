@@ -15,6 +15,7 @@ import {
   PROVIDER_IDS,
   defaultProvider,
   fallbackProvider,
+  normalizeFallbackOrder,
   isPermissionId,
   roleDefaultModel,
   type AgentKey,
@@ -1144,7 +1145,7 @@ export async function runStageTurn<S extends AgentStage>(input: StageTurnInput &
     });
   } catch (error) {
     const broke = brokeProvider(error);
-    if (broke) return outOfCredit(ctx, key, broke, fallbackProvider(broke, providers), input.failedOver ?? false);
+    if (broke) return outOfCredit(ctx, key, broke, fallbackProvider(broke, providers, normalizeFallbackOrder(ctx.workspace.aiFallbackOrder)), input.failedOver ?? false);
     rethrowGithub(error);
   }
 
@@ -1327,7 +1328,7 @@ async function planLimited<S extends AgentStage>(
   turn: number
 ): Promise<TurnStepResult<S>> {
   const now = new Date();
-  const other = ctx.workspace.aiAutoFailover ? fallbackProvider("anthropic", providers) : null;
+  const other = ctx.workspace.aiAutoFailover ? fallbackProvider("anthropic", providers, normalizeFallbackOrder(ctx.workspace.aiFallbackOrder)) : null;
   const action = planLimitAction({ policy: policy ?? defaultPlanLimitPolicy(providers.anthropic), hasKey: providers.anthropic, other, resetsAt, now });
   await rememberPlanLimited("claude", resetsAt ?? new Date(now.getTime() + PLAN_RETRY_MINUTES * 60_000).toISOString());
   const reason = `Your Claude plan ran out of usage${resetsAt ? ` until ${resetsAt}` : ""}.`;
