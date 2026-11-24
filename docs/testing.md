@@ -58,7 +58,7 @@ Afterwards it closes the pull request, deletes the `agent/*` branches the run cr
 the temp folder, also on failure and Ctrl+C.
 
 Requirements: Node 22.18+, a **throwaway** repository your GitHub account can push to (its name must contain `smoke`,
-`throwaway`, `sandbox` or `scratch`, unless you pass `--i-know-this-repo-gets-junk`), and a token: `SMOKE_GITHUB_TOKEN`,
+`throwaway` or `scratch`, unless you pass `--i-know-this-repo-gets-junk`), and a token: `SMOKE_GITHUB_TOKEN`,
 else the GitHub CLI's (`gh auth token`). The token is encrypted into the temp database; it is never printed or passed on a
 command line. Options: `--repo` (or `SMOKE_REPO`), `--timeout <minutes>`, `--reuse-build` (skip the rebuild when the smoke
 build is current), `--keep` (leave the stack, the temp folder, the pull request and the branch for inspection; it says how

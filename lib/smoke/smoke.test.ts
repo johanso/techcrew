@@ -28,12 +28,14 @@ describe("the repository guard", () => {
     expect(out).toMatchObject({ ok: false });
   });
   it("accepts a name that says it is throwaway, whatever the case", () => {
-    for (const name of ["acme/techteam-smoke", "acme/Throwaway-1", "acme/my-SANDBOX", "acme/scratch"]) {
+    for (const name of ["acme/techteam-smoke", "acme/Throwaway-1", "acme/my-SCRATCH", "acme/scratch"]) {
       expect(checkRepoGuard({ repo: name, anyRepoName: false })).toEqual({ ok: true, repo: name });
     }
   });
   it("refuses a real-looking name, and the owner's name doesn't count", () => {
     expect(checkRepoGuard({ repo: "acme/website", anyRepoName: false })).toMatchObject({ ok: false });
+    // A project's own demo repository is not throwaway just because it says sandbox.
+    expect(checkRepoGuard({ repo: "acme/techteam-sandbox-demo", anyRepoName: false })).toMatchObject({ ok: false });
     expect(checkRepoGuard({ repo: "smoke-co/website", anyRepoName: false })).toMatchObject({ ok: false });
   });
   it("lets the override through, but still not a malformed name", () => {
