@@ -5,6 +5,8 @@ import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promis
 import { homedir } from "node:os";
 import path from "node:path";
 
+import { isValidKey, keyPath } from "@/lib/storage-key.mjs";
+
 /**
  * Local file storage for workspace logos, the Tester's browser screenshots and card references. Files live under the
  * data folder (`TECHTEAM_DATA_DIR`, default `~/.techteam/data`) in `files/<key>`. A key is an app-generated relative
@@ -34,20 +36,14 @@ export function filesDir() {
   return path.resolve(dataDir, "files");
 }
 
-/** Whether a string is a safe storage key: relative, `/`-separated, no empty, `.` or `..` segment, no NUL, backslash, drive or `%`. */
-export function isValidKey(key: string) {
-  if (!key || key.length > 512) return false;
-  if (key.includes("\0") || key.includes("\\") || key.includes(":") || key.includes("%")) return false;
-  return key.split("/").every((segment) => segment !== "" && !segment.startsWith("."));
-}
+// The key rules live in a plain module the backup scripts share (lib/storage-key.mjs).
+export { isValidKey };
 
 /** The absolute path of a key, checked to stay inside the files folder. Throws on a bad key. */
 function resolveKey(key: string) {
-  if (!isValidKey(key)) throw new Error("Invalid storage key.");
   const base = filesDir();
-  const full = path.resolve(base, ...key.split("/"));
-  const relative = path.relative(base, full);
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("Invalid storage key.");
+  const full = keyPath(base, key);
+  if (!full) throw new Error("Invalid storage key.");
   return { base, full };
 }
 

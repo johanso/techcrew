@@ -80,10 +80,11 @@ in the changelog, and AGENTS.md and `docs/` are updated. Read `node_modules/next
   checks on actions.
 - Done when you can sign in from scratch and see your repositories.
 
-### Phase 5 — Backup, restore and your current data
-- While the old credentials still work: import the current database and files into the local installation.
-- `npm run backup` (a `pg_dump` plus the files, one archive, no secrets by default) and `npm run restore` (warns when
-  runs are in flight).
+### Phase 5 — Backup, restore and your current data (done)
+- `npm run backup` writes one `.tar.gz` (rows as JSON lines read from a read-only snapshot, the files, a manifest; no
+  secrets; `--with-s3` also collects the old bucket) and `npm run restore` fills an empty database from it in one
+  transaction. It uses no `pg_dump`, so it needs no Postgres tools and works against any `DATABASE_URL`. Backup warns
+  about runs in flight. The owner pulls the old remote data from a computer that reaches it: docs/setup.md.
 - Done when a backup restored under a clean profile shows the same projects, board and agents.
 
 ### Phase 6 — First run and easy operation
