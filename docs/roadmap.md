@@ -135,8 +135,8 @@ first-run wizard so anyone can clone it and start. Plan, phases and risks: [loca
 - **Deploy and hardening** (was v0.6; moved here 2026-11-20, agents on local plans first):
   Run TechTeam itself on the VPS, so nothing has to run on a laptop: open `https://app.<domain>` from any computer.
   - The app (Next.js standalone) and a self-hosted Inngest as services on the VPS behind the same Caddy, restarting on
-    boot; Postgres and auth stay on Cloudhike. A production GitHub OAuth App, `PUBLIC_APP_URL`, backups (`pg_dump`).
-  - Weekly Switch scans in production, without a tunnel; GitHub webhooks instead of the 60 s issue sync.
+    boot; Postgres and auth stay on Cloudhike. A production GitHub OAuth App, backups (`pg_dump`).
+  - GitHub webhooks instead of the 60 s issue sync.
   - The post-MVP rows of the [test plan](testing.md#test-plan-and-status): Anthropic live, mixed three-company run,
     blocked merge, auto pickup and auto merge, pause or budget mid-run, Draft with AI, automatic provider switch.
   - Skill uploads out of a Server Action, so `serverActions.bodySizeLimit` goes back to the 1 MB default.

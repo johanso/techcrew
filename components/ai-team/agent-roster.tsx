@@ -9,7 +9,6 @@ import { useLiveTeam } from "@/components/ai-team/live-team";
 import type { AgentKey, AgentProvider, ProviderStatus } from "@/lib/agent-config";
 import type { AgentView } from "@/lib/agents";
 import type { SkillView } from "@/lib/agent-skills-config";
-import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
 import type { AgentRoutes } from "@/lib/cli-agents-config";
 import type { ModelCatalog } from "@/lib/model-catalog-config";
 
@@ -25,7 +24,6 @@ export function AgentRoster({
   providers,
   plans,
   catalog,
-  switchTrust,
   skills,
   routes,
 }: {
@@ -38,7 +36,6 @@ export function AgentRoster({
   plans: Partial<Record<AgentProvider, boolean>>;
   /** The models the picker offers (current ones plus the team's own). */
   catalog: ModelCatalog;
-  switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
   /** Each agent's route on this computer; null when TechTeam isn't running locally. */
@@ -89,7 +86,6 @@ export function AgentRoster({
           providers={providers}
           plans={plans}
           catalog={catalog}
-          switchTrust={switchTrust}
           skills={skills}
         />
       )}
