@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
 
 import { db, workspaces, type NewWorkspace } from "@/db";
+import type { AgentProvider } from "@/lib/agent-config";
 import type { MergeMode } from "@/lib/agent-run-config";
 import { requireUser } from "@/lib/current-user";
 import type { SandboxCommands } from "@/lib/sandbox/config";
@@ -39,6 +40,11 @@ export async function updateAgentAutomation(workspaceId: number, values: { agent
 /** Settings → AI providers: switch to another company on its own when the current one runs out of credit. */
 export async function updateAutoFailover(workspaceId: number, enabled: boolean) {
   await db.update(workspaces).set({ aiAutoFailover: enabled, updatedAt: new Date() }).where(eq(workspaces.id, workspaceId));
+}
+
+/** Settings → AI → This workspace only: the order companies are tried in when one runs out. Null = the built-in order. */
+export async function updateFallbackOrder(workspaceId: number, order: AgentProvider[] | null) {
+  await db.update(workspaces).set({ aiFallbackOrder: order, updatedAt: new Date() }).where(eq(workspaces.id, workspaceId));
 }
 
 /** Settings → Sandbox: the switch and the commands, saved together so a run never guesses them. */

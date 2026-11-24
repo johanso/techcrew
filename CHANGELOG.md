@@ -8,6 +8,12 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+### Added
+- **Choose the order companies fall back in.** Settings → AI → This workspace only lists your companies with move up and
+  move down buttons: when one runs out of credit, or your Claude plan runs out with "Switch company", agents go to the
+  first company in that order with a key (default: OpenAI, Anthropic, OpenRouter). New column
+  `workspaces.ai_fallback_order`; applied at start.
+
 ### Fixed
 - **A secret that can't be read no longer breaks the app.** After the encryption key changed or was removed, every saved
   AI key and GitHub token became undecryptable and the board answered 500 (Settings too, so the keys couldn't be

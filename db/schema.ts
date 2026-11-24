@@ -82,6 +82,9 @@ export const workspaces = pgTable(
     // When a company runs out of credit mid-run and the other one has a key, move the agents on it there and restart
     // the stage instead of stopping (Settings → AI providers). Off by default: moving changes those agents' models.
     aiAutoFailover: boolean("ai_auto_failover").default(false).notNull(),
+    // The order companies are tried in when one runs out (credit or plan): company ids from PROVIDER_IDS, preferred
+    // first. Null = the built-in order (fallbackProvider). Read through normalizeFallbackOrder.
+    aiFallbackOrder: text("ai_fallback_order").array(),
     // Settings → Sandbox: agents with "Run tests in a sandbox" get run_tests / run_build / run_command. The commands
     // are saved with the switch (prefilled from package.json), so a run never guesses them.
     sandboxEnabled: boolean("sandbox_enabled").default(false).notNull(),

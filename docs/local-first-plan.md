@@ -94,10 +94,13 @@ in the changelog, and AGENTS.md and `docs/` are updated. Read `node_modules/next
 - A README quickstart tested on a clean profile.
 - Done when someone without context gets it running from the README alone.
 
-### Phase 7 — Model routes
+### Phase 7 — Model routes (done)
 - A configurable fallback order when a plan or a company runs out (`planLimitAction`, `fallbackProvider`). Providers and
   models are not touched.
 - Done when an exhausted plan moves to the next one in the chosen order and the agent log says so.
+- Done: per-workspace `ai_fallback_order` (Settings → AI → This workspace only); `fallbackProvider` takes it from the
+  credit failover, the board's switch and retry and the plan-limit "Switch company" policy. The log and the bell name
+  the company moved to.
 
 ### Phase 8 — Pluggable sandbox
 - 8a: an interface with three modes (off, Docker, bubblewrap); previews on `localhost` instead of a domain and Caddy;

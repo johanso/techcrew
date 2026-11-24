@@ -96,7 +96,7 @@ runs out** (Settings, per computer) decides (`planLimitAction`, pure and tested)
 | --- | --- |
 | **Wait for the reset** (default without an Anthropic key) | The run pauses: `agent_runs.waiting`, the card says "Waiting for your Claude plan · resets 3:40 PM", the bell notifies once, Inngest sleeps until a minute after the reset (every 30 min when no time is given) and the stage **resumes the same CLI session**. Stop still works while it waits. A reset more than a day away (a weekly limit) doesn't hold the card: the key, else a stop. |
 | **Continue on the API key** (default with a key) | The stage starts over on the same model through the key (a CLI conversation can't move to the API); the agent log notes the switch. |
-| **Switch company** | The existing auto failover: agents on Claude models move to another company with a key (this edits agents). Needs auto failover on. |
+| **Switch company** | The existing auto failover: agents on Claude models move to the next company in your fallback order (Settings → AI → This workspace only; the built-in order OpenAI, Anthropic, OpenRouter until you change it) that has a key (this edits agents). Needs auto failover on. |
 
 When none is possible, the run stops with `failure = { kind: "plan_limit", cli, resetsAt }` and a notification. TechTeam
 doesn't guess which models a plan includes (Pro runs Opus in Claude Code): a model the CLI refuses is remembered on

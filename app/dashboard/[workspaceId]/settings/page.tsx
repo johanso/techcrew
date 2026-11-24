@@ -11,13 +11,14 @@ import { AccountSpendCard } from "@/components/settings/account-spend";
 import { AgentAutomationForm } from "@/components/settings/agent-automation-form";
 import { AutoFailoverToggle } from "@/components/settings/auto-failover-toggle";
 import { ClaudePlanSettings } from "@/components/settings/cli-plan-settings";
+import { FallbackOrder } from "@/components/settings/fallback-order";
 import { ModelCatalogStatus } from "@/components/settings/model-catalog-status";
 import { ProviderKeyForm } from "@/components/settings/provider-key-form";
 import { SandboxFormSkeleton, SandboxSettings } from "@/components/settings/sandbox-form";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { WorkspaceAvatar, workspaceLogoSrc } from "@/components/workspace/workspace-avatar";
-import { PROVIDER_IDS } from "@/lib/agent-config";
+import { PROVIDER_IDS, effectiveFallbackOrder, normalizeFallbackOrder } from "@/lib/agent-config";
 import { parseMergeMode } from "@/lib/agent-run-config";
 import { getSkillLibrary } from "@/lib/agent-skills";
 import { ensureDefaultAgents, getAccountSpend } from "@/lib/agents";
@@ -144,6 +145,17 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
             enabled={workspace.aiAutoFailover}
             canSwitch={PROVIDER_IDS.filter((provider) => keys[provider].inUse !== null).length >= 2}
           />
+          {PROVIDER_IDS.filter((provider) => keys[provider].inUse !== null).length >= 2 && (
+            <FallbackOrder
+              workspaceId={workspace.id}
+              order={effectiveFallbackOrder(normalizeFallbackOrder(workspace.aiFallbackOrder))}
+              hasKey={{
+                openai: keys.openai.inUse !== null,
+                anthropic: keys.anthropic.inUse !== null,
+                openrouter: keys.openrouter.inUse !== null,
+              }}
+            />
+          )}
           <div className="flex flex-col gap-6 border-t border-border/70 pt-6">
             <div className="flex flex-col gap-1">
               <h3 className="text-sm font-bold">Workspace keys (optional)</h3>

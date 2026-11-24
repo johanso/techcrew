@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { isAgentKey, isAgentProvider } from "@/lib/agent-config";
+import { isAgentKey, isAgentProvider, normalizeFallbackOrder } from "@/lib/agent-config";
 import { isMergeMode } from "@/lib/agent-run-config";
 import { UPLOAD_MAX_BYTES, formatBytes } from "@/lib/agent-skills-config";
 import { getOwnedSkill } from "@/lib/agent-skills";
@@ -23,7 +23,7 @@ import {
   type SandboxCommands,
 } from "@/lib/sandbox/config";
 import { previewsAvailable } from "@/lib/sandbox/preview";
-import { getOwnedWorkspace, updateAgentAutomation, updateAutoFailover, updateSandbox } from "@/lib/workspaces";
+import { getOwnedWorkspace, updateAgentAutomation, updateAutoFailover, updateFallbackOrder, updateSandbox } from "@/lib/workspaces";
 
 export type AutomationFormState = { ok?: boolean; message?: string; savedAt?: number };
 
@@ -126,6 +126,21 @@ export async function saveAutoFailoverAction(workspaceId: number, enabled: unkno
   if (typeof enabled !== "boolean") return { ok: false, error: "Choose on or off." };
   await updateAutoFailover(workspace.id, enabled);
   revalidatePath(`/dashboard/${workspaceId}/settings`);
+  return { ok: true };
+}
+
+/**
+ * Settings → AI → This workspace only: the order companies are tried in when one runs out. Anything that isn't a list
+ * of known companies is refused; the stored order is the cleaned one (unlisted companies follow in the built-in order).
+ */
+export async function saveFallbackOrderAction(workspaceId: number, order: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
+  const workspace = await authorize(workspaceId);
+  if (!workspace) return { ok: false, error: "Workspace not found." };
+  const clean = normalizeFallbackOrder(order);
+  if (!clean) return { ok: false, error: "Choose an order for the companies." };
+  await updateFallbackOrder(workspace.id, clean);
+  revalidatePath(`/dashboard/${workspaceId}/settings`);
+  revalidatePath(`/dashboard/${workspaceId}/board`);
   return { ok: true };
 }
 

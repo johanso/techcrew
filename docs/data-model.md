@@ -86,6 +86,7 @@ erDiagram
         text agent_merge_mode "manual | auto_low_risk | auto"
         text ai_provider
         boolean ai_auto_failover
+        text_array ai_fallback_order
         boolean sandbox_enabled
         jsonb sandbox_commands
     }
@@ -216,6 +217,7 @@ A workspace is bound to **exactly one** GitHub repository, chosen at creation. O
 | `agent_auto_pickup` | boolean | no | Default `false`. Settings → Agents: the analyst takes never-run Todo cards on its own. |
 | `agent_merge_mode` | text | no | Default `manual`. Settings → Agents → Merging (`MERGE_MODES`): `manual`, `auto_low_risk` (merge on their own only when the Lead's final risk is low) or `auto` (merge once approval, tests and CI pass). Backfilled from v0.1's `agent_auto_merge` (true → `auto`) by migration 0005; that column was dropped in 0007. Unknown values read as `manual`. |
 | `ai_provider` | text | no | Default `openai`. **No longer read** (2026-11-19): each agent's model sets its company. Kept while the dev database is shared with older branches; a later migration drops it. |
+| `ai_fallback_order` | text[] | yes | Company ids (`PROVIDER_IDS`) in the order to try when one runs out of credit or of your Claude plan (Settings → AI → This workspace only). Null = OpenAI, Anthropic, OpenRouter. Read through `normalizeFallbackOrder`; companies it doesn't list follow in the built-in order. |
 | `ai_auto_failover` | boolean | no | Default `false`. Settings → AI providers: when a company runs out of credit mid-run and the other has a key, move the agents on it there and restart the stage. |
 | `sandbox_enabled` | boolean | no | Default `false`. Settings → Sandbox: agents with `tests.run` get the sandbox tools (migration 0009). |
 | `sandbox_commands` | jsonb | yes | `{ install, test, build }` (each a command or null), saved with the switch, prefilled from `package.json`. See [sandbox.md](sandbox.md). |

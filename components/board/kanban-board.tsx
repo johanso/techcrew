@@ -82,7 +82,7 @@ import {
   type BoardColumns,
   type BoardData,
 } from "@/lib/board-config";
-import type { ProviderStatus } from "@/lib/agent-config";
+import type { AgentProvider, ProviderStatus } from "@/lib/agent-config";
 import { isActiveRun } from "@/lib/agent-run-config";
 import { cn } from "@/lib/utils";
 
@@ -105,7 +105,7 @@ export function KanbanBoard({
   repo: string;
   /** The team's provider and which companies have a key, for the out-of-credit notice. */
   /** Companies the agents run on (`inUse`) and the ones with a key (`connected`). */
-  ai: { inUse: ProviderStatus; connected: ProviderStatus };
+  ai: { inUse: ProviderStatus; connected: ProviderStatus; fallbackOrder: AgentProvider[] | null };
   /** Card id whose agent log opens on load (?log=<id>, e.g. from a notification). */
   openLogFor: string | null;
   /** Last GitHub issue sync (ISO), or null if this workspace never synced. */
@@ -537,6 +537,7 @@ export function KanbanBoard({
         cards={outOfCredit}
         inUse={ai.inUse}
         connected={ai.connected}
+        fallbackOrder={ai.fallbackOrder}
         settingsHref={`/dashboard/${workspaceId}/settings#ai`}
         retrying={retryingCredit}
         onRetry={() => void retryOutOfCredit()}

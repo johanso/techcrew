@@ -110,7 +110,7 @@ app/
                           (#sandbox) and an Agent skills card (#skills) linking to
                           skills/page.tsx (the library on its own page). actions.ts: automation, saveSandboxAction /
                           checkSandboxAction (Test the sandbox),
-                          auto failover toggle, save/remove provider key, refreshModelsAction,
+                          auto failover toggle, saveFallbackOrderAction (the order companies are tried in), save/remove provider key, refreshModelsAction,
                           inspectSkillAction / installSkillAction (upload, two steps), saveSkillAssignmentsAction,
                           deleteSkillAction.
   globals.css             THE theme: palette, semantic tokens, Tailwind mapping.
@@ -843,8 +843,9 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     `run_tests` and `run_build` for real, and with previews on the Tester browses `/` (tablet, dark).
   - **Out of credit** (`isOpenAIOutOfCredit` / `isAnthropicOutOfCredit` / `isOpenRouterOutOfCredit`) is not a generic failure: the run stops with
     `agent_runs.failure = { kind: "out_of_credit", provider }` and the board offers switch-and-retry
-    (`switchProviderAndRetryAction`: moves the agents still on that company to `fallbackProvider`, the first other
-    company with a key). With `workspaces.ai_auto_failover` and another company's key, `runStageTurn` moves every agent on the broke company (`moveAgentsToProvider`) and returns
+    (`switchProviderAndRetryAction`: moves the agents still on that company to `fallbackProvider`: the first company in
+    the workspace's `ai_fallback_order` (Settings → AI → This workspace only; null = OpenAI, Anthropic, OpenRouter) that
+    isn't the broke one and has a key; the plan-limit "Switch company" policy and the credit notice use it too). With `workspaces.ai_auto_failover` and another company's key, `runStageTurn` moves every agent on the broke company (`moveAgentsToProvider`) and returns
     `restart` instead: the stage starts over, at most once per stage. After a failover it
     never switches back (`failedOver`): the second company running dry stops the run with `out_of_credit`.
   - **Notifications**: `notify()` at the moments that need the owner (PR ready, merged, merge blocked, needs info, run

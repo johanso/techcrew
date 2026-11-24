@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { KanbanBoard } from "@/components/board/kanban-board";
+import { normalizeFallbackOrder } from "@/lib/agent-config";
 import { teamProviders } from "@/lib/agents";
 import { getAIKeys, keyStatus } from "@/lib/ai-keys";
 import { getBoardData } from "@/lib/board";
@@ -21,7 +22,7 @@ export default async function BoardPage({ params, searchParams }: PageProps<"/da
       initial={data}
       repo={workspace.githubRepoFullName}
       lastSyncedAt={workspace.githubIssuesSyncedAt?.toISOString() ?? null}
-      ai={{ inUse, connected: keyStatus(keys) }}
+      ai={{ inUse, connected: keyStatus(keys), fallbackOrder: normalizeFallbackOrder(workspace.aiFallbackOrder) }}
       openLogFor={openLogFor}
       linksEnabled={linkCaptureAvailable()}
     />
