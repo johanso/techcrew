@@ -244,7 +244,6 @@ export function ProviderKeyForm({
       {state.ok && !pending && !editing && (
         <p className="text-xs text-muted-foreground">
           Key checked with {label} and saved.
-          {state.scansQueued ? ` SwitchAgent is scanning ${state.scansQueued} agent${state.scansQueued === 1 ? "" : "s"} again.` : ""}
         </p>
       )}
       <FormMessage message={state.message ?? removeError ?? undefined} />

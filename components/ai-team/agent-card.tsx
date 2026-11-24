@@ -2,10 +2,8 @@ import { ActivityIcon, BlocksIcon, CircleAlertIcon, CpuIcon, KeyRoundIcon, Libra
 
 import { AgentPortrait, AgentStatusBadge, BudgetMeter, TrustChip } from "@/components/ai-team/agent-visuals";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import type { AgentView, TeamMember } from "@/lib/agents";
 import { ROUTE_LABEL, type AgentRoute } from "@/lib/cli-agents-config";
-import { isPendingScan } from "@/lib/switch-trust-config";
 import { cn } from "@/lib/utils";
 
 /** "Working…" dots: each fades in turn (static under reduced motion). */
@@ -103,14 +101,7 @@ export function AgentCard({
             </span>
           </li>
           <li>
-            {agent.scan && isPendingScan(agent.scan.status) ? (
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-emphasis" role="status">
-                <Spinner className="size-3" />
-                Scanning…
-              </span>
-            ) : (
-              <TrustChip score={agent.trust?.score ?? null} />
-            )}
+            <TrustChip score={agent.trust?.score ?? null} />
           </li>
           {agent.openTasks > 0 && (
             <li className="flex items-center gap-1.5" title="Assigned cards not done yet">

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { after } from "next/server";
 import { format, formatDistanceToNowStrict } from "date-fns";
-import { ArrowRightIcon, BadgeCheckIcon, BotIcon, ContainerIcon, ExternalLinkIcon, KeyRoundIcon, LibraryBigIcon, ShieldCheckIcon } from "lucide-react";
+import { ArrowRightIcon, BadgeCheckIcon, BotIcon, ContainerIcon, ExternalLinkIcon, KeyRoundIcon, LibraryBigIcon } from "lucide-react";
 
 import { dashboardHref } from "@/components/dashboard/nav";
 import { DetailGrid, PageHeader, SurfaceHeader } from "@/components/dashboard/page-header";
@@ -14,8 +14,6 @@ import { ClaudePlanSettings } from "@/components/settings/cli-plan-settings";
 import { ModelCatalogStatus } from "@/components/settings/model-catalog-status";
 import { ProviderKeyForm } from "@/components/settings/provider-key-form";
 import { SandboxFormSkeleton, SandboxSettings } from "@/components/settings/sandbox-form";
-import { SwitchConnectionForm } from "@/components/settings/switch-connection-form";
-import { SwitchWeeklyToggle } from "@/components/settings/switch-weekly-toggle";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { buttonVariants } from "@/components/ui/button";
 import { WorkspaceAvatar, workspaceLogoSrc } from "@/components/workspace/workspace-avatar";
@@ -28,7 +26,6 @@ import { getClaudePlanView } from "@/lib/cli/plan-view";
 import { getModelCatalog, refreshModelCatalogIfStale } from "@/lib/model-catalog";
 import { detectRepoCommands, sandboxAvailable } from "@/lib/sandbox";
 import { previewsAvailable } from "@/lib/sandbox/preview";
-import { getSwitchConnectionView } from "@/lib/switch-trust";
 import { cn, initials } from "@/lib/utils";
 import { getDashboardContext, listWorkspaces } from "@/lib/workspaces";
 
@@ -38,9 +35,8 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
   const { user, workspace } = await getDashboardContext((await params).workspaceId);
   // Agents and built-in skills exist before the library lists who uses what.
   await ensureDefaultAgents(workspace.id);
-  const [keys, switchView, skills, spend, owned, catalog] = await Promise.all([
+  const [keys, skills, spend, owned, catalog] = await Promise.all([
     getProviderKeyViews(user.id, workspace.id),
-    getSwitchConnectionView(workspace.id),
     getSkillLibrary(workspace.id),
     getAccountSpend(user.id),
     listWorkspaces(user.id),
@@ -235,27 +231,6 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
             detected={detectedCommands}
           />
         </Suspense>
-      </section>
-
-      <section id="switch" className="surface scroll-mt-24">
-        <SurfaceHeader
-          icon={
-            <span className="icon-tile text-brand-emphasis">
-              <ShieldCheckIcon />
-            </span>
-          }
-          title="Switch Trust"
-          description="Connect your Switch account: your agents are registered there and SwitchAgent scans score them with one evaluation each."
-          actions={<span className="eyebrow text-muted-foreground">Trust</span>}
-        />
-        <div className="flex flex-col gap-6 border-t border-border/70 p-6">
-          <SwitchConnectionForm workspaceId={workspace.id} view={switchView} />
-          {switchView.connected && (
-            <div className="border-t border-border/70 pt-6">
-              <SwitchWeeklyToggle workspaceId={workspace.id} enabled={switchView.weeklyScans} />
-            </div>
-          )}
-        </div>
       </section>
 
       {/* The library has its own page (it can grow to many skills); #skills stays as an anchor for old links. */}
