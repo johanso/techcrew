@@ -102,7 +102,8 @@ source: { kind: pr_rejected, run: 41, pr: 12 }
 
   it("the core file needs no header and always loads", () => {
     const parsed = parseNoteFile("# Conventions\n\nUse TypeScript strict.", { core: true });
-    expect(parsed).toMatchObject({ ok: true, value: { title: "Conventions", load: "always", type: "convention" } });
+    // The heading became the title and isn't repeated in the body.
+    expect(parsed).toMatchObject({ ok: true, value: { title: "Conventions", load: "always", type: "convention", body: "Use TypeScript strict." } });
     expect(parseNoteFile("Just text.", { core: true })).toMatchObject({ ok: true, value: { title: "Project conventions", load: "always" } });
     // load in the header can't turn the core off.
     expect(parseNoteFile("---\nload: on-demand\n---\nText", { core: true })).toMatchObject({ ok: true, value: { load: "always" } });

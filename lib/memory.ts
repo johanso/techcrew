@@ -277,7 +277,7 @@ export async function createMemoryNote(place: NotePlace, input: unknown, origin:
   }
 }
 
-/** Replaces a note's fields (owner and place checked in the query). */
+/** Replaces a note's text fields (owner and place checked in the query). Its status and source stay: use setMemoryNoteStatus. */
 export async function updateMemoryNote(place: NotePlace, id: number, input: unknown): Promise<NoteWrite> {
   if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, message: "Note not found." };
   const checked = checkInput(input);
@@ -290,7 +290,6 @@ export async function updateMemoryNote(place: NotePlace, id: number, input: unkn
         title: checked.value.title,
         body: checked.value.body,
         load: checked.value.load,
-        status: checked.value.status,
         paths: checked.value.paths.length ? checked.value.paths : null,
         contentHash: noteHash(checked.value),
         updatedAt: new Date(),

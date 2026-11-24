@@ -43,7 +43,9 @@ const FIELD_LABEL: Record<NoteField, string> = { title: "title", type: "type", l
 /** A sentence for why a note was refused: the first invalid field, or the scan's critical findings. */
 export function refusalReason(errors: Partial<Record<NoteField, string>>) {
   const [field, message] = Object.entries(errors)[0] ?? [];
-  return field && message ? `${FIELD_LABEL[field as NoteField]}: ${message}` : "The file is not a valid note.";
+  if (!field || !message) return "The file is not a valid note.";
+  // A missing title already says what to add; the other messages need to say which field they are about.
+  return field === "title" ? message : `${FIELD_LABEL[field as NoteField]}: ${message}`;
 }
 
 /** Why the scan refused a note: its critical findings, in a sentence. */

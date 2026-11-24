@@ -42,7 +42,7 @@ export const MEMORY_TYPE_META: Record<MemoryType, { label: string; hint: string 
 export const MEMORY_MODE_META: Record<MemoryMode, { label: string; description: string }> = {
   repo: { label: "In the repository", description: "Notes are files under .techteam/memory/ in your repository, reviewed like any change." },
   local: { label: "On this computer", description: "Notes are kept by TechTeam, not in the repository. Nothing is added to it." },
-  off: { label: "Off", description: "Agents get no project notes. Your own notes still apply unless you have none." },
+  off: { label: "Off", description: "Agents get no memory at all, neither this project's nor your own." },
 };
 
 /** Where the project's notes live in the repository (mode `repo`). */
@@ -229,6 +229,8 @@ export function parseNoteFile(text: string, { core = false }: { core?: boolean }
   const { data, body, hasFrontmatter } = parseFrontmatter(withoutListComments(text));
   const heading = /^#\s+(.+?)\s*$/m.exec(body)?.[1];
   const title = typeof data.title === "string" ? data.title : (heading ?? (core ? CORE_DEFAULTS.title : ""));
+  // A title taken from the first line's heading isn't repeated in the body (the prompt block prints the title itself).
+  const content = typeof data.title === "string" ? body : body.replace(/^\s*#\s+.+\n?/, "");
   if (!hasFrontmatter && !core) return { ok: false, errors: { title: "The file needs a header (--- title: … ---)." } };
   const paths = Array.isArray(data.paths) ? data.paths : typeof data.paths === "string" ? [data.paths] : [];
   return validateNote({
@@ -238,7 +240,7 @@ export function parseNoteFile(text: string, { core = false }: { core?: boolean }
     status: typeof data.status === "string" ? data.status : "active",
     paths,
     source: sourceFrom(data.source),
-    body,
+    body: content,
   });
 }
 
