@@ -65,6 +65,12 @@ export type LoopState = {
   turn: number;
   /** Pinned on the stage's first turn: changing the agent's model mid-stage applies from its next stage. */
   model: AgentModelId;
+  /**
+   * The stage's Memory block (lib/memory-config.ts), pinned on its first turn like the model: the system prompt stays
+   * byte-identical across the stage's turns (prompt caching), and a note changed mid-stage applies from the next stage.
+   * Absent on a stage that started before it existed: the block is then built every turn.
+   */
+  memoryBlock?: string;
 } & (
   | {
       provider: "openai";
