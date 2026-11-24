@@ -1,9 +1,11 @@
+import { getTableColumns } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 const testKey = vi.hoisted(() => Buffer.alloc(32, 3));
 vi.mock("@/lib/secrets", () => ({ getEncryptionKey: () => testKey }));
 
 import { AGENT_STAGES } from "@/lib/agent-run-config";
+import { githubConnections, tasks, users, workspaces } from "@/db/schema";
 import { decrypt } from "@/lib/crypto";
 
 import { parseSmokeArgs } from "./args.mjs";
@@ -228,6 +230,29 @@ describe("the seed", () => {
     expect(JSON.stringify(calls)).not.toContain(TOKEN);
     expect(JSON.stringify(calls)).toContain(encryptedToken);
     expect(calls).toHaveLength(4);
+  });
+});
+
+describe("the seed against the schema", () => {
+  it("only inserts columns db/schema.ts defines", async () => {
+    const statements: string[] = [];
+    const tx = (strings: TemplateStringsArray) => {
+      statements.push(strings.join("?"));
+      return Promise.resolve([{ id: 1 }]);
+    };
+    const sql = { begin: (work: (t: typeof tx) => unknown) => work(tx) };
+    await seedDatabase(sql as never, { github: { id: 7, login: "me", avatarUrl: null }, encryptedToken: "v1.a.b.c", repo: { id: 1, fullName: "me/smoke", htmlUrl: "u", defaultBranch: "master", private: true } });
+    const tables = { users, github_connections: githubConnections, workspaces, tasks };
+    const seen = new Set<string>();
+    for (const statement of statements) {
+      const match = /insert into (\w+) \(([^)]*)\)/.exec(statement);
+      expect(match).not.toBeNull();
+      const [, table, list] = match!;
+      seen.add(table);
+      const known = Object.values(getTableColumns(tables[table as keyof typeof tables])).map((column) => column.name);
+      for (const column of list.split(",").map((name) => name.trim())) expect(known, `${table}.${column}`).toContain(column);
+    }
+    expect([...seen].sort()).toEqual(["github_connections", "tasks", "users", "workspaces"]);
   });
 });
 
