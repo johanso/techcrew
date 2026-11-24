@@ -171,17 +171,16 @@ export async function generateAgentConfig(input: {
   const role = AGENT_ROLES[input.key];
   const repo = await loadRepoContext(input.workspace);
   // The same conditions as the sandbox tools in toolsFor (the saved commands aside).
+  const sandboxReady = input.workspace.sandboxEnabled && (await sandboxAvailable());
   const runsCode =
     input.permissions.includes("tests.run") &&
-    input.workspace.sandboxEnabled &&
-    sandboxAvailable() &&
+    sandboxReady &&
     SANDBOX_STAGES.some((stage) => STAGE_META[stage].agent === input.key);
   // The same conditions as add_dependency in toolsFor.
   const addsPackages =
     input.permissions.includes("deps.manage") &&
     input.permissions.includes("code.write") &&
-    input.workspace.sandboxEnabled &&
-    sandboxAvailable() &&
+    sandboxReady &&
     STAGE_META.development.agent === input.key;
 
   const context = [

@@ -26,6 +26,7 @@ import {
   type ReferenceView,
 } from "@/lib/reference-config";
 import { parseCaptureUrl } from "@/lib/sandbox/capture-config";
+import { LINK_CAPTURE_LOCAL_REASON } from "@/lib/sandbox/mode";
 import { cn } from "@/lib/utils";
 
 const LIMITS = `PNG, JPEG or WebP up to ${formatReferenceBytes(REFERENCE_MAX_BYTES.image)}, Markdown or text up to ${formatReferenceBytes(
@@ -378,7 +379,7 @@ function ReferenceList({
           {linkError ??
             (links
               ? "A public page captured once, now, at desktop and mobile width. Agents get the screenshots and an outline to build something similar, never its logos or texts."
-              : "Links need a sandbox host to capture them, and this server has none.")}
+              : LINK_CAPTURE_LOCAL_REASON)}
         </p>
       </div>
     </div>
