@@ -43,8 +43,8 @@ erDiagram
     users ||--o{ notifications : receives
     agent_runs |o--o| pull_requests : opens
     tasks |o--o{ pull_requests : "for (nullable)"
-    workspaces ||--o| switch_connections : "Switch account (0..1)"
-    agents ||--o{ trust_scans : "SwitchAgent scans"
+    workspaces ||--o| switch_connections : "unused (0..1)"
+    agents ||--o{ trust_scans : "unused"
     tasks ||--o{ task_events : "moved, edited, removed"
     tasks ||--o{ task_references : "files for the agents"
     users |o--o{ task_references : "uploaded (nullable)"
@@ -335,9 +335,9 @@ One row per agent role per workspace. The six roles (`analyst`, `developer`, `re
 | `max_turns` | integer | yes | | Model turns per pipeline stage (3–100). `null` = role default (`AGENT_ROLES[key].defaults.maxTurns`: analyst 12, developer 40, reviewer 15, security 15, lead 8, tester 12). |
 | `enabled` | boolean | no | `true` | Paused agents can't be Run; a running stage stops at its next turn. |
 | `trust_score` | integer | yes | | Latest Trust Score (0–100), duplicated from the report for queries. |
-| `trust_report` | jsonb | yes | | `TrustReport` (`lib/agent-trust.ts`): findings, checks, mode (`rules` \| `ai` \| `switch`), model, time; Switch reports add `evaluation` and `coverage`. |
+| `trust_report` | jsonb | yes | | `TrustReport` (`lib/agent-trust.ts`): findings, checks, mode (`rules` \| `ai`), model, time. Older rows may hold a removed Switch report; the next scan replaces it. |
 | `trust_scanned_at` | timestamp | yes | | |
-| `switch_agent_id` | text | yes | | Agent fingerprint in Switch Trust (`agn_…`), set on its first SwitchAgent scan; cleared when the account changes. |
+| `switch_agent_id` | text | yes | | Unused: Switch Trust was removed; the column stays until a cleanup migration drops it. |
 | `created_at`, `updated_at` | timestamp | no | `now()` | |
 
 ## agent_skills
@@ -392,7 +392,7 @@ What people did to cards, for the Activity page (`lib/task-events.ts`). Creating
 
 ## switch_connections
 
-A workspace's Switch Trust account (Settings → Switch Trust). See [switch-trust.md](switch-trust.md).
+**Unused.** Switch Trust was removed; the table stays until a cleanup migration drops it. Nothing reads or writes it.
 
 | Column | Type | Null | Default | Notes |
 | --- | --- | --- | --- | --- |
@@ -448,7 +448,7 @@ Which models are offered (newest per family), their tier and their route id are 
 
 ## trust_scans
 
-One SwitchAgent scan of one agent, advanced in the background by Cloudhike jobs.
+**Unused.** SwitchAgent scans were removed; the table stays until a cleanup migration drops it. Nothing reads or writes it.
 
 | Column | Type | Null | Default | Notes |
 | --- | --- | --- | --- | --- |

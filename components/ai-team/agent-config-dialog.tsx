@@ -54,7 +54,6 @@ import {
   type CatalogModel,
   type ModelCatalog,
 } from "@/lib/model-catalog-config";
-import type { SwitchTrustStatus } from "@/lib/switch-trust-config";
 import { cn } from "@/lib/utils";
 
 
@@ -84,7 +83,6 @@ export function AgentConfigDialog({
   providers,
   plans,
   catalog,
-  switchTrust,
   skills,
 }: {
   open: boolean;
@@ -98,7 +96,6 @@ export function AgentConfigDialog({
   plans: Partial<Record<AgentProvider, boolean>>;
   /** The model catalog's current models plus the team's own (lib/model-catalog.ts). */
   catalog: ModelCatalog;
-  switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
 }) {
@@ -114,7 +111,6 @@ export function AgentConfigDialog({
           providers={providers}
           plans={plans}
           catalog={catalog}
-          switchTrust={switchTrust}
           skills={skills}
           onSaved={() => onOpenChange(false)}
         />
@@ -131,7 +127,6 @@ function ConfigForm({
   providers,
   plans,
   catalog,
-  switchTrust,
   skills,
   onSaved,
 }: {
@@ -143,7 +138,6 @@ function ConfigForm({
   /** Companies this computer can run on the owner's plan without an API key ("Your plan" in the model picker). */
   plans: Partial<Record<AgentProvider, boolean>>;
   catalog: ModelCatalog;
-  switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
   onSaved: () => void;
@@ -470,7 +464,7 @@ function ConfigForm({
         </div>
 
         <aside className="flex min-w-0 flex-col gap-4 border-t border-border/70 bg-canvas px-5 py-6 lg:border-t-0 lg:border-l">
-          <TrustPanel agent={agent} workspaceId={workspaceId} dirty={dirty} aiEnabled={aiEnabled} switchTrust={switchTrust} />
+          <TrustPanel agent={agent} workspaceId={workspaceId} dirty={dirty} aiEnabled={aiEnabled} />
           <SpendingPanel spend={agent.spend} budgetCents={budgetCents} onPlan={onPlan} />
           <SkillsPanel agent={agent} skills={skills} permissions={permissions} workspaceId={workspaceId} />
         </aside>

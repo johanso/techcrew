@@ -54,9 +54,6 @@ All variables live in `.env`. Restart `npm run dev` after changing them.
 | `ANTHROPIC_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback, as above. Agents on Claude models (Opus / Sonnet / Haiku 5.5). Also drafting and trust scans (on `claude-sonnet-5-5`) when `OPENAI_API_KEY` isn't set. A Console API key (pay as you go); a Claude.ai subscription can't be used. |
 | `OPENROUTER_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback, as above. One key for the Google, DeepSeek, Z.ai, xAI and Moonshot models (needs OpenRouter credit). Drafting and trust scans run on it (`deepseek/deepseek-v4-pro-0813`) only when neither other key is set. |
 | `AGENTS_SIMULATED` | no | `lib/agent-simulated.ts` | Local testing. `true` runs the agent pipeline with scripted agents: no model calls and no spend, but real GitHub work on the linked repo (a branch, one note file `agent-simulations/<branch>.md`, a pull request). Each turn waits 4 s so you can watch the card move. Leave `false` in production. |
-| `JOBS_API_URL`, `JOBS_API_KEY` | for Switch scans | `lib/jobs.ts` | Cloudhike Jobs project (`https://cloudhike.dev/api/jobs-service/<project>`) and its server-only key. SwitchAgent scans run on it. |
-| `PUBLIC_APP_URL` | for Switch scans | `lib/jobs.ts` | The app's internet-reachable origin, called back by Cloudhike jobs and Switch evaluations. Defaults to `NEXT_PUBLIC_APP_URL`; a local address disables scans, so in dev use a tunnel (`ngrok http 3000`). |
-| `SWITCH_AGENT_AI_API_KEY` | optional | `lib/switch-trust.ts` | Server-wide Switch Trust key (Editor role) for workspaces that connect without their own. See [switch-trust.md](switch-trust.md). |
 | `SANDBOX_DOCKER_HOST` | for the sandbox | `lib/sandbox/docker.ts` | Docker host for agent sandboxes: `ssh://<user>@<ip>` (or an `~/.ssh/config` alias) for a VPS set up with `deploy/setup.sh`, `unix:///var/run/docker.sock` when the app runs on it. Unset: Settings → Sandbox can't be switched on. See [sandbox.md](sandbox.md). |
 | `SANDBOX_IMAGE` | no | `lib/sandbox/docker.ts` | Container image for sandboxes. Default `node:24-bookworm`. |
 | `INNGEST_EVENT_KEY` | production | `lib/inngest/client.ts` | Inngest Cloud event key. Not needed locally (the Dev Server is used). |
@@ -122,12 +119,6 @@ by `/api/workspaces/[id]/logo`; card references under `card-references/<workspac
 Locally nothing to configure: `npm run dev` starts it next to the app (`npm run inngest:dev` alone starts only it). It runs the Inngest Dev Server (UI on
 <http://localhost:8288>) and points it at `http://localhost:3000/api/inngest`, where the app's functions are
 served. For production see [docs/background-jobs.md](background-jobs.md#production).
-
-### Switch Trust and Cloudhike Jobs (optional)
-
-For SwitchAgent scans: create a Jobs project on Cloudhike (`JOBS_API_URL`, `JOBS_API_KEY`), an API key with the
-Editor role in Switch Trust (Settings → API keys), and expose the app publicly (`PUBLIC_APP_URL`). Then Settings →
-Switch Trust → **Connect securely**. Details: [switch-trust.md](switch-trust.md).
 
 ### Agent sandbox (optional)
 

@@ -47,6 +47,10 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   only Inngest. The app is pinned to port 3000 so a busy port fails loudly instead of leaving Inngest pointed at the
   wrong address.
 
+### Removed
+- **Switch Trust (SwitchAgent scans)**: the Settings card, scan buttons, weekly scans and the endpoints Switch called. The Trust Score keeps its rule-based scan and the optional AI review (**Scan again**).
+- **Cloudhike Jobs and `PUBLIC_APP_URL`**: nothing calls the app back from the internet any more, so no tunnel is needed. `JOBS_API_URL`, `JOBS_API_KEY`, `PUBLIC_APP_URL` and `SWITCH_AGENT_AI_API_KEY` can be deleted from `.env`. The Switch tables and columns stay in the database until a cleanup migration.
+
 ## [0.7.0] — 2026-11-20
 
 ### Added

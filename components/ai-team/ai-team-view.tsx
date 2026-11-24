@@ -4,14 +4,12 @@ import { BotIcon, CoinsIcon, ShieldCheckIcon, SparklesIcon } from "lucide-react"
 import { AgentRoster } from "@/components/ai-team/agent-roster";
 import { LiveProcess } from "@/components/ai-team/live-process";
 import { LiveTeamProvider } from "@/components/ai-team/live-team";
-import { TrustScanWatcher } from "@/components/ai-team/trust-scan-watcher";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatTile } from "@/components/dashboard/stat-tile";
 import { MICROS_PER_USD, formatCents, formatMicros, type AgentProvider, type ProviderStatus } from "@/lib/agent-config";
 import { trustGrade } from "@/lib/agent-trust";
 import type { AgentTeamStats, AgentView, TeamOverview } from "@/lib/agents";
 import type { SkillView } from "@/lib/agent-skills-config";
-import { isPendingScan, type SwitchTrustStatus } from "@/lib/switch-trust-config";
 import type { AgentRoutes } from "@/lib/cli-agents-config";
 import type { ModelCatalog } from "@/lib/model-catalog-config";
 
@@ -25,7 +23,6 @@ export function AiTeamView({
   providers,
   plans,
   catalog,
-  switchTrust,
   skills,
   routes,
 }: {
@@ -40,14 +37,12 @@ export function AiTeamView({
   plans: Partial<Record<AgentProvider, boolean>>;
   /** The models the picker offers (current ones plus the team's own). */
   catalog: ModelCatalog;
-  switchTrust: SwitchTrustStatus;
   /** The workspace's skill library (Settings → Agent skills). */
   skills: SkillView[];
   /** Each agent's route on this computer (plan or API key); null when TechTeam isn't running locally. */
   routes: AgentRoutes | null;
 }) {
   const onPlan = routes ? Object.values(routes).filter((route) => route !== null && route !== "api").length : 0;
-  const scanning = agents.filter((a) => a.scan && isPendingScan(a.scan.status)).length;
   const budgetMicros = stats.monthBudgetCents * (MICROS_PER_USD / 100);
   const usedPercent = budgetMicros > 0 ? (stats.monthSpendMicros / budgetMicros) * 100 : 0;
   const paused = stats.total - stats.active;
@@ -94,7 +89,7 @@ export function AiTeamView({
         />
         <StatTile
           icon={ShieldCheckIcon}
-          label={switchTrust.connected ? "Switch Trust Score" : "Trust Score"}
+          label="Trust Score"
           value={
             stats.trustAverage === null ? (
               "—"
@@ -106,11 +101,9 @@ export function AiTeamView({
             )
           }
           hint={
-            scanning
-              ? `SwitchAgent is scanning ${scanning} agent${scanning === 1 ? "" : "s"}…`
-              : grade && stats.lowestTrust
-                ? `${grade.label} · lowest: ${stats.lowestTrust.name} ${stats.lowestTrust.score}`
-                : "Scan an agent to get a score"
+            grade && stats.lowestTrust
+              ? `${grade.label} · lowest: ${stats.lowestTrust.name} ${stats.lowestTrust.score}`
+              : "Scan an agent to get a score"
           }
           tone={grade?.tone ?? "text-success"}
         />
@@ -134,13 +127,11 @@ export function AiTeamView({
           providers={providers}
           plans={plans}
           catalog={catalog}
-          switchTrust={switchTrust}
           skills={skills}
           routes={routes}
         />
         <LiveProcess workspaceId={workspace.id} />
       </LiveTeamProvider>
-      <TrustScanWatcher pending={scanning > 0} />
     </>
   );
 }

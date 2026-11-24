@@ -49,7 +49,6 @@ import { LIVE_ACTIONS, agentDoingSentence, type LiveRun, type LiveStage } from "
 import { scanAgentRules, type TrustReport } from "@/lib/agent-trust";
 import { getModelCatalog } from "@/lib/model-catalog";
 import { catalogLabel, findModel, isModelId, modelProvider, type ModelCatalog } from "@/lib/model-catalog-config";
-import type { TrustScanView } from "@/lib/switch-trust-config";
 
 /**
  * AI agents of a workspace: the six roles from lib/agent-config.ts, persisted in `agents` and created on first use.
@@ -331,10 +330,6 @@ export type AgentView = Agent & {
   trust: TrustReport | null;
   /** The name of the model the trust report scored, when it names one. */
   trustModelLabel: string | null;
-  /** Latest SwitchAgent scan (lib/switch-trust.ts), pending or finished; null when never scanned with Switch. */
-  scan: TrustScanView | null;
-  /** Last configuration change: a Switch report older than this describes an earlier configuration. */
-  configuredAt: string;
   activity: AgentActivityView[];
 };
 
@@ -351,12 +346,10 @@ export type AgentTeamStats = {
 const ACTIVITY_PER_AGENT = 50;
 
 /**
- * Everything the AI Team page shows. Creates the default agents on first visit. `scans` are the latest SwitchAgent
- * scans by agent row id (getLatestTrustScans), read by the page.
+ * Everything the AI Team page shows. Creates the default agents on first visit.
  */
 export async function getAgentTeam(
-  workspace: Pick<Workspace, "id">,
-  scans: Map<number, TrustScanView> = new Map()
+  workspace: Pick<Workspace, "id">
 ): Promise<{ agents: AgentView[]; stats: AgentTeamStats }> {
   await ensureDefaultAgents(workspace.id);
   const { start, end } = monthWindow();
@@ -430,8 +423,6 @@ export async function getAgentTeam(
         },
         trust: row.trustReport ?? null,
         trustModelLabel: row.trustReport?.model ? catalogLabel(catalog, row.trustReport.model) : null,
-        scan: scans.get(row.id) ?? null,
-        configuredAt: row.updatedAt.toISOString(),
         activity: activityRows
           .filter((a) => a.agentId === row.id)
           .slice(0, ACTIVITY_PER_AGENT)
@@ -769,10 +760,7 @@ export async function updateAgentConfig(workspaceId: number, key: AgentKey, inpu
     row.instructions !== input.instructions ||
     row.monthlyBudgetCents !== input.monthlyBudgetCents ||
     row.permissions.join() !== input.permissions.join();
-  // A Switch evaluation stays until the next SwitchAgent scan (the panel flags it as older than the change); a rule
-  // or AI score is recomputed so it never describes a configuration that no longer exists.
-  const report =
-    trustInputsChanged && row.trustReport?.mode !== "switch" ? scanAgentRules({ key, ...input, skills: await getTrustSkills(row.id) }) : null;
+  const report = trustInputsChanged ? scanAgentRules({ key, ...input, skills: await getTrustSkills(row.id) }) : null;
   const now = new Date();
 
   await db
@@ -858,11 +846,10 @@ export async function moveAgentsToProvider(workspaceId: number, from: AgentProvi
 
 /**
  * Re-runs the rule-based trust scan on the saved configuration after something it weighs changed outside the
- * dialog (a skill switched on or off, a new skill version). A Switch evaluation stays, as it does for dialog saves:
- * the panel flags it as older than the change. Returns the new score, or null when nothing was rescanned.
+ * dialog (a skill switched on or off, a new skill version). Returns the new score, or null when nothing was rescanned.
  */
 export async function refreshRuleTrust(row: AgentRow) {
-  if (row.trustReport?.mode === "switch" || !isAgentKey(row.key)) return null;
+  if (!isAgentKey(row.key)) return null;
   const report = scanAgentRules({
     key: row.key,
     instructions: row.instructions,
@@ -886,7 +873,7 @@ export async function saveTrustScan(row: AgentRow, report: TrustReport, costMicr
     workspaceId: row.workspaceId,
     agentId: row.id,
     kind: "scan",
-    title: report.mode === "switch" ? `SwitchAgent scan: ${report.score}/100` : `Trust scan: ${report.score}/100${report.mode === "ai" ? " (AI-assisted)" : ""}`,
+    title: `Trust scan: ${report.score}/100${report.mode === "ai" ? " (AI-assisted)" : ""}`,
     detail: report.summary,
     costMicros,
   });

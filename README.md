@@ -23,7 +23,6 @@ cards from analysis to a merged pull request.
 | Agent pipeline | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (or `AGENTS_SIMULATED=true` to try it free) | Analyst plans → Developer commits on a branch and opens a PR → Reviewer and Security in parallel → Lead approves and rates the risk → Tester → merge (manual, automatic when low risk, or automatic). Rework loops, max turns per agent, permissions enforced as tools, skills searched and read with `search_skill` / `read_skill`, follow-up card on merge conflicts or failing builds. Auto pickup of Todo cards (optional). Out of credit: the board says so and switches company with one click (or automatically, opt-in). No code execution: verification is static plus CI. |
 | Overview page | ✅ Real | Stats, upcoming tasks and recent activity from the board and the activity feed; empty states when there is nothing yet. |
 | AI Team | ✅ Real | Six default agents (Analyst, Developer, Reviewer, Security, Lead, Tester), each with a face, per workspace: configure instructions, permissions, skills, model and budget; Trust Score with **Scan again**; spending; activity drawer. Each agent runs on an OpenAI or Claude model. AI drafts instructions and reviews configs (optional). |
-| Switch Trust (SwitchAgent scans) | ✅ Real, verified live (needs a public URL) | Settings → Switch Trust connects a Switch account; every agent is registered there and each runs **one** Switch evaluation (on connect, every week, and on demand with **SwitchAgent Scan**); budgets become Switch cost caps. Runs in the background on Cloudhike jobs; health score, tests held and OWASP coverage update on their own. Needs a public URL (`PUBLIC_APP_URL`). See [docs/switch-trust.md](docs/switch-trust.md). |
 | Live process | ✅ Real | AI Team page: each card in flight as six steps (who works, what they're doing, last actions, turns and cost so far, results of finished steps); "Inactive" when nothing runs. Agent cards show what a working agent is doing. |
 | Pull Requests page | ✅ Real | Agent PRs with review/test verdicts and **Merge**. |
 | Settings → Agent automation | ✅ Real | Task pickup and merge mode per workspace. |
@@ -48,8 +47,7 @@ npm run dev                   # http://localhost:3000 + the Inngest Dev Server (
 ```
 
 You need: Node.js 22+, a PostgreSQL database, a CloudHike auth project, a GitHub OAuth App, and (optionally) an
-OpenAI, Anthropic and/or OpenRouter API key for the agents, AI drafting and AI-assisted trust scans,
-and for SwitchAgent scans a Switch Trust key, a Cloudhike Jobs project and a public URL (a tunnel such as ngrok locally).
+OpenAI, Anthropic and/or OpenRouter API key for the agents, AI drafting and AI-assisted trust scans.
 Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 
 ---
@@ -87,7 +85,6 @@ Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 | [docs/github-integration.md](docs/github-integration.md) | Understand the GitHub OAuth connection, repository linking and issue sync rules. |
 | [docs/background-jobs.md](docs/background-jobs.md) | Work with Inngest: the agent job, local dev server, production keys. |
 | [docs/sandbox.md](docs/sandbox.md) | The agent sandbox: how run_tests / run_build / run_command run in gVisor containers, Settings → Sandbox, setting up a host with `deploy/setup.sh`. |
-| [docs/switch-trust.md](docs/switch-trust.md) | Connect Switch Trust and run SwitchAgent scans (one evaluation per agent, in the background on Cloudhike jobs). |
 | [docs/security.md](docs/security.md) | Know how sessions, authorization, secrets and uploads are protected — and the known gaps. |
 | [docs/status.md](docs/status.md) | See what's real, dummy or placeholder, known limitations, and suggested next steps. |
 | [docs/roadmap.md](docs/roadmap.md) | See where the product goes next (phases toward an AI software factory) and how a version is released. |

@@ -20,7 +20,6 @@ import {
 } from "@/lib/agents";
 import { requireUser } from "@/lib/current-user";
 import { setAgentSkill } from "@/lib/skill-install";
-import { requestSwitchScans, syncSwitchCostCap } from "@/lib/switch-trust";
 import { getOwnedWorkspace } from "@/lib/workspaces";
 
 type Failure = { ok: false; error: string };
@@ -66,9 +65,6 @@ export async function saveAgentAction(workspaceId: number, key: string, raw: unk
   } catch (error) {
     console.error("[ai-team] save failed", error);
     return { ok: false, error: "We couldn't save the configuration. Please try again." };
-  }
-  if (input.value.monthlyBudgetCents !== auth.agent.monthlyBudgetCents) {
-    await syncSwitchCostCap(auth.workspace.id, { ...auth.agent, monthlyBudgetCents: input.value.monthlyBudgetCents });
   }
   refresh(workspaceId);
   return { ok: true };
@@ -116,20 +112,6 @@ export async function scanAgentAction(workspaceId: number, key: string): Promise
   }
   refresh(workspaceId);
   return { ok: true, report, notice };
-}
-
-/**
- * SwitchAgent Scan: queues one Switch Trust evaluation of the agent's saved configuration and returns at once.
- * The page shows the scan as pending and picks up the new score when the background job saves it.
- */
-export async function switchScanAgentAction(workspaceId: number, key: string): Promise<{ ok: true } | Failure> {
-  const auth = await authorize(workspaceId, key);
-  if (!auth) return { ok: false, error: "Agent not found." };
-  const result = await requestSwitchScans({ workspaceId: auth.workspace.id, trigger: "manual", userId: auth.user.id, keys: [auth.key] });
-  if (!result.ok) return result;
-  if (!result.queued) return { ok: false, error: result.error ?? "A SwitchAgent scan of this agent is already running." };
-  refresh(workspaceId);
-  return { ok: true };
 }
 
 export type GenerateAgentResult =

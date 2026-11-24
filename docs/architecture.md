@@ -31,7 +31,6 @@ How the app is put together. For coding conventions and the design system, see [
 | GitHub | OAuth App + REST API v3 (`2022-11-28`) | Plain `fetch` in `lib/github.ts`; no Octokit. |
 | File storage | Local disk (`TECHTEAM_DATA_DIR`) | Workspace logos, the Tester's screenshots and card references, in `files/`. |
 | Background jobs | **Inngest** v3 | Durable functions served at `/api/inngest`. |
-| Background HTTP jobs | **Cloudhike Jobs** | SwitchAgent scans: a job calls `/api/switch-trust/scans/<id>` back (`lib/jobs.ts`). |
 | Agent sandboxes | **Docker** + **gVisor** on a VPS | The `docker` CLI over SSH (`SANDBOX_DOCKER_HOST`), no SDK; throwaway containers per call (`lib/sandbox/`). See [sandbox.md](sandbox.md). |
 | Drag and drop | `@dnd-kit/core` 6 + `@dnd-kit/sortable` 10 | Stable API (not the 0.x `@dnd-kit/react`). |
 | Dates | `date-fns` | |
@@ -120,11 +119,6 @@ lib/                         Server logic (most files start with `import "server
   overview.ts                Overview data: stats and upcoming tasks from the board, recent work activity
   activity.ts                Workspace activity feed (agent_activity + cards people created)
   notifications.ts           Header bell: notify(), list, mark read
-  switch-trust.ts            Switch Trust connection + SwitchAgent scans (register, one evaluation, poll, save)
-  switch-api.ts              Switch Trust REST client
-  switch-trust-config.ts     Switch scan vocabulary and pure mapping to a TrustReport (tested)
-  switch-eval.ts             How an agent answers a Switch test (its model + instructions)
-  jobs.ts                    Cloudhike Jobs client, public app URL
   workspace-icons.ts         Selectable workspace icons (shared client/server)
   inngest/                   Inngest client, boilerplate functions, agent pipeline + auto pickup
   sandbox/                   Agent sandboxes: config.ts (pure: commands, detection, report), docker.ts (containers
@@ -159,7 +153,7 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `/dashboard/[workspaceId]/ai-team` | owner | AI Team: agents, configure dialog, trust score, spending, activity. |
 | `/dashboard/[workspaceId]/pull-requests` | owner | Agent pull requests (refreshed from GitHub on load), review/test verdicts, **Merge**. |
 | `/dashboard/[workspaceId]/activity` | owner | Workspace activity timeline (`?show=` for older events). |
-| `/dashboard/[workspaceId]/settings` | owner | Your account: profile (`#account`), AI providers (`#ai`: account keys, then this workspace's automatic switch and optional keys), spending across projects (`#usage`). This workspace: details (`#workspace`), automation (`#agents`), Sandbox (`#sandbox`), Switch Trust (`#switch`), Agent skills summary (`#skills`). |
+| `/dashboard/[workspaceId]/settings` | owner | Your account: profile (`#account`), AI providers (`#ai`: account keys, then this workspace's automatic switch and optional keys), spending across projects (`#usage`). This workspace: details (`#workspace`), automation (`#agents`), Sandbox (`#sandbox`), Agent skills summary (`#skills`). |
 
 "owner" = signed in **and** owner of that workspace; anything else is a 404.
 
@@ -172,8 +166,6 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `/api/github/callback` | GET | GitHub OAuth callback: verifies state, stores the encrypted token. |
 | `/api/workspaces/[id]/logo` | GET | Streams a workspace logo from local storage to its owner. |
 | `/api/inngest` | GET/POST/PUT | Inngest `serve()` endpoint (function registry and execution). |
-| `/api/switch-trust/scans/[scanId]` | POST | Cloudhike job target: advances one SwitchAgent scan (single-use bearer token). |
-| `/api/switch-trust/agents/[agentId]/v1/chat/completions` | POST | OpenAI-compatible endpoint Switch Trust evaluates an agent through (per-agent derived bearer credential; also at the base path and `/chat/completions`). |
 | `/api/mcp/runs/[runId]` | POST | TechTeam's MCP endpoint for a CLI agent's stage (local only; bearer derived per run, stage and round): the stage's tools over Streamable HTTP, stateless. See [cli-agents.md](cli-agents.md). |
 
 ### Server actions
