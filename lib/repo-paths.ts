@@ -5,8 +5,10 @@ import type { PermissionId } from "@/lib/agent-config";
  * tools (lib/agent-tools.ts, lib/branch-merge.ts). Pure, so both use the same rules and they're tested.
  */
 
-// Files no agent may write: CI definitions (could exfiltrate secrets), env files (.env.example is fine), git internals.
-export const PROTECTED_PATHS = [/^\.github\/workflows\//, /(^|\/)\.env(\.(?!example$)[^/]*)?$/, /(^|\/)\.git\//];
+// Files no agent may write: CI definitions (could exfiltrate secrets), env files (.env.example is fine), git internals,
+// and the Brain's memory (.techteam/: notes steer every agent, so they change only by the owner or, in a later version,
+// through the dedicated memory pull request, never inside a card's change).
+export const PROTECTED_PATHS = [/^\.github\/workflows\//, /(^|\/)\.env(\.(?!example$)[^/]*)?$/, /(^|\/)\.git\//, /^\.techteam\//];
 
 // Dependency manifests and lockfiles need the "Manage dependencies" permission.
 export const MANIFEST_PATHS =
@@ -30,7 +32,7 @@ export function cleanRepoPath(path: unknown) {
 
 /** Why an agent with these permissions may not write `path`, as the tool's answer; null when it may. */
 export function pathWriteRefusal(path: string, permissions: readonly PermissionId[]) {
-  if (isProtectedPath(path)) return `Refused: ${path} is protected (CI workflows, env files and git internals can't be changed by agents).`;
+  if (isProtectedPath(path)) return `Refused: ${path} is protected (CI workflows, env files, git internals and the Brain's memory folder can't be changed by agents).`;
   if (isManifestPath(path) && !permissions.includes("deps.manage")) {
     return `Refused: ${path} is a dependency manifest and this agent doesn't have the "Manage dependencies" permission. Solve it without new dependencies, or explain in your result that a dependency is needed.`;
   }
