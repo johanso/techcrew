@@ -22,7 +22,7 @@ As of 2026-11-24, on `main`:
 | Phase | State | Notes |
 | --- | --- | --- |
 | 0 Safety net | **Not done** | `npm run smoke` doesn't exist: it needs a throwaway test repository on GitHub. The v0.8 live validation (agents on the Claude plan) was done by the owner in real use, not by the isolation script. |
-| 1 Remove remote services | Done | Hosted auth, Switch Trust, Cloudhike Jobs and the tunnel are gone from the code. Their tables and columns stay (see the final cleanup). |
+| 1 Remove remote services | Done | Hosted auth, Switch Trust, Cloudhike Jobs and the tunnel are gone from the code. Their tables and columns were dropped by the final cleanup (migration 0020). |
 | 2 Local files | Done | `lib/storage.ts` writes under the data folder; `npm run storage:import-s3` copies an old bucket once. |
 | 3 Local Postgres | Done | Embedded Postgres 18 (`embedded-postgres`) or `DATABASE_URL`. PGlite was never needed. |
 | 4 Identity with GitHub | Done | Device flow or personal access token, signed cookie, loopback only, host guard. |
@@ -30,7 +30,7 @@ As of 2026-11-24, on `main`:
 | 6 First run and easy operation | Done, with changes | `npm run doctor`, `npm run start:local` (stable mode), a **Get started** checklist on the Overview instead of a wizard, and a sweeper that ends runs left behind when TechTeam stopped. The README quickstart was run on a clean clone. |
 | 7 Model routes | Done | `workspaces.ai_fallback_order`; the credit failover, the board's switch and retry and the plan-limit "Switch company" policy follow it. |
 | 8 Pluggable sandbox | Done (Docker local), verified on Docker Desktop for Windows | The sandbox runs on this computer's Docker (`npm run sandbox:setup`), previews on `127.0.0.1`. WSL2 + bubblewrap dropped from this phase. |
-| Final cleanup | **Pending** | One migration dropping the unused tables and columns listed in [data-model.md](data-model.md#unused-tables-and-columns), and the stack rows that still mention them. |
+| Final cleanup | Done | Migration 0020 drops the unused tables and columns ([data-model.md](data-model.md#retired-schema)); older backups still restore. |
 
 ## Decisions
 
@@ -132,8 +132,9 @@ in the changelog, and AGENTS.md and `docs/` are updated. Read `node_modules/next
   as its own phase once local Docker is proven.
 - Done when the Tester takes screenshots of a preview without a VPS.
 
-### Final cleanup (pending)
-- A migration dropping the unused Switch and auth tables and columns; update the roadmap and the stack table in AGENTS.md.
+### Final cleanup (done)
+- Migration `0020_drop_unused_schema` dropped the unused Switch, auth-id and workspace-key schema. Backups made before it
+  restore: the registry lists the retired tables.
 
 ## Risks
 

@@ -241,7 +241,7 @@ follows step 3.
 can't create two rows): a user with that `github_user_id`; else a user whose saved `github_connections` row has that id
 (gets the id); else, if the database has exactly one user, `/sign-in/adopt` asks before handing them this account (the
 pending sign-in, token included, waits in the sealed and encrypted `tt_adopt` cookie); else a new user
-(`auth_user_id = github:<id>`, email `<id>+<login>@users.noreply.github.com`).
+(email `<id>+<login>@users.noreply.github.com`).
 
 **Session cookie** — `tt_session` = `<userId>.<expiresAtMs>.<hmac>`: HMAC-SHA256 with the secret in
 `<data dir>/session.secret`, HTTP-only, `SameSite=Lax`, 30 days, `Secure` only for an https `NEXT_PUBLIC_APP_URL`.

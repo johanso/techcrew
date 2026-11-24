@@ -8,7 +8,6 @@ Identity is GitHub's: a `users` row is found by its GitHub id (`users.github_use
 - [github_connections](#github_connections)
 - [workspaces](#workspaces)
 - [user_ai_keys](#user_ai_keys)
-- [ai_provider_keys](#ai_provider_keys)
 - [tasks](#tasks)
 - [task_references](#task_references)
 - [agents](#agents)
@@ -17,9 +16,9 @@ Identity is GitHub's: a `users` row is found by its GitHub id (`users.github_use
 - [agent_runs](#agent_runs)
 - [agent_run_messages](#agent_run_messages)
 - [pull_requests](#pull_requests)
-- [Unused tables and columns](#unused-tables-and-columns)
 - [Value vocabularies](#value-vocabularies)
 - [Behaviors worth knowing](#behaviors-worth-knowing)
+- [Retired schema](#retired-schema)
 - [Schema changes](#schema-changes)
 
 ---
@@ -44,8 +43,6 @@ erDiagram
     users ||--o{ notifications : receives
     agent_runs |o--o| pull_requests : opens
     tasks |o--o{ pull_requests : "for (nullable)"
-    workspaces ||--o| switch_connections : "unused (0..1)"
-    agents ||--o{ trust_scans : "unused"
     tasks ||--o{ task_events : "moved, edited, removed"
     tasks ||--o{ task_references : "files for the agents"
     users |o--o{ task_references : "uploaded (nullable)"
@@ -58,7 +55,6 @@ erDiagram
 
     users {
         serial id PK
-        text auth_user_id UK
         bigint github_user_id UK
         text email UK
         text name
@@ -85,7 +81,6 @@ erDiagram
         timestamp github_issues_synced_at
         boolean agent_auto_pickup
         text agent_merge_mode "manual | auto_low_risk | auto"
-        text ai_provider
         boolean ai_auto_failover
         text_array ai_fallback_order
         boolean sandbox_enabled
@@ -170,7 +165,6 @@ The owner of everything. Created by the first GitHub sign-in (`lib/local-user.ts
 | Column | Type | Null | Default | Notes |
 | --- | --- | --- | --- | --- |
 | `id` | serial | no | | Primary key. What every other table references. |
-| `auth_user_id` | text | no | | Legacy id of the old hosted auth service; **unique**, never changed for existing users, `github:<github id>` for new ones. Dropped in the final cleanup. |
 | `github_user_id` | bigint | yes | | GitHub's numeric id of the account that signs in as this user. **Unique.** Null until the first GitHub sign-in (migration 0018 adds it); an existing user gets it by being adopted or by having a saved connection with that id. |
 | `name` | text | yes | | GitHub name (or login) for new users; never overwritten once set. |
 | `email` | text | no | | **Unique.** New users get `<id>+<login>@users.noreply.github.com`. |
@@ -217,7 +211,6 @@ A workspace is bound to **exactly one** GitHub repository, chosen at creation. O
 | `github_issues_synced_at` | timestamp | yes | Last successful issue sync, **minus 60 s** of overlap; passed to GitHub as `since`. `null` = never synced (the next sync imports all open issues). |
 | `agent_auto_pickup` | boolean | no | Default `false`. Settings → Agents: the analyst takes never-run Todo cards on its own. |
 | `agent_merge_mode` | text | no | Default `manual`. Settings → Agents → Merging (`MERGE_MODES`): `manual`, `auto_low_risk` (merge on their own only when the Lead's final risk is low) or `auto` (merge once approval, tests and CI pass). Backfilled from v0.1's `agent_auto_merge` (true → `auto`) by migration 0005; that column was dropped in 0007. Unknown values read as `manual`. |
-| `ai_provider` | text | no | Default `openai`. **No longer read** (2026-11-19): each agent's model sets its company. Kept while the dev database is shared with older branches; a later migration drops it. |
 | `ai_fallback_order` | text[] | yes | Company ids (`PROVIDER_IDS`) in the order to try when one runs out of credit or of your Claude plan (Settings → AI → This workspace only). Null = OpenAI, Anthropic, OpenRouter. Read through `normalizeFallbackOrder`; companies it doesn't list follow in the built-in order. |
 | `ai_auto_failover` | boolean | no | Default `false`. Settings → AI providers: when a company runs out of credit mid-run and the other has a key, move the agents on it there and restart the stage. |
 | `sandbox_enabled` | boolean | no | Default `false`. Settings → Sandbox: agents with `tests.run` get the sandbox tools (migration 0009). |
@@ -237,20 +230,6 @@ per owner and provider) and deleted the workspace copies.
 | --- | --- | --- | --- |
 | `id` | serial | no | Primary key. |
 | `user_id` | integer | no | → `users.id`, cascade. **Unique with `provider`.** |
-| `provider` | text | no | `openai`, `anthropic` or `openrouter`. |
-| `api_key` | text | no | **Encrypted** with AES-256-GCM (`lib/crypto.ts`). Only `getAIKeys()` decrypts it; never send it to the client. |
-| `hint` | text | no | Masked key for display, e.g. `sk-ant-••••a1B2`. |
-| `updated_at` | timestamp | no | |
-
-## ai_provider_keys
-
-**Unused.** A workspace's own API key per AI provider. Settings no longer offers workspace keys and no code reads or
-writes this table; it stays until a cleanup migration drops it (it is still classified in the backup registry).
-
-| Column | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | serial | no | Primary key. |
-| `workspace_id` | integer | no | → `workspaces.id`, cascade. **Unique with `provider`.** |
 | `provider` | text | no | `openai`, `anthropic` or `openrouter`. |
 | `api_key` | text | no | **Encrypted** with AES-256-GCM (`lib/crypto.ts`). Only `getAIKeys()` decrypts it; never send it to the client. |
 | `hint` | text | no | Masked key for display, e.g. `sk-ant-••••a1B2`. |
@@ -342,7 +321,6 @@ One row per agent role per workspace. The six roles (`analyst`, `developer`, `re
 | `trust_score` | integer | yes | | Latest Trust Score (0–100), duplicated from the report for queries. |
 | `trust_report` | jsonb | yes | | `TrustReport` (`lib/agent-trust.ts`): findings, checks, mode (`rules` \| `ai`), model, time. Older rows may hold a removed Switch report; the next scan replaces it. |
 | `trust_scanned_at` | timestamp | yes | | |
-| `switch_agent_id` | text | yes | | Unused: Switch Trust was removed; the column stays until a cleanup migration drops it. |
 | `created_at`, `updated_at` | timestamp | no | `now()` | |
 
 ## agent_skills
@@ -395,23 +373,6 @@ What people did to cards, for the Activity page (`lib/task-events.ts`). Creating
 | `detail` | text | yes | | The card title, plus the changed fields for edits. |
 | `created_at` | timestamp | no | `now()` | |
 
-## switch_connections
-
-**Unused.** Switch Trust was removed; the table stays until a cleanup migration drops it. Nothing reads or writes it.
-
-| Column | Type | Null | Default | Notes |
-| --- | --- | --- | --- | --- |
-| `id` | serial | no | | Primary key. |
-| `workspace_id` | integer | no | | → `workspaces.id`, cascade. **Unique.** |
-| `api_key` | text | yes | | AES-256-GCM ciphertext. `null` = the server's `SWITCH_AGENT_AI_API_KEY`. Never sent to the client. |
-| `hint` | text | yes | | Masked key for display. |
-| `auth_scheme` | text | no | | `ApiKey` or `Bearer`, whichever the instance accepted. |
-| `instance_url` | text | no | | API base, e.g. `https://api.switchagents.ai/api/v1`. |
-| `tenant_id`, `switch_workspace_id` | text | no | | Scope of every Switch call. |
-| `evaluation_id`, `evaluation_name` | text | yes | | The one evaluation every agent runs, picked on the first scan. |
-| `weekly_scans` | boolean | no | `true` | Settings → Switch Trust → Scan every week (`switch-weekly-scans` cron). |
-| `created_at`, `updated_at` | timestamp | no | `now()` | |
-
 ## cli_settings
 
 A local CLI's settings for one user on one computer (Settings → AI → Plans on this computer). The database is shared by
@@ -450,25 +411,6 @@ Which models are offered (newest per family), their tier and their route id are 
 | `listed` | boolean | no | `true` | In the latest successful fetch. |
 | `seen_at` | timestamp | no | | The latest fetch that listed it; the newest one is "Models updated …" in Settings. |
 | `updated_at` | timestamp | no | `now()` | |
-
-## trust_scans
-
-**Unused.** SwitchAgent scans were removed; the table stays until a cleanup migration drops it. Nothing reads or writes it.
-
-| Column | Type | Null | Default | Notes |
-| --- | --- | --- | --- | --- |
-| `id` | serial | no | | Primary key. |
-| `workspace_id` | integer | no | | → `workspaces.id`, cascade. |
-| `agent_id` | integer | no | | → `agents.id`, cascade. Index with `created_at`. |
-| `trigger` | text | no | | `connected` (account connected or a provider key saved), `manual` (SwitchAgent Scan) or `scheduled` (weekly). |
-| `status` | text | no | | `queued`, `running`, `succeeded`, `failed`. |
-| `switch_run_id` | text | yes | | Evaluation run in Switch. |
-| `job_id` | text | yes | | Latest Cloudhike job run. |
-| `token_hash` | text | yes | | sha256 of the current job's token; cleared when the scan ends. |
-| `error` | text | yes | | Why it failed, for the owner. |
-| `cost_micros` | integer | no | `0` | Model spend answering Switch's tests; logged with the result. |
-| `created_by_id` | integer | yes | | → `users.id`, set null. |
-| `created_at`, `updated_at`, `finished_at` | timestamp | | | |
 
 ## agent_activity
 
@@ -592,20 +534,6 @@ Pull requests the Developer opened. One per run; rework rounds push to the same 
 | `follow_up_task_id` | integer | yes | | → `tasks.id`, `SET NULL`. The Tester's card for a blocked merge (one per PR). Running it continues on this PR; the merge moves it to Done with `task_id`'s card. |
 | `merged_at`, `created_at`, `updated_at` | timestamp | yes / no / no | | |
 
-## Unused tables and columns
-
-The hosted design left some schema behind. Nothing reads or writes these; they stay until one **final cleanup
-migration** drops them (an applied migration is never edited, and older checkouts may still share a database).
-
-| What | Why it is unused |
-| --- | --- |
-| `users.auth_user_id` | Id of the removed hosted auth service. Still **unique and not null**: existing users keep their old id, new users get `github:<github id>`. Identity is `users.github_user_id` now. |
-| `ai_provider_keys` | Workspace-level API keys. AI keys live on the account (`user_ai_keys`) or in the environment. |
-| `switch_connections`, `trust_scans`, `agents.switch_agent_id` | Switch Trust (SwitchAgent scans) was removed. `agents.trust_report` may hold an old Switch report until the next rule scan replaces it. |
-| `workspaces.ai_provider` | Each agent's model sets its company. |
-
-The backup registry (`lib/backup/registry.mjs`) still classifies each of these tables, so a backup carries them as they are.
-
 ## Value vocabularies
 
 `type`, `priority` and `status` are plain `text` columns, not Postgres enums; the allowed values live in
@@ -642,6 +570,16 @@ workspace.
 
 **Deleting a user or workspace** cascades to everything below it (connections, workspaces, tasks, card references, agents, agent activity, runs, pull requests). There's no UI
 for either yet. Stored files (logos, screenshots, card references) aren't deleted by a cascade.
+
+## Retired schema
+
+Migration `0020_drop_unused_schema` dropped what nothing read or wrote any more (left over from the hosted design and
+Switch Trust): the tables `ai_provider_keys`, `switch_connections` and `trust_scans`, and the columns
+`users.auth_user_id`, `workspaces.ai_provider` and `agents.switch_agent_id`. **It deletes the data in them: run
+`npm run backup` first.** Backups made by v0.9.0 and earlier still restore: `RETIRED_TABLES` in
+[`lib/backup/registry.mjs`](../lib/backup/registry.mjs) lists the dropped tables, a restore skips their rows with one
+warning each, and columns the schema no longer has are ignored with a warning. A table that is neither in the schema nor
+retired is still refused. `agents.trust_report` may hold an old Switch report until the next rule scan replaces it.
 
 ## Schema changes
 

@@ -68,7 +68,6 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 - **A restore doesn't continue runs** that were in flight when the backup was made, and nothing encrypted travels:
   after a restore you sign in again and enter your AI keys again.
 - **Developed and used on Windows.** Linux and macOS are covered by CI (`npm run check`) but have not been tried by hand.
-- **Unused schema remains** until the final cleanup migration ([data-model.md](data-model.md#unused-tables-and-columns)).
 - **No public landing page**: `/` redirects (the starter's marketing page was removed).
 - **Single owner per workspace**; no members, invitations or roles.
 - **One repository per workspace**, fixed at creation; repository metadata (name, default branch, visibility) isn't
@@ -117,8 +116,7 @@ the next release (v0.10):
 1. **Phase 0**: a smoke test (one simulated card through the whole pipeline against a throwaway repository), which does
    not exist yet.
 2. **Phase 8**: a sandbox that needs no Docker host (WSL2 + bubblewrap, previews on `localhost`).
-3. **The final cleanup migration**: drop the unused tables and columns ([data-model.md](data-model.md#unused-tables-and-columns)).
-4. Try it on Linux and macOS by hand, and leave `npm run start:local` running for a few days.
+3. Try it on Linux and macOS by hand, and leave `npm run start:local` running for a few days.
 
 Then v0.11, a project memory (the Brain). Hosting TechTeam for several people is not planned.
 

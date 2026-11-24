@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { authUserIdFor, noreplyEmail, resolveUser, type ConnectionRow, type GithubIdentity, type UserRow } from "@/lib/user-identity";
+import { noreplyEmail, resolveUser, type ConnectionRow, type GithubIdentity, type UserRow } from "@/lib/user-identity";
 
 const me: GithubIdentity = { githubUserId: 1001, login: "octo-cat", name: "Octo Cat", avatarUrl: null };
 const user = (id: number, githubUserId: number | null = null, email = `u${id}@example.com`): UserRow => ({ id, githubUserId, email });
@@ -84,7 +84,4 @@ describe("identity values", () => {
     expect(noreplyEmail({ githubUserId: 1, login: "same" })).not.toBe(noreplyEmail({ githubUserId: 2, login: "same" }));
   });
 
-  it("marks the auth user id as GitHub's", () => {
-    expect(authUserIdFor(1001)).toBe("github:1001");
-  });
 });

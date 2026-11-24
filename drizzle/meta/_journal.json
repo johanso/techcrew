@@ -141,6 +141,13 @@
       "when": 1795533400524,
       "tag": "0019_curly_screwball",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1795553557385,
+      "tag": "0020_drop_unused_schema",
+      "breakpoints": true
     }
   ]
 }

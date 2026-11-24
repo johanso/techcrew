@@ -4,7 +4,6 @@ import { eq, sql } from "drizzle-orm";
 
 import { db, githubConnections, users, type User } from "@/db";
 import {
-  authUserIdFor,
   noreplyEmail,
   resolveUser,
   type GithubIdentity,
@@ -26,7 +25,6 @@ async function insertUser(tx: Tx, identity: GithubIdentity) {
   const [row] = await tx
     .insert(users)
     .values({
-      authUserId: authUserIdFor(identity.githubUserId),
       githubUserId: identity.githubUserId,
       email: noreplyEmail(identity),
       emailVerified: true,
