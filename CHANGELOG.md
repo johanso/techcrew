@@ -8,6 +8,12 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+### Added
+- **Choose the order companies fall back in.** Settings → AI → This workspace only lists your companies with move up and
+  move down buttons: when one runs out of credit, or your Claude plan runs out with "Switch company", agents go to the
+  first company in that order with a key (default: OpenAI, Anthropic, OpenRouter). New column
+  `workspaces.ai_fallback_order`; applied at start.
+
 ### Changed
 - **`.env.example` is minimal.** It sets only `NEXT_PUBLIC_APP_URL`; every other setting is optional and documented in
   [docs/setup.md](docs/setup.md). A copied placeholder (`your_openai_api_key`, `preview.example.com`) used to count as a

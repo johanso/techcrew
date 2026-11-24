@@ -106,7 +106,7 @@ analysis ──ready──▶ development ──▶ PR ──┤                
      stage failed), the turn stops too and only this stage's log is closed.
   3. **Out of credit** (OpenAI `insufficient_quota` / billing codes, Anthropic "credit balance too low", OpenRouter
      402 except its in-flight budget): with `workspaces.ai_auto_failover` on and a key for another company, the turn
-     moves every agent on the broke company to the first other company with a key (`fallbackProvider`,
+     moves every agent on the broke company to the next company with a key in the workspace's fallback order (`fallbackProvider`,
      `moveAgentsToProvider`) and returns `restart`: the stage starts over on the new provider,
      **once per stage**.
      Otherwise the run stops with `failure: { kind: "out_of_credit", provider }`, which the board turns into a

@@ -106,7 +106,7 @@ The header bell shows a count of unread notifications (9+ above nine) and opens 
 | Analyst needs info | The analyst asked a question instead of starting | The card's agent log (Answer the analyst) |
 | Agents stopped | A run failed (paused agent, budget, missing permission, GitHub, out of turns, error) | The card's agent log |
 | Out of credit | The provider refused for lack of credit and the run stopped | The board (switch and retry) |
-| Switched provider | Auto failover moved the agents on a company out of credit to the other one | Settings → AI providers |
+| Switched provider | Auto failover moved the agents on a company out of credit to the next one in your fallback order | Settings → AI providers |
 
 Unread items are bold with a dot; opening one marks it read, and **Mark all as read** clears the count. The bell
 refreshes every 30 s while the tab is visible and whenever it opens. Notifications go to the workspace's owner only;
