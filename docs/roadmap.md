@@ -120,9 +120,13 @@ the official CLI installed there, next to API keys ([cli-agents.md](cli-agents.m
   switch company), two computers on one database (one run per card, `AGENTS_AUTO_PICKUP`), Windows in CI.
 - To do before release: the isolation check and one live run with the owner's OK (the Developer on a Claude model
   through the plan, the rest on OpenRouter; then on the Windows PC).
-- Next on the same rules: **Codex** for OpenAI models on a ChatGPT plan.
 
-### v0.9 — Brain
+### v0.9 — Local-first
+TechTeam runs on the owner's computer with nothing remote but GitHub and the model providers: GitHub sign-in, an
+embedded Postgres, local files, an optional pluggable sandbox, backup and restore to move to another computer, and a
+first-run wizard so anyone can clone it and start. Plan, phases and risks: [local-first-plan.md](local-first-plan.md).
+
+### v0.10 — Brain
 - A project memory every agent reads before working: repository conventions, decisions, what earlier cards learned.
   Markdown in the linked repository (`.techteam/memory/`), so both computers share it through GitHub; agents only
   propose changes in their card's PR (see cli-agents-plan.md §6).
