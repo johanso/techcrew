@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { SANDBOX_DNS_VOLUME, SANDBOX_NETWORK, SANDBOX_SUBNET } from "@/lib/sandbox/config";
 import {
   FORWARD_SCRIPT,
+  INSTALL_SCRIPTS_OFF_ENV,
   browserLimits,
   browserRunArgs,
   bridgeNetworkCreateArgs,
@@ -96,7 +97,8 @@ function everyArgumentList(): Built[] {
   return lists;
 }
 
-const ALLOWED_ENV = /^--env=(CI=true|TECHTEAM_INSTALL=.+|PORT=\d+|HOST=0\.0\.0\.0|__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=[a-z0-9.,-]+)$/;
+const ALLOWED_ENV = /^--env=(CI=true|TECHTEAM_INSTALL=.+|PORT=\d+|HOST=0\.0\.0\.0|__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=[a-z0-9.,-]+|npm_config_ignore_scripts=true|YARN_IGNORE_SCRIPTS=true)$/;
+const HARMLESS_ENV_NAMES = ["TECHTEAM_INSTALL", "CI", "PORT", "HOST", "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS", "npm_config_ignore_scripts", "YARN_IGNORE_SCRIPTS"];
 const HOST_ALIASES = ["--add-host=host.docker.internal:127.0.0.1", "--add-host=gateway.docker.internal:127.0.0.1"];
 
 describe("every docker argument list", () => {
@@ -169,6 +171,14 @@ describe("every docker argument list", () => {
       if (!container || mode !== "local") return;
       for (const alias of HOST_ALIASES) expect(args).toContain(alias);
     });
+  });
+
+  it("sets only the listed harmless environment names, across the whole set the module can produce", () => {
+    const flags = new Set(lists.flatMap((list) => list.args.filter((arg) => arg.startsWith("--env="))));
+    const names = new Set([...flags].map((flag) => flag.slice("--env=".length).split("=")[0]));
+    expect([...names].every((name) => HARMLESS_ENV_NAMES.includes(name!))).toBe(true);
+    // A secret's name or value never appears, except inside the owner's own install command text.
+    for (const flag of [...flags].filter((f) => !f.startsWith("--env=TECHTEAM_INSTALL="))) expect(flag).not.toMatch(/TOKEN|SECRET|KEY|PASSWORD/i);
   });
 
   it("gives every local list the same flags as the remote one, minus gVisor, plus the host aliases", () => {
@@ -265,6 +275,19 @@ describe("local mode", () => {
       prepareArgs({ mode: "local", name: "p", volume: "v", image: IMAGE, install: "npm ci && npm run build", allowScripts, network: SANDBOX_NETWORK, dnsVolume: SANDBOX_DNS_VOLUME, script: "s" });
     expect(install(false)).toContain("--env=TECHTEAM_INSTALL=npm ci --ignore-scripts && npm run build");
     expect(install(true)).toContain("--env=TECHTEAM_INSTALL=npm ci && npm run build");
+  });
+
+  it("sets the scripts-off environment in local mode unless scripts are allowed, whatever the command's shape", () => {
+    const flags = (mode: "local" | "remote", allowScripts: boolean, install = 'sh -c "npm ci"') =>
+      prepareArgs({ mode, name: "p", volume: "v", image: IMAGE, install, allowScripts, network: SANDBOX_NETWORK, dnsVolume: SANDBOX_DNS_VOLUME, script: "s" });
+    for (const install of ['sh -c "npm ci"', "npm ci", "make deps", null]) {
+      expect(flags("local", false, install as string)).toEqual(expect.arrayContaining([...INSTALL_SCRIPTS_OFF_ENV]));
+      for (const off of INSTALL_SCRIPTS_OFF_ENV) {
+        expect(flags("local", true, install as string)).not.toContain(off);
+        expect(flags("remote", false, install as string)).not.toContain(off);
+        expect(flags("remote", true, install as string)).not.toContain(off);
+      }
+    }
   });
 
   it("leaves a remote install command exactly as written, scripts or not", () => {

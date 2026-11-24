@@ -140,6 +140,9 @@ export function installNetworkFlags(mode: SandboxMode, network: string, dnsVolum
     : [`--network=${network}`];
 }
 
+/** The environment that turns package managers' install scripts off (local mode, unless the owner allowed them). */
+export const INSTALL_SCRIPTS_OFF_ENV = ["--env=npm_config_ignore_scripts=true", "--env=YARN_IGNORE_SCRIPTS=true"] as const;
+
 /** Unpack the tarball from stdin over the last checkout and install: the one container with network. */
 export function prepareArgs(input: {
   mode: SandboxMode;
@@ -164,6 +167,9 @@ export function prepareArgs(input: {
     volumeMount(input.volume),
     `--workdir=${SANDBOX_HOME}`,
     ...(install ? [`--env=TECHTEAM_INSTALL=${install}`] : []),
+    // Defense in depth for local mode: whatever shape the install command has (a quoted `sh -c`, a wrapper), npm and
+    // pnpm (npm_config_*) and yarn classic honor these, so scripts stay off without parsing the command.
+    ...(input.mode === "local" && !input.allowScripts ? [...INSTALL_SCRIPTS_OFF_ENV] : []),
     input.image,
     "sh",
     "-c",

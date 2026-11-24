@@ -154,7 +154,8 @@ The pipeline acts on the repository with the workspace owner's token, so its gua
   Docker socket, a host-path mount, `--network=host`, an added capability or device, or a user other than the
   unprivileged one; every hardening flag of remote mode stays (`--cap-drop=ALL`, `no-new-privileges`, read-only root,
   CPU, memory, process limits, tmpfs); the command step keeps `--network=none`; **install scripts are off**
-  (`--ignore-scripts`, the one thing the install network can't be firewalled against) unless the owner ticks Allow
+  (`--ignore-scripts` plus `npm_config_ignore_scripts` and `YARN_IGNORE_SCRIPTS` in the container's environment, so it
+  holds whatever shape the install command has; the one thing the install network can't be firewalled against) unless the owner ticks Allow
   install scripts; `host.docker.internal` and `gateway.docker.internal` resolve to `127.0.0.1` inside containers; the
   only published port is a preview forwarder's, on `127.0.0.1`. Link captures stay remote-only. On Docker Desktop the
   containers run inside its Linux VM, so an escape lands in that VM, not on the host; with Docker Engine on Linux the
