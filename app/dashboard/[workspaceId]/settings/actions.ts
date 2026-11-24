@@ -13,15 +13,17 @@ import { getClaudePlanView } from "@/lib/cli/plan-view";
 import { requireUser } from "@/lib/current-user";
 import { refreshModelCatalog } from "@/lib/model-catalog";
 import { deleteUploadedSkill, inspectSkillUpload, installSkillUpload, setSkillAssignments, type InspectResult } from "@/lib/skill-install";
-import { checkSandbox, sandboxAvailable } from "@/lib/sandbox";
+import { checkSandbox, getSandboxStatus } from "@/lib/sandbox";
 import {
   SANDBOX_COMMAND_KINDS,
+  allowInstallScriptsOf,
   parseSandboxCommand,
   sandboxCommandsOf,
   sandboxReport,
   type SandboxCommandKind,
-  type SandboxCommands,
+  type StoredSandboxCommands,
 } from "@/lib/sandbox/config";
+import { unavailableSentence } from "@/lib/sandbox/mode";
 import { previewsAvailable } from "@/lib/sandbox/preview";
 import { getOwnedWorkspace, updateAgentAutomation, updateAutoFailover, updateFallbackOrder, updateSandbox } from "@/lib/workspaces";
 
@@ -70,7 +72,7 @@ export async function saveSandboxAction(workspaceId: number, _prev: SandboxFormS
 
   const enabled = formData.get("enabled") === "on";
   const preview = formData.get("preview_enabled") === "on";
-  const commands: SandboxCommands = { install: null, test: null, build: null, preview: null };
+  const commands: StoredSandboxCommands = { install: null, test: null, build: null, preview: null };
   const errors: SandboxFormState["errors"] = {};
   for (const kind of SANDBOX_COMMAND_KINDS) {
     const parsed = parseSandboxCommand(formData.get(kind));
@@ -78,14 +80,19 @@ export async function saveSandboxAction(workspaceId: number, _prev: SandboxFormS
     else errors[kind] = parsed.error;
   }
   if (Object.keys(errors).length) return { errors };
-  if (enabled && !sandboxAvailable()) return { message: "No sandbox host is set up on this computer (SANDBOX_DOCKER_HOST)." };
+  const status = await getSandboxStatus();
+  if (enabled && status.state === "unavailable") return { message: unavailableSentence(status) };
   if (enabled && !commands.test && !commands.build) return { message: "Add a test or a build command for the agents to run." };
   if (preview) {
-    if (!previewsAvailable()) return { message: "This computer can't serve previews. Set SANDBOX_DOCKER_HOST and SANDBOX_PREVIEW_DOMAIN." };
+    if (status.state === "unavailable") return { message: unavailableSentence(status) };
+    if (!(await previewsAvailable())) return { message: "This computer can't serve previews. Set SANDBOX_PREVIEW_DOMAIN to the domain pointing at the sandbox host." };
     if (!enabled) return { message: "Previews run in the sandbox: switch it on too, or switch previews off." };
     if (!commands.preview) return { errors: { preview: "Add the command that serves your app, or switch previews off." } };
   }
 
+  // Install scripts are a local-sandbox choice: the checkbox only exists there, so a save without it keeps what was set.
+  const allowScripts = formData.has("allow_scripts") ? formData.get("allow_scripts") === "on" : allowInstallScriptsOf(workspace.sandboxCommands);
+  if (allowScripts) commands.allowInstallScripts = true;
   await updateSandbox(workspace.id, { sandboxEnabled: enabled, sandboxCommands: commands, sandboxPreview: preview });
   revalidatePath(`/dashboard/${workspaceId}/settings`);
   revalidatePath(`/dashboard/${workspaceId}/ai-team`);
@@ -101,7 +108,8 @@ export type SandboxCheckResult = { ok: true; passed: boolean; headline: string; 
 export async function checkSandboxAction(workspaceId: number): Promise<SandboxCheckResult> {
   const workspace = await authorize(workspaceId);
   if (!workspace) return { ok: false, error: "Workspace not found." };
-  if (!sandboxAvailable()) return { ok: false, error: "No sandbox host is set up on this computer (SANDBOX_DOCKER_HOST)." };
+  const status = await getSandboxStatus();
+  if (status.state === "unavailable") return { ok: false, error: unavailableSentence(status) };
   const commands = sandboxCommandsOf(workspace.sandboxCommands);
   if (!commands) return { ok: false, error: "Save the commands first." };
 
@@ -110,7 +118,7 @@ export async function checkSandboxAction(workspaceId: number): Promise<SandboxCh
     return { ok: true, passed: run.failedStep === null && !run.timedOut, headline: sandboxReport({ ...run, output: "" }), output: run.output };
   } catch (error) {
     console.error("Sandbox check failed", error);
-    return { ok: false, error: "The sandbox couldn't run. Check that the sandbox host is reachable and try again." };
+    return { ok: false, error: "The sandbox couldn't run. Check that Docker is running (or that the sandbox host is reachable) and try again." };
   }
 }
 
