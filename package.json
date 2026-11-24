@@ -17,7 +17,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:baseline": "node --env-file=.env scripts/db-baseline.mjs",
     "check": "next typegen && tsc --noEmit && eslint . && vitest run",
-    "skills:sync": "node scripts/sync-agent-skills.mjs"
+    "skills:sync": "node scripts/sync-agent-skills.mjs",
+    "storage:import-s3": "node --env-file=.env scripts/import-s3.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",

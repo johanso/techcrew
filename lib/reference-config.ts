@@ -2,7 +2,7 @@
  * Card references vocabulary shared by server and client: the files an owner attaches to a card so the agents build
  * from them (a design, a spec, a document), and links captured once when they're added (lib/sandbox/capture.ts).
  * Kinds, limits, type detection by content (magic bytes, never the name alone), image sizes, and the text agents get
- * back. Pure: no DB, no S3, no React — safe to import anywhere.
+ * back. Pure: no DB, no disk, no React — safe to import anywhere.
  */
 
 import type { AgentStage } from "@/lib/agent-run-config";
@@ -31,7 +31,7 @@ export const REFERENCE_MAX_BYTES: Record<UploadKind, number> = { image: 5 * MB, 
 export const REFERENCE_UPLOAD_MAX_BYTES = Math.max(...Object.values(REFERENCE_MAX_BYTES));
 /** Claude's API rejects larger images; the others are below that anyway. */
 export const IMAGE_DIMENSION_MAX = 8000;
-/** PDF pages read for text, and the extracted text kept (S3, never the database). */
+/** PDF pages read for text, and the extracted text kept (local files, never the database). */
 export const PDF_PAGES_MAX = 100;
 export const PDF_TEXT_MAX_CHARS = 300_000;
 /** One read_reference page of text, like read_skill. */

@@ -204,7 +204,7 @@ A workspace is bound to **exactly one** GitHub repository, chosen at creation. O
 | `owner_id` | integer | no | → `users.id`, cascade. Indexed (`workspaces_owner_id_idx`). |
 | `name` | text | no | 1–60 characters (validated in `createWorkspace`). Also drives the task key prefix. |
 | `icon` | text | no | Key from `lib/workspace-icons.ts` (16 icons), used when there's no logo. |
-| `logo_key` | text | yes | S3 object key of an uploaded logo, e.g. `workspace-logos/1/<uuid>.png`. |
+| `logo_key` | text | yes | Storage key (relative path under the files folder) of an uploaded logo, e.g. `workspace-logos/1/<uuid>.png`. |
 | `github_repo_id` | bigint | no | GitHub's numeric repository id. |
 | `github_repo_full_name` | text | no | `owner/name`. Used for every GitHub API call about this workspace. |
 | `github_repo_url` | text | no | `https://github.com/owner/name`. |
@@ -289,7 +289,7 @@ Indexes and constraints:
 ## task_references
 
 A file the owner attached to a card for the agents (an image, a Markdown or text file, a PDF), or a link captured once
-when it was added (two screenshots and an outline): see [features.md](features.md#card-references). The file itself, and a PDF's extracted text, live in the private S3
+when it was added (two screenshots and an outline): see [features.md](features.md#card-references). The file itself, and a PDF's extracted text, live in the local files
 bucket under `card-references/<workspace_id>/<task_id>/<uuid>.<ext>`; the row only says what and where, so it stays a
 few hundred bytes. Limits (10 per card, sizes per kind) are in [`lib/reference-config.ts`](../lib/reference-config.ts).
 
@@ -302,17 +302,17 @@ few hundred bytes. Limits (10 per card, sizes per kind) are in [`lib/reference-c
 | `name` | text | no | | The uploaded file's name, without a path or control characters, ≤ 120 characters. Links: the page's title, else its host and path. |
 | `content_type` | text | no | | Detected from the bytes: `image/png`, `image/jpeg`, `image/webp`, `text/markdown`, `text/plain` or `application/pdf`. Links: `image/jpeg` (the screenshots). |
 | `size_bytes` | integer | no | | |
-| `storage_key` | text | no | | S3 key of the file (links: the desktop screenshot). Never sent to a client. |
-| `text_key` | text | yes | | PDFs: S3 key of the extracted text; null when the PDF had none (a scan). Links: the outline. |
+| `storage_key` | text | no | | Storage key of the file (links: the desktop screenshot). Never sent to a client. |
+| `text_key` | text | yes | | PDFs: storage key of the extracted text; null when the PDF had none (a scan). Links: the outline. |
 | `text_length` | integer | yes | | PDFs: characters of extracted text (0 = none). Links: the outline's. |
 | `page_count` | integer | yes | | PDFs: pages in the document. |
 | `width`, `height` | integer | yes | | Images: pixel size, read from the file's header. Links: the desktop screenshot's. |
 | `source_url` | text | yes | | Links: the address the owner gave (checked: http/https, public). Migration 0014. |
-| `mobile_key` | text | yes | | Links: S3 key of the mobile screenshot. Never sent to a client. Migration 0014. |
+| `mobile_key` | text | yes | | Links: storage key of the mobile screenshot. Never sent to a client. Migration 0014. |
 | `created_by_id` | integer | yes | | → `users.id`, set null. |
 | `created_at` | timestamp | no | `now()` | |
 
-Removing a card deletes its references (rows, then S3 objects, best effort and logged), unlike the card itself, which
+Removing a card deletes its references (rows, then files, best effort and logged), unlike the card itself, which
 stays as a tombstone.
 
 ## agents
@@ -531,7 +531,7 @@ history on every turn.
 | `run_id` | integer | no | | → `agent_runs.id`, cascade. |
 | `conversation` | text | no | | `<agent stage>:<rework round>`, e.g. `development:1`, `security:0`. |
 | `seq` | integer | no | | Position in the conversation. **Unique with `run_id`, `conversation`**: a retried turn overwrites its own rows. |
-| `message` | jsonb | no | | The provider's message param, verbatim: Anthropic (thinking blocks must go back unchanged) or Chat Completions (OpenRouter; tool calls and `reasoning_details` go back unchanged). A reference image an agent read is stored as a placeholder (`techteam-reference:<id>`), never as base64; each request loads it from S3 again (`lib/reference-images.ts`). |
+| `message` | jsonb | no | | The provider's message param, verbatim: Anthropic (thinking blocks must go back unchanged) or Chat Completions (OpenRouter; tool calls and `reasoning_details` go back unchanged). A reference image an agent read is stored as a placeholder (`techteam-reference:<id>`), never as base64; each request loads it from local storage again (`lib/reference-images.ts`). |
 | `created_at` | timestamp | no | `now()` | |
 
 ## agent_run_steps
@@ -622,7 +622,7 @@ cards can't be read, edited, moved, assigned or run.
 workspace.
 
 **Deleting a user or workspace** cascades to everything below it (connections, workspaces, tasks, card references, agents, agent activity, runs, pull requests). There's no UI
-for either yet. S3 objects (logos, screenshots, card references) aren't deleted by a cascade.
+for either yet. Stored files (logos, screenshots, card references) aren't deleted by a cascade.
 
 ## Schema changes
 

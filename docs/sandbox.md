@@ -185,7 +185,7 @@ browse_preview { path, viewport: desktop | tablet | mobile, color_scheme: light 
 - **No internet**: the preview network is internal; Docker's DNS doesn't answer under gVisor, hence `--add-host`.
 - **What's kept**: the agent gets the text report. The agent log keeps the path and the report's first line ("Opened
   /x on tablet in dark mode: 200, 2 console errors, …"), which is built from our own data, never page text. The
-  screenshot goes to private S3 (`run-screenshots/<workspace>/<run>/<uuid>.png`, key in
+  screenshot goes to local storage (`run-screenshots/<workspace>/<run>/<uuid>.png`, key in
   `agent_run_steps.screenshot_key`) and shows as a thumbnail in the agent log, served by
   `/api/runs/<run>/steps/<step>/screenshot` to the workspace owner only.
 - **The Tester sees its screenshots** when its model has vision: the tool result carries a placeholder
@@ -224,7 +224,7 @@ addCardLinkAction ─▶ parseCaptureUrl (net-guard.mjs: http/https, no credenti
                        Chromium ─▶ proxy in the container ─▶ resolves with public resolvers, checks every address,
                                                               connects to the address it checked
                        desktop 1280 px and mobile 375 px, full page up to 2,400 px, JPEG; outline of the page
-                  ─▶ S3: card-references/<workspace>/<card>/<uuid>.jpg ×2 + .txt (the outline), one task_references row
+                  ─▶ files: card-references/<workspace>/<card>/<uuid>.jpg ×2 + .txt (the outline), one task_references row
 ```
 
 - **Once.** The capture is the reference: agents read the stored screenshots and outline (`read_reference`) and
@@ -266,7 +266,7 @@ addCardLinkAction ─▶ parseCaptureUrl (net-guard.mjs: http/https, no credenti
 - **The browser sees only the preview**: no real devices, email or payments; the Tester names those as manual checks.
 - **Captures see the page as a first-time visitor**: no login, cookie banners included, no video; pages taller than
   2,400 px are cut.
-- **Screenshots stay in S3** when a run or workspace is deleted (no cleanup yet).
+- **Screenshots stay on disk** when a run or workspace is deleted (no cleanup yet).
 - **A certificate per preview.** Each preview host gets its own HTTP-01 certificate. Let's Encrypt allows 50 new
   certificates per registered domain per week (without CADDY_ACME_CA, Caddy falls back to ZeroSSL); a wildcard
   certificate would need DNS-01 through the DNS provider's API.

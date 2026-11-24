@@ -20,7 +20,7 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | GitHub and Google sign-in | ✅ Real | `app/api/auth/social`, `app/(auth)/auth/callback` |
 | Workspace picker and creation (name, icon/logo, GitHub repo) | ✅ Real | `app/workspaces` |
 | GitHub account connection (OAuth App, encrypted token) | ✅ Real | `app/api/github`, `lib/github.ts` |
-| Logo upload to S3 | ✅ Real (needs S3 config) | `lib/storage.ts` |
+| Logo upload to local disk | ✅ Real | `lib/storage.ts` |
 | Dashboard shell: sidebar, switcher, header, user menu | ✅ Real | `components/dashboard` |
 | Light / dark / system theme | ✅ Real | `app/layout.tsx`, `user-menu.tsx` |
 | Agents on the owner's Claude plan (local Claude Code, MCP endpoint, plan limits) | 🟡 Built and unit/integration-tested without spend; not run live yet | `lib/cli/`, `lib/cli-agents-config.ts`, `app/api/mcp`, [cli-agents.md](cli-agents.md) |

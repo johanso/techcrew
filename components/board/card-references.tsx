@@ -40,7 +40,6 @@ const LIMITS = `PNG, JPEG or WebP up to ${formatReferenceBytes(REFERENCE_MAX_BYT
 export function CardReferences({
   workspaceId,
   cardId,
-  enabled,
   links,
   expected = 0,
   onCountChange,
@@ -49,7 +48,6 @@ export function CardReferences({
   /** The card, or null while it's being created (references need a saved card). */
   cardId: string | null;
   /** False when the server has no file storage. */
-  enabled: boolean;
   /** False when the server has no sandbox host to capture links with. */
   links: boolean;
   /** How many references the board says the card has: that many loading rows while the list loads. */
@@ -67,8 +65,6 @@ export function CardReferences({
       </div>
       {!cardId ? (
         <Note>Save the card to add references.</Note>
-      ) : !enabled ? (
-        <Note>File storage isn&apos;t set up on this server, so references can&apos;t be added.</Note>
       ) : (
         <ReferenceList workspaceId={workspaceId} cardId={cardId} links={links} expected={expected} onCountChange={onCountChange} />
       )}

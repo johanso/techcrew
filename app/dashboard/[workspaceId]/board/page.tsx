@@ -5,7 +5,6 @@ import { teamProviders } from "@/lib/agents";
 import { getAIKeys, keyStatus } from "@/lib/ai-keys";
 import { getBoardData } from "@/lib/board";
 import { linkCaptureAvailable } from "@/lib/sandbox/capture";
-import { isStorageConfigured } from "@/lib/storage";
 import { getDashboardContext } from "@/lib/workspaces";
 
 export const metadata: Metadata = { title: "Board" };
@@ -24,7 +23,6 @@ export default async function BoardPage({ params, searchParams }: PageProps<"/da
       lastSyncedAt={workspace.githubIssuesSyncedAt?.toISOString() ?? null}
       ai={{ inUse, connected: keyStatus(keys) }}
       openLogFor={openLogFor}
-      referencesEnabled={isStorageConfigured()}
       linksEnabled={linkCaptureAvailable()}
     />
   );

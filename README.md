@@ -47,7 +47,7 @@ npm run dev                   # http://localhost:3000 + the Inngest Dev Server (
 ```
 
 You need: Node.js 22+, a PostgreSQL database, a CloudHike auth project, a GitHub OAuth App, and (optionally) an
-S3 bucket for workspace logos, an OpenAI, Anthropic and/or OpenRouter API key for the agents, AI drafting and AI-assisted trust scans.
+OpenAI, Anthropic and/or OpenRouter API key for the agents, AI drafting and AI-assisted trust scans.
 Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 
 ---
@@ -98,5 +98,5 @@ Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 ## Tech stack (short)
 
 Next.js 16 (App Router, React 19) · TypeScript (strict) · Tailwind CSS v4 · shadcn/ui on Base UI · Drizzle ORM +
-PostgreSQL · hosted Better Auth (CloudHike) · GitHub OAuth App + REST API · AWS S3 · Inngest · dnd-kit · next-themes.
+PostgreSQL · hosted Better Auth (CloudHike) · GitHub OAuth App + REST API · local file storage · Inngest · dnd-kit · next-themes.
 Full list and rationale in [docs/architecture.md](docs/architecture.md#stack).
