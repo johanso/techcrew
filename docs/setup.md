@@ -238,8 +238,8 @@ The database lives wherever `DATABASE_URL` points; a second checkout shares ever
 2. Copy `.env` from your first computer (same `DATABASE_URL`) and the data folder's `encryption.key` (or the same `TOKEN_ENCRYPTION_KEY`); sign in with the same GitHub account. Don't run
    `npm run db:migrate` there for a shared database: the first computer already did.
 3. `npm run dev` starts the app and Inngest, as on macOS.
-4. Auto pickup runs on every computer whose Inngest is up: keep it on one by setting `AGENTS_AUTO_PICKUP=false` in the
-   other's `.env`. A card can't run on both at once either way.
+4. With a shared database, auto pickup runs on every computer whose Inngest is up: keep it on one by setting
+   `AGENTS_AUTO_PICKUP=false` in the other's `.env`. A card can't run on both at once either way.
 5. Optional: Claude Code's native build and the plan, as above (Settings shows the PowerShell install command). An
    npm-installed `claude.cmd` is refused; use the native installer.
 

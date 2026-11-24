@@ -280,7 +280,7 @@ card's drag area, so using them never starts a drag or opens the dialog.
 
 - **Run** starts the agent pipeline (see [Agent pipeline](#agent-pipeline)): the card moves to **Analysis**, the
   Analyst's avatar appears and the card shows "Queued for the agents". ▶ stays disabled (spinner) while the agents
-  work. Run is refused when the agents are already on the card (on this or your other computer), when an agent's
+  work. Run is refused when the agents are already on the card, when an agent's
   model has neither a provider key nor your plan on this computer (`AGENTS_SIMULATED=true` runs scripted agents
   instead), while the Analyst is paused or over budget (the budget doesn't apply when it runs on your plan), or when the card has image references and the Analyst's or the Developer's model can't see
   images (the error links to the AI Team page).
@@ -565,7 +565,8 @@ Security), Approval (Lead), Testing, Merge (automatic, no agent).
 Two groups: **Your account** (applies to every project you own) and **This workspace**.
 
 Your account:
-- **Account** (`#account`) — avatar, name, verified-email badge, email, member since, last sign-in, account id.
+- **Account** (`#account`) — your GitHub identity: avatar, name, `@login` and "Signed in with GitHub" (or "GitHub not
+  connected" with a link to sign in), member since, last sign-in, and **Sign out**.
 - **AI** (`#ai`) — everything about AI companies in one card. When TechTeam runs on your computer, it starts with
   **Plans on this computer**: Claude Code's install status and version, TechTeam's own sign-in (email · organization ·
   plan, login expiry) with **Sign in** / **Sign out** / **Check again** and **Confirm this account**, the switch **Use
@@ -574,16 +575,14 @@ Your account:
   configured providers first, the others under "Add another provider". Your account's OpenAI, Anthropic and
   OpenRouter keys (OpenRouter: one key for Google, DeepSeek, Z.ai, xAI and Moonshot models), used by every project: a saved key shows in its field masked (first characters, dots, last four); **Replace
   key** opens an empty password field with a show/hide eye (**Save key**, checked with the provider first, or
-  **Cancel**); **Remove** asks first. Without a key: Using the server's key, or Not connected. Every company with a key
+  **Cancel**); **Remove** asks first. Without a key: Using the key from the environment, or Not connected. Every company with a key
   is available: each agent picks its company and model on the AI Team page. **Models**: "Models updated 3 hours ago ·
   24 current models from OpenRouter's public list" with **Refresh models** (no key, no spend): the list every model
   picker offers, shared by all your projects, refreshed on its own when older than a day (the AI Team and Settings pages
   check after they load) and kept as it was when OpenRouter doesn't answer. Before the first refresh the app offers its
   built-in list. Below, **This workspace only**:
-  **Switch automatically when out of credit** (toggle, off by default; needs both keys; see
-  [Out of credit](#out-of-credit)) and **Workspace keys (optional)**, used only for a company your account has no key
-  for (while the account has one, only "Using your account's key" shows). The AI Team's "No AI provider connected"
-  chip links here.
+  **Switch automatically when out of credit** (toggle, off by default; needs two companies with a key; see
+  [Out of credit](#out-of-credit)) and the fallback order. The AI Team's "No AI provider connected" chip links here.
 - **API spending this month** (`#usage`) — model spend across every project this calendar month (UTC): the total, ranked
   bars by project and by agent. Each project's own spend stays on its AI Team page. With stages on your plans, a
   **Plan usage this month** line: stages, tokens and the API-equivalent cost (not spent).
@@ -594,11 +593,11 @@ This workspace:
   never-run Todo card every 2 minutes) and **Merging pull requests** (Manual: from the Pull Requests page / Automatic when
   low risk: once tests and CI pass, if the Lead rated it low risk / Automatic: once approval, tests and CI pass). Both
   default to Manual; workspaces that merged automatically before v0.2 keep Automatic. A note explains that a blocked merge makes the Tester file a
-  follow-up card. Running locally, another note says auto pickup runs on every computer whose Inngest is up
-  (`AGENTS_AUTO_PICKUP=false` opts one out).
-- **Sandbox** (`#sandbox`) — **Let agents run code in the sandbox** (off by default; needs a sandbox host on the
-  server) and the **install / test / build** commands, prefilled from `package.json`. **Test the sandbox** runs them on
-  the default branch and shows the result. See [sandbox.md](sandbox.md).
+  follow-up card.
+- **Sandbox** (`#sandbox`) — **Let agents run code in the sandbox** (off by default; needs a sandbox host) and the
+  **install / test / build** commands, prefilled from `package.json`. **Test the sandbox** runs them on the default
+  branch and shows the result. Without a sandbox host the section is one line ("Not set up on this computer…"): no
+  controls, and `package.json` isn't read. See [sandbox.md](sandbox.md).
 - **Agent skills** (`#skills`) — a summary card (installed and uploaded counts) with **Manage skills**, which opens the library page; see [Agent skills](#agent-skills).
 
 Account and workspace details are read-only.
