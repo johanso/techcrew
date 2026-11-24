@@ -5,13 +5,13 @@ import { APP_NAME, Brand } from "@/components/brand";
 const HIGHLIGHTS = [
   {
     Icon: ShieldCheckIcon,
-    title: "Secure by default",
-    body: "Sessions live in HTTP-only cookies and are verified on every request.",
+    title: "Your computer, your data",
+    body: "TechTeam runs on this computer and listens on this address only. Nothing is hosted for you.",
   },
   {
     Icon: LockKeyholeIcon,
-    title: "One click with GitHub or Google",
-    body: "Or use your email and password — your account works the same either way.",
+    title: "One sign-in with GitHub",
+    body: "No password and no sign-up: the same step proves who you are and lets agents reach your repository.",
   },
   {
     Icon: DatabaseIcon,

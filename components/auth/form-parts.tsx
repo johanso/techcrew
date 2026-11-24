@@ -2,7 +2,6 @@ import { CircleAlertIcon } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { FieldSeparator } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 
 export function AuthHeader({ title, description }: { title: string; description: string }) {
@@ -12,10 +11,6 @@ export function AuthHeader({ title, description }: { title: string; description:
       <p className="text-sm text-muted-foreground">{description}</p>
     </div>
   );
-}
-
-export function AuthDivider() {
-  return <FieldSeparator className="text-xs uppercase tracking-wide">or continue with email</FieldSeparator>;
 }
 
 export function FormMessage({ message }: { message?: string }) {

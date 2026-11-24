@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { requireUser } from "@/lib/current-user";
+import { clearSessionCookie } from "@/lib/session";
 import { GithubError, deleteGithubConnection, getGithubToken, getLinkableRepo } from "@/lib/github";
 import { LOGO_MAX_BYTES, isAllowedLogoType, uploadWorkspaceLogo } from "@/lib/storage";
 import { isWorkspaceIcon } from "@/lib/workspace-icons";
@@ -35,7 +36,7 @@ export async function createWorkspace(_prev: WorkspaceFormState, formData: FormD
   if (Object.keys(errors).length) return { errors };
 
   const token = await getGithubToken(user.id);
-  if (!token) return { errors: { repo: "Connect your GitHub account to select a repository." } };
+  if (!token) return { errors: { repo: "Sign in with GitHub to select a repository." } };
 
   let workspaceId: number;
   try {
@@ -59,7 +60,7 @@ export async function createWorkspace(_prev: WorkspaceFormState, formData: FormD
   } catch (error) {
     if (error instanceof GithubError && error.status === 401) {
       await deleteGithubConnection(user.id);
-      return { errors: { repo: "Your GitHub connection expired. Connect GitHub again." } };
+      return { errors: { repo: "Your GitHub connection expired. Sign in with GitHub again." } };
     }
     if (error instanceof GithubError && error.status === 404) {
       return { errors: { repo: "That repository no longer exists or you lost access to it." } };
@@ -71,8 +72,10 @@ export async function createWorkspace(_prev: WorkspaceFormState, formData: FormD
   redirect(`/dashboard/${workspaceId}`);
 }
 
+/** Forgets the stored GitHub token and signs out: signing in again is how GitHub gets connected. */
 export async function disconnectGithub() {
   const user = await requireUser("/workspaces/new");
   await deleteGithubConnection(user.id);
-  redirect("/workspaces/new");
+  await clearSessionCookie();
+  redirect("/sign-in?next=%2Fworkspaces%2Fnew");
 }
