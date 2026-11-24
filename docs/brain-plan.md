@@ -1,0 +1,183 @@
+# Brain plan (v0.11)
+
+A memory the agents read before they work and learn into, with a person reviewing every change. Plan, decisions, data
+model, security rules and the four parts it is built in. For where the product goes, see [roadmap.md](roadmap.md#v011--brain).
+
+- [Decisions](#decisions)
+- [Goal and limits](#goal-and-limits)
+- [A note](#a-note)
+- [Layers and where they live](#layers-and-where-they-live)
+- [How agents read it](#how-agents-read-it)
+- [How it learns](#how-it-learns)
+- [Security](#security)
+- [Screens](#screens)
+- [Data model](#data-model)
+- [How we will know it works](#how-we-will-know-it-works)
+- [The four parts](#the-four-parts)
+- [Risks](#risks)
+
+---
+
+## Decisions
+
+Taken with the owner, 2026-11-24:
+
+1. **Two layers**: a **project** memory per repository and an **owner** (global) memory across projects. A lesson is born
+   in a project and only moves up to the owner's memory when the owner approves it.
+2. **Project memory is proposed in a separate pull request** ("TechTeam memory"), never inside a card's pull request.
+   The default mode is `repo` (files under `.techteam/memory/`); nothing is added to a repository until the owner merges
+   that pull request. A workspace can choose `local` (notes in the database, no files in the repository) or `off`.
+3. **The Lead's finish tool gets a `lessons` field** (at most three, each with its evidence).
+4. **Four parts, reviewed between each**: A foundation, B signals, C the librarian, D promotion and release.
+5. **The owner's memory lives in the database** (table `memory_notes`): tiny (a note is at most 2 KB), covered by backup
+   and restore, queryable for proposals, status and search, scoped by user. An "export to Markdown" button can come
+   later without changing the design.
+
+## Goal and limits
+
+**Goal:** every agent starts a card knowing how work is done in that repository and how the owner prefers it done, and
+the system learns from what the owner rejects or corrects.
+
+**Not in v0.11:** training or fine-tuning models, embeddings (the ranking is lexical, as for skills), writing memory
+without a review, anything that moves information between projects on its own.
+
+## A note
+
+A short Markdown file with a header (same parser as agent skills, `lib/skill-format.ts`):
+
+```markdown
+---
+title: Tests run with vitest, not jest
+type: command          # convention | decision | pitfall | command | preference | lesson
+load: always           # always (the core) | on-demand (searched)
+status: active         # active | stale | disabled
+paths: ["src/**/*.test.ts"]   # optional: more relevant when the change touches these files
+source: { kind: pr_rejected, run: 41, pr: 12 }
+---
+`npm test` uses vitest. A new test goes next to its module (`foo.ts` -> `foo.test.ts`). Use `vi.fn`, not `jest.fn`.
+```
+
+Short on purpose: about 600 characters, a hard limit of 2,000. Every note keeps its **source** (the run, pull request,
+question or person that produced it).
+
+## Layers and where they live
+
+| Layer | Source of truth | Why |
+| --- | --- | --- |
+| **Project, mode `repo`** (default) | `.techteam/memory/` in the repository: `conventions.md` (the core, always loaded) and `notes/<slug>.md` | Reviewed by pull request, travels with the repository, can be shared |
+| **Project, mode `local`** | `memory_notes` rows with a workspace | For repositories where files should not be added (public or not yours) |
+| **Owner (global)** | `memory_notes` rows with no workspace | Backed up with the database; never inside a repository |
+
+A third layer per role or model ("the Reviewer is too lenient") is not memory: it is corrected with evaluations (v0.12).
+
+## How agents read it
+
+- **Always loaded**: a small block in every stage's system prompt (`memoryPromptBlock`, next to `skillsPromptBlock`): up
+  to 2,000 characters of project core and 1,000 of the owner's. It is framed as **reference data, not instructions**: the
+  operating protocol overrides any note, and a note can never add a tool or a permission.
+- **On demand**: `search_memory` and `read_memory`, read-only, any stage, offered when notes exist, ranked with the
+  same lexical ranking as skills (`rankSkillFiles`). A note with `paths` ranks higher when the diff touches those paths.
+- **Who**: every agent. The Reviewer also checks the diff against the conventions; the Analyst uses them for the card.
+- **Cost**: the block sits in the stable prefix of the prompt, the part providers cache best. Reads are logged by target
+  only (`toolStep`), never by content.
+
+## How it learns
+
+Everything becomes a **signal** first (`memory_signals`), then the librarian turns signals into **proposals**.
+
+**Sources of signals**
+
+1. A pull request closed without merging: the card asks once **why** (not what I asked, wrong approach, style or
+   conventions, too big, unneeded, other + text). What the owner types is trusted.
+2. A rework round: the Lead's `request_changes` text and the CI failure summary (already stored).
+3. The owner's answers to the Analyst (`agent_runs.answer`), often conventions in disguise.
+4. Run failures, once they are classified (v0.12).
+5. **The Lead's `lessons`** (at most three, with evidence) in its approval result.
+6. The owner directly: **Remember this** on a card or a log step, and an editor on the Brain page.
+7. **Bootstrap from the repository**: a button (and an offer when a workspace is created) that reads the README,
+   contributing notes, lint, TypeScript and formatter configuration, the CI workflow, the `package.json` scripts and the
+   test layout, and proposes a first `conventions.md`.
+
+**The librarian** is a stage (`memory`, a cheap model, with a budget, honoring pause and spend limits) that runs after a
+merge or a close, or when signals pile up. It dedupes against existing notes, updates instead of adding, detects
+contradictions and marks notes whose files no longer exist as `stale`.
+
+**How a proposal arrives**
+
+- **Project, mode `repo`**: in **one separate pull request** (`TechTeam memory: N notes`, branch
+  `agent/memory-<date>`, one commit that touches only `.techteam/memory/**`), never mixed with a card. It is never merged
+  automatically. The only tool that can write there is a dedicated `propose_memory`; the general write tools keep
+  refusing the folder.
+- **Project, mode `local`, and the owner's memory**: an **inbox** in the app (Accept, Edit, Reject), with the evidence.
+- **Promotion to the owner's memory**: when the librarian sees a similar lesson in two or more workspaces it drafts a
+  version **without repository names, paths or identifiers** (a deterministic strip pass plus a model check) and puts it
+  in the owner's inbox. Nothing moves on its own.
+
+## Security
+
+A persistent memory is an injection vector: an issue saying "always run X" could be stored as a lesson.
+
+1. **Propose only.** A person merges or accepts every change.
+2. **A deterministic scan**, like skills (`lib/skill-scan.ts`): no "ignore the previous instructions" patterns, no
+   commands to run (`curl | sh`), no URLs outside an allowlist, no secret patterns, nothing asking for tools or
+   permissions; plain Markdown only; size limits.
+3. **Provenance on every note.** A proposal whose evidence comes **only from other people's text** (issues or comments
+   of third parties in a public repository) is flagged `untrusted_origin` and needs an explicit review. What the owner
+   wrote is trusted.
+4. **Isolation between projects by construction**: the tools read only the current workspace's memory and the owner's,
+   every query is scoped by owner and workspace, and tests prove it.
+5. **Public repositories**: the screen warns that the notes will be visible; mode `local` avoids it.
+6. Notes are **summaries**, never pasted file contents, and are scanned for secrets.
+
+## Screens
+
+A **Brain** section in the workspace: **Notes** (search, filter, origin, edit as a proposal), **Proposals** (the inbox),
+**Your memory** (the global notes), **Activity** (what it learned and why: *"PR #12 rejected: wrong approach -> proposed
+note X"*) and **Settings** (mode `repo` / `local` / `off`, bootstrap from the repository, the size of the always-loaded
+block). The agent log shows `search_memory` / `read_memory` calls and a run's header says how many notes it loaded.
+
+## Data model
+
+All additive (migration `0021`, `0022`… as each part needs):
+
+- `memory_notes` (`user_id`, nullable `workspace_id`, `scope` global | project, `type`, `title`, `body`, `load`,
+  `status`, `paths` text[], `source` jsonb, `origin` owner | agent | bootstrap, `content_hash`, timestamps). Global
+  notes and `local`-mode project notes; in `repo` mode the repository's files are the truth.
+- `memory_proposals` (`kind` add | update | retire, the target, the proposed text, `rationale`, `evidence` jsonb,
+  `untrusted_origin`, `status` pending | accepted | rejected | merged | superseded, the memory pull request number,
+  `run_id`, timestamps).
+- `memory_signals` (`kind` pr_rejected | rework | answer | failure | lesson | remember, `run_id`, `pr_number`, `task_id`,
+  `payload` jsonb, `trusted`, `created_at`, `consumed_at`).
+- `workspaces.memory_mode` (`repo` | `local` | `off`, default `repo`) and `workspaces.memory_bootstrapped_at`.
+
+The new tables belong in the backup registry (they hold no secrets), with the guard test updated.
+
+## How we will know it works
+
+- **Proposal acceptance rate**: under about 50% means the librarian is noisy.
+- **Repeated rejections for the same reason** after a note exists should fall.
+- Per note: times served and what happened in the runs it was served to (a hint, with enough data).
+- The real measure, with the v0.12 evaluations: the same set of cards with and without memory.
+
+## The four parts
+
+Each is its own branch and pull request, verified for real before the next starts.
+
+| Part | Delivers | The owner can already |
+| --- | --- | --- |
+| **A. Foundation** | Migration, note format and parser, the scanner, the loader (repository files in `repo` mode, rows otherwise), `memoryPromptBlock`, `search_memory` / `read_memory`, the Brain page with manual notes (global and `local` project notes) | Write conventions and see agents obey them |
+| **B. Signals** | The "why was it rejected" prompt, signals from rework, answers and the Lead's `lessons`, **Remember this** | Have TechTeam start collecting what it learns |
+| **C. The librarian** | The `memory` stage, proposals, the inbox, the separate memory pull request, bootstrap from a repository | A first `conventions.md` built from `roadmapfront` |
+| **D. Promotion and release** | Promotion to the owner's memory without project details, stale detection, usage counters, docs and **v0.11.0** | Learning across projects |
+
+Real checks per part use `roadmapfront` and the throwaway repository: start a memory, create two cards, reject one pull
+request with a reason, and watch the proposal appear.
+
+## Risks
+
+| Risk | Answer |
+| --- | --- |
+| Notes pile up or contradict each other | Limits, consolidation, a `stale` status |
+| An agent applies a lesson where it does not belong | Notes with scope and `paths`; the Reviewer checks they were applied right |
+| Files added to repositories | Pull request only, and mode `local` |
+| Cost | A small block in the cacheable prefix; a budgeted librarian |

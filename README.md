@@ -102,6 +102,7 @@ unless you choose an automatic merge mode. More: [docs/security.md](docs/securit
 | [docs/testing.md](docs/testing.md) | Test the agents: simulated mode, the test plan and what is verified. |
 | [docs/roadmap.md](docs/roadmap.md) | Where the product goes next, and how a version is released. |
 | [docs/local-first-plan.md](docs/local-first-plan.md) | The local-first plan and the state of each phase. |
+| [docs/brain-plan.md](docs/brain-plan.md) | The plan for the agents' memory (v0.11): layers, learning, security and the four parts. |
 | [CHANGELOG.md](CHANGELOG.md) | What each version added. |
 | [AGENTS.md](AGENTS.md) | **Coding conventions and the design system.** Mandatory reading before changing code, for people and AI agents. |
 
