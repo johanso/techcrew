@@ -127,6 +127,13 @@
       "when": 1795217629998,
       "tag": "0017_model_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795522789711,
+      "tag": "0018_premium_freak",
+      "breakpoints": true
     }
   ]
 }
