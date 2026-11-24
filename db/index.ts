@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import net from 'node:net';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -9,25 +10,33 @@ import {
   PG_USER,
   embeddedApplies,
   readSecret,
+  readyPath,
   resolveDataDir,
   resolvePort,
 } from '@/lib/local-db-config.mjs';
 
-const RETRY_FOR_MS = 15_000;
+// The first run includes initdb (about 10 s) and the migrations.
+const RETRY_FOR_MS = 90_000;
 
-/** Connects to the embedded Postgres, retrying while `npm run dev` is still starting it. */
-function connectWhenReady(port: number) {
+/**
+ * Connects to the embedded Postgres once the launcher says the database exists and is migrated (the ready file)
+ * and the port answers, retrying while `npm run dev` is still starting it.
+ */
+function connectWhenReady(port: number, dataDir: string) {
   return async () => {
     const deadline = Date.now() + RETRY_FOR_MS;
     for (;;) {
       try {
+        if (!fs.existsSync(readyPath(dataDir))) throw new Error('not ready');
         return await new Promise<net.Socket>((resolve, reject) => {
           const socket = net.connect(port, PG_HOST);
           socket.once('connect', () => resolve(socket));
           socket.once('error', reject);
         });
-      } catch (error) {
-        if (Date.now() > deadline) throw error;
+      } catch {
+        if (Date.now() > deadline) {
+          throw new Error('The local database did not become ready: is `npm run dev` running? (npm run db:local)');
+        }
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
     }
@@ -47,7 +56,7 @@ function createClient() {
     user: PG_USER,
     database: PG_DATABASE,
     pass: () => readSecret(dataDir) ?? '',
-    socket: connectWhenReady(port),
+    socket: connectWhenReady(port, dataDir),
     prepare: false,
   };
   return postgres(options);

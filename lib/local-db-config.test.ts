@@ -13,6 +13,7 @@ import {
   pgDataDir,
   pidFileState,
   readSecret,
+  readyPath,
   resolveDataDir,
   resolvePort,
   secretPath,
@@ -29,6 +30,7 @@ describe("resolveDataDir", () => {
   it("keeps the cluster and the secret inside the data dir", () => {
     expect(pgDataDir("/d")).toBe(path.join("/d", "postgres"));
     expect(secretPath("/d")).toBe(path.join("/d", "postgres.secret"));
+    expect(readyPath("/d")).toBe(path.join("/d", "postgres.ready"));
   });
 });
 

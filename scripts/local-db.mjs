@@ -19,6 +19,7 @@ import {
   pgDataDir,
   pidFileState,
   readSecret,
+  readyPath,
   resolveDataDir,
   resolvePort,
 } from "../lib/local-db-config.mjs";
@@ -35,6 +36,10 @@ const clusterDir = pgDataDir(dataDir);
 const port = resolvePort(process.env);
 const pidFile = path.join(clusterDir, "postmaster.pid");
 const migrationsFolder = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "drizzle");
+
+// The app waits for this file: it exists only while the database is created and migrated.
+const ready = readyPath(dataDir);
+fs.rmSync(ready, { force: true });
 
 const fresh = !fs.existsSync(path.join(clusterDir, "PG_VERSION"));
 if (fresh) fs.mkdirSync(clusterDir, { recursive: true });
@@ -59,6 +64,7 @@ if (state === "running") {
   // Another TechTeam Postgres already owns this data dir (a second `npm run dev`, or one a hard kill orphaned).
   try {
     await runMigrations();
+    fs.writeFileSync(ready, "");
   } catch {
     console.error(
       `[db] A Postgres process is running for ${clusterDir} but not reachable on port ${port}. ` +
@@ -100,6 +106,7 @@ let stopping = false;
 async function stop() {
   if (stopping) return;
   stopping = true;
+  fs.rmSync(ready, { force: true });
   try {
     await pg.stop();
   } catch (error) {
@@ -116,6 +123,7 @@ try {
   console.error("[db] Migrations failed:", error instanceof Error ? error.message : String(error));
   await stop();
 }
+fs.writeFileSync(ready, "");
 
 log(`Database ready on 127.0.0.1:${port} (data in ${clusterDir}).`);
 // Postgres is a child process: keep this one alive until it's told to stop.
