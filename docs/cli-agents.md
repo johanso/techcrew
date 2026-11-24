@@ -17,8 +17,9 @@ comes later on the same rules.
   Configure). Settings → AI → *Plans on this computer* decides whether this computer sends Claude models through the
   plan. Switching it, the plan running out or opening TechTeam on the other computer never edits an agent (the only
   exception is the existing auto failover, if you choose it as the plan-limit action).
-- **Per user and per computer.** The database is shared by your computers, so the switch, the confirmed account and
-  the plan-limit choice live in `cli_settings`, keyed by a machine id that TechTeam keeps in its CLI home. What this
+- **Per user and per computer.** The switch, the confirmed account and
+  the plan-limit choice live in `cli_settings`, keyed by a machine id that TechTeam keeps in its CLI home (one row per
+  computer, which matters when computers share a database through `DATABASE_URL`). What this
   computer learned (a model the plan refused, the window running out) stays in `<CLI home>/state.json`.
 - **Your own login, separate from your normal Claude Code.** TechTeam runs Claude Code with
   `CLAUDE_CONFIG_DIR=<CLI home>/claude` (`~/.techteam/cli/claude`, or `TECHTEAM_CLI_HOME`). You sign in there once with

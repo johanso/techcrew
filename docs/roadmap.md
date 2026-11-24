@@ -1,6 +1,6 @@
 # Roadmap
 
-Where TechTeam goes next (latest release: [v0.5.0](../CHANGELOG.md#050--2026-11-19)), and how a version is released.
+Where TechTeam goes next (latest release: [v0.7.0](../CHANGELOG.md#070--2026-11-20); v0.8 and v0.9 are on `main`, unreleased), and how a version is released.
 For what works today see [status.md](status.md); for what's verified see [testing.md](testing.md).
 
 - [Direction: an AI software factory](#direction-an-ai-software-factory)
@@ -111,32 +111,36 @@ The owner designs and specifies outside TechTeam (a design tool, a document); th
 - Not yet seen live: `add_dependency`, conflict resolution (testing.md rows 71–78).
 - Released as **v0.7.0** (2026-11-20, before v0.6); see [CHANGELOG.md](../CHANGELOG.md#070--2026-11-20).
 
-### v0.8 — Agents on your plans (local CLIs)
+### v0.8 — Agents on your plans (local CLIs) ✅ built
 TechTeam stays a web app; when it runs on the owner's own computer, agents can work on the owner's subscription through
 the official CLI installed there, next to API keys ([cli-agents.md](cli-agents.md), plan: [cli-agents-plan.md](cli-agents-plan.md)).
 - **Claude Code** first: Settings → AI → Plans on this computer (switch per computer, TechTeam's own login, confirmed
   account), route resolution per stage (the model stays the agent's), TechTeam's tools over a local MCP endpoint,
   chunks of turns resumed by session, plan usage instead of spend, the plan-limit choice (wait and resume, API key,
-  switch company), two computers on one database (one run per card, `AGENTS_AUTO_PICKUP`), Windows in CI.
-- To do before release: the isolation check and one live run with the owner's OK (the Developer on a Claude model
-  through the plan, the rest on OpenRouter; then on the Windows PC).
+  switch company), one run per card whatever computer starts it, Windows in CI.
+- Validated live by the owner in real use. Not run: `scripts/cli-isolation-check.mts` on macOS and Windows (it spends
+  plan usage). Codex comes later on the same rules.
 
-### v0.9 — Local-first
-TechTeam runs on the owner's computer with nothing remote but GitHub and the model providers: GitHub sign-in, an
-embedded Postgres, local files, an optional pluggable sandbox, backup and restore to move to another computer, and a
-first-run wizard so anyone can clone it and start. Plan, phases and risks: [local-first-plan.md](local-first-plan.md).
+### v0.9 — Local-first (on `main`, not released)
+TechTeam runs on the owner's computer with nothing remote but GitHub and the model providers. Plan, phases and risks:
+[local-first-plan.md](local-first-plan.md).
+- **Done** (phases 1–7): GitHub sign-in (device flow), an embedded Postgres 18 (or `DATABASE_URL`), local files,
+  `npm run backup` / `restore`, `npm run doctor`, `npm run start:local` (stable mode), a Get started checklist, a sweeper
+  for runs left behind when TechTeam stopped, a configurable fallback order across companies.
+- **Remains**: phase 0 (a smoke test of one simulated card against a throwaway repository), phase 8 (a sandbox without a
+  Docker host: WSL2 + bubblewrap, previews on `localhost`) and the final cleanup migration (drops the unused Switch,
+  auth-id and workspace-key schema). Then the release: version bump, changelog, tag.
 
 ### v0.10 — Brain
 - A project memory every agent reads before working: repository conventions, decisions, what earlier cards learned.
-  Markdown in the linked repository (`.techteam/memory/`), so both computers share it through GitHub; agents only
+  Markdown in the linked repository (`.techteam/memory/`), so your computers share it through GitHub; agents only
   propose changes in their card's PR (see cli-agents-plan.md §6).
 
 ### Later
-- **Deploy and hardening** (was v0.6; moved here 2026-11-20, agents on local plans first):
-  Run TechTeam itself on the VPS, so nothing has to run on a laptop: open `https://app.<domain>` from any computer.
-  - The app (Next.js standalone) and a self-hosted Inngest as services on the VPS behind the same Caddy, restarting on
-    boot; Postgres and auth stay on Cloudhike. A production GitHub OAuth App, backups (`pg_dump`).
-  - GitHub webhooks instead of the 60 s issue sync.
+- **Hosting TechTeam** (was v0.6 "Deploy"; dropped when TechTeam became local-first): running it on a server for
+  several people would need real accounts, hosted Postgres and file storage again. Not planned.
+- **Hardening and checks**:
+  - GitHub webhooks instead of the 60 s issue sync (they need a public URL; polling stays the default).
   - The post-MVP rows of the [test plan](testing.md#test-plan-and-status): Anthropic live, mixed three-company run,
     blocked merge, auto pickup and auto merge, pause or budget mid-run, Draft with AI, automatic provider switch.
   - Skill uploads out of a Server Action, so `serverActions.bodySizeLimit` goes back to the 1 MB default.
@@ -156,7 +160,6 @@ Not tied to a phase yet:
 - GitHub webhooks (real-time issues) and closing the issue when a card reaches Done.
 - Integration tests: database + pipeline in simulated mode.
 - Email notifications; GitHub syncs on the Activity page.
-- Switch ROI usage tracking through the Switch SDK (Switch shows caps, not spend, until then).
 - More inputs: documents, an external tracker.
 - Landing page.
 - Sandbox numbers on the Metrics page; limits per workspace; cleanup of stale containers, previews, images and

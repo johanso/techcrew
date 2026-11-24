@@ -17,6 +17,7 @@ Identity is GitHub's: a `users` row is found by its GitHub id (`users.github_use
 - [agent_runs](#agent_runs)
 - [agent_run_messages](#agent_run_messages)
 - [pull_requests](#pull_requests)
+- [Unused tables and columns](#unused-tables-and-columns)
 - [Value vocabularies](#value-vocabularies)
 - [Behaviors worth knowing](#behaviors-worth-knowing)
 - [Schema changes](#schema-changes)
@@ -236,7 +237,7 @@ per owner and provider) and deleted the workspace copies.
 | --- | --- | --- | --- |
 | `id` | serial | no | Primary key. |
 | `user_id` | integer | no | → `users.id`, cascade. **Unique with `provider`.** |
-| `provider` | text | no | `openai` or `anthropic`. |
+| `provider` | text | no | `openai`, `anthropic` or `openrouter`. |
 | `api_key` | text | no | **Encrypted** with AES-256-GCM (`lib/crypto.ts`). Only `getAIKeys()` decrypts it; never send it to the client. |
 | `hint` | text | no | Masked key for display, e.g. `sk-ant-••••a1B2`. |
 | `updated_at` | timestamp | no | |
@@ -250,7 +251,7 @@ writes this table; it stays until a cleanup migration drops it (it is still clas
 | --- | --- | --- | --- |
 | `id` | serial | no | Primary key. |
 | `workspace_id` | integer | no | → `workspaces.id`, cascade. **Unique with `provider`.** |
-| `provider` | text | no | `openai` or `anthropic`. |
+| `provider` | text | no | `openai`, `anthropic` or `openrouter`. |
 | `api_key` | text | no | **Encrypted** with AES-256-GCM (`lib/crypto.ts`). Only `getAIKeys()` decrypts it; never send it to the client. |
 | `hint` | text | no | Masked key for display, e.g. `sk-ant-••••a1B2`. |
 | `updated_at` | timestamp | no | |
@@ -293,8 +294,8 @@ Indexes and constraints:
 ## task_references
 
 A file the owner attached to a card for the agents (an image, a Markdown or text file, a PDF), or a link captured once
-when it was added (two screenshots and an outline): see [features.md](features.md#card-references). The file itself, and a PDF's extracted text, live in the local files
-bucket under `card-references/<workspace_id>/<task_id>/<uuid>.<ext>`; the row only says what and where, so it stays a
+when it was added (two screenshots and an outline): see [features.md](features.md#card-references). The file itself, and a PDF's extracted text, live in the data folder (`files/`)
+under `card-references/<workspace_id>/<task_id>/<uuid>.<ext>`; the row only says what and where, so it stays a
 few hundred bytes. Limits (10 per card, sizes per kind) are in [`lib/reference-config.ts`](../lib/reference-config.ts).
 
 | Column | Type | Null | Default | Notes |
@@ -591,6 +592,20 @@ Pull requests the Developer opened. One per run; rework rounds push to the same 
 | `follow_up_task_id` | integer | yes | | → `tasks.id`, `SET NULL`. The Tester's card for a blocked merge (one per PR). Running it continues on this PR; the merge moves it to Done with `task_id`'s card. |
 | `merged_at`, `created_at`, `updated_at` | timestamp | yes / no / no | | |
 
+## Unused tables and columns
+
+The hosted design left some schema behind. Nothing reads or writes these; they stay until one **final cleanup
+migration** drops them (an applied migration is never edited, and older checkouts may still share a database).
+
+| What | Why it is unused |
+| --- | --- |
+| `users.auth_user_id` | Id of the removed hosted auth service. Still **unique and not null**: existing users keep their old id, new users get `github:<github id>`. Identity is `users.github_user_id` now. |
+| `ai_provider_keys` | Workspace-level API keys. AI keys live on the account (`user_ai_keys`) or in the environment. |
+| `switch_connections`, `trust_scans`, `agents.switch_agent_id` | Switch Trust (SwitchAgent scans) was removed. `agents.trust_report` may hold an old Switch report until the next rule scan replaces it. |
+| `workspaces.ai_provider` | Each agent's model sets its company. |
+
+The backup registry (`lib/backup/registry.mjs`) still classifies each of these tables, so a backup carries them as they are.
+
 ## Value vocabularies
 
 `type`, `priority` and `status` are plain `text` columns, not Postgres enums; the allowed values live in
@@ -642,8 +657,8 @@ Things to know:
 
 - `0000_baseline.sql` is the whole schema as of November 2026. Databases created earlier with `db:push` already have
   it: run `npm run db:baseline` once (scripts/db-baseline.mjs marks migrations as applied without running them).
-- Only the `public` schema is managed (`schemaFilter` in `drizzle.config.ts`); never the old hosted auth service's `auth`
-  schema. `pg_stat_*` tables are ignored.
+- Only the `public` schema is managed (`schemaFilter` in `drizzle.config.ts`); never an `auth` schema left by the removed hosted auth service
+  (it is left untouched). `pg_stat_*` tables are ignored.
 - Renames are ambiguous to drizzle-kit (rename vs. drop + add): `generate` asks in an interactive terminal. Answer
   carefully; a wrong "drop + add" loses the column's data.
 - Adding a unique constraint to a table with rows can fail on duplicates: clean the rows first, in the same migration

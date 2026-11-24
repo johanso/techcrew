@@ -8,7 +8,7 @@ What each part of the product does, from the user's point of view, with pointers
 - [Overview](#overview)
 - [Board](#board)
 - [GitHub issues on the board](#github-issues-on-the-board)
-- [Card actions: Run and Remove](#card-actions-run-and-remove)
+- [Card actions: Run, Merge, agent log and Remove](#card-actions-run-merge-agent-log-and-remove)
 - [Agent pipeline](#agent-pipeline)
 - [AI Team](#ai-team)
 - [Agent skills](#agent-skills)
@@ -58,8 +58,8 @@ A three-step form with a live preview card on top:
 1. **Name** — required, up to 60 characters.
 2. **Icon or logo** — pick one of 16 icons, or **Upload custom logo** (PNG, JPG, WebP or GIF, up to 1 MB; SVG is
    deliberately not allowed). A logo replaces the icon; **Remove** goes back to the icon. Logos are stored on this computer.
-3. **Link a GitHub repository** — **Connect GitHub** sends you through GitHub's authorization page and back. Once
-   connected you see "Connected as @login" (with **Disconnect**) and a searchable list of your repositories.
+3. **Link a GitHub repository** — signing in already connected GitHub, so you see "Connected as @login" (with **Disconnect**)
+   and a searchable list of your repositories. If the connection is missing (disconnected, or a token that can't be read), a **Reconnect GitHub** button signs you in again.
    Only repositories you can **push** to and that aren't archived are listed (up to 300, most recently pushed
    first), because agents need to push branches.
 
@@ -67,10 +67,9 @@ A three-step form with a live preview card on top:
 dashboard. The server re-checks the repository with GitHub before saving (it never trusts the client's data).
 
 Details that matter:
-- **The form survives the GitHub round trip.** Before leaving for GitHub, the name, icon, logo (as a data URL) and
+- **The form survives a sign-in round trip.** Before leaving for the sign-in page, the name, icon, logo (as a data URL) and
   selected repository are saved in `sessionStorage` and restored on return (`components/workspace/workspace-draft.ts`).
-- **Status messages** after the round trip: cancelled on GitHub ("authorization was cancelled"), failed ("We
-  couldn't connect to GitHub"), or not configured on the server.
+- If the sign-in is cancelled, denied or expires, the sign-in page says so and offers to start again; the draft is still there afterwards.
 - A workspace is linked to **exactly one** repository. There's no way to change it after creation yet.
 
 Code: `app/workspaces/*`, `components/workspace/*`, `lib/github.ts`, `lib/storage.ts`.
@@ -166,7 +165,7 @@ A search or type filter shows every match. A card dropped below a closed column'
 - priority (Urgent / High / Medium / Low, as a colored dot), GitHub issue number for synced cards (`#12`), due date
   ("Today", "Tomorrow", or the date; red with a calendar-x icon when overdue — not in Done), a paperclip with the
   number of [references](#card-references) when it has some, and the assigned agent's avatar;
-- a **▶ Run** button and a **⋯** menu (see [Card actions](#card-actions-run-and-remove)).
+- a **▶ Run** button and a **⋯** menu (see [Card actions](#card-actions-run-merge-agent-log-and-remove)).
 
 **Creating** — **New** (header) opens a menu: Feature, Bug or Issue. Each column's **+** does the same with that column
 preselected. The dialog asks for: type, title (required, ≤ 120), description, priority, status (column), due date,
@@ -262,7 +261,7 @@ Open issues from the workspace's repository become cards automatically.
 - **Closing** an issue on GitHub moves its card to **Done**; **reopening** moves it back to the top of **Todo**.
 - **Edits on GitHub** (title, body, labels) update the card. Your board choices (column, type, priority, due date,
   agent) are never overwritten.
-- **Problems** show a banner: not connected / connection expired (**Connect GitHub** / **Reconnect GitHub** button),
+- **Problems** show a banner: not connected / connection expired (a **Reconnect GitHub** button that signs you in again),
   no access to the repository, or GitHub unreachable (**Try again**). Auto-sync pauses until the problem is fixed.
 
 Full rules and limits: [github-integration.md](github-integration.md#issue-sync).

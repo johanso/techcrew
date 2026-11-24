@@ -7,8 +7,9 @@ triggered it. Code: [`lib/inngest/`](../lib/inngest), served by [`app/api/innges
 - [Registered functions](#registered-functions)
 - [agent-task-run](#agent-task-run)
 - [agent-auto-pickup](#agent-auto-pickup)
+- [run-sweep](#run-sweep)
 - [Local development](#local-development)
-- [Production](#production)
+- [Inngest Cloud (not the default)](#inngest-cloud-not-the-default)
 - [Adding a function](#adding-a-function)
 
 ---
@@ -49,7 +50,7 @@ sequenceDiagram
 
 - The client is created in [`lib/inngest/client.ts`](../lib/inngest/client.ts) (`id: "fastnext-app"`).
 - `/api/inngest` exposes the functions with `serve()` (GET = introspection, PUT = registration, POST = execution).
-- Inngest calls back into the app over HTTP, so the app must be reachable from wherever Inngest runs.
+- Inngest calls back into the app over HTTP: the Dev Server runs on the same computer and reaches `http://127.0.0.1:3000/api/inngest`, so nothing needs to be public.
 
 ## Registered functions
 
@@ -57,9 +58,10 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | `agent-task-run` | event `agent/task.run` | `lib/inngest/agent-run.ts` | The agent pipeline for one card (below). |
 | `agent-auto-pickup` | cron `*/2 * * * *` | `lib/inngest/agent-pickup.ts` | Auto pickup: starts a run on the top never-run Todo card per workspace. |
+| `preview-sweep` | cron `*/10 * * * *` | `lib/inngest/preview-sweep.ts` | Stops previews older than 2 h and removes leftovers (only with a sandbox host). |
 | `run-sweep` | cron `*/5 * * * *` | `lib/inngest/run-sweep.ts` | Ends runs left behind when TechTeam stopped (below). |
 
-The starter template's example jobs and its unauthenticated `POST /api/inngest/trigger` route were removed.
+There is no function for Switch scans or remote jobs any more: nothing in TechTeam waits for a call from the internet.
 
 ## agent-task-run
 
@@ -138,8 +140,8 @@ analysis ──ready──▶ development ──▶ PR ──┤                
 ## agent-auto-pickup
 
 Every 2 minutes: for each workspace with **Settings → Agents → Task pickup: Automatic** and no `queued`/`running`
-run, creates a run for the top Todo card that **was never run** and sends `agent/task.run`. Skipped entirely without
-a provider (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `AGENTS_SIMULATED=true`), and per workspace while the Analyst is paused or over budget (not on the owner's plan), or an agent's model has neither a key nor the plan on this computer. Every computer whose Inngest is up runs this cron
+run, creates a run for the top Todo card that **was never run** and sends `agent/task.run`. Skipped
+for a workspace while the Analyst is paused or over budget (not on the owner's plan), or an agent's model has neither a key nor the plan on this computer. Every computer whose Inngest is up runs this cron
 (they share the database); `AGENTS_AUTO_PICKUP=false` turns it off on one, and a card can't get two runs in flight
 (unique index), so two computers never start the same card. Cards that were run before (failed,
 needs info) wait for a human to press Run (or Answer, for a question). A never-run follow-up card the Tester filed
@@ -176,12 +178,13 @@ npm run start:local    # production build + database + the Dev Server, one termi
 - Cloud mode needs the keys: without `INNGEST_EVENT_KEY` or `INNGEST_SIGNING_KEY` the client is always in dev mode
   (`lib/inngest/client.ts`), also under `next start`, where the SDK would infer cloud mode from `NODE_ENV=production`.
 
-## Production
+## Inngest Cloud (not the default)
 
-1. Create an app in the Inngest dashboard and copy the **Event key** and **Signing key** into `INNGEST_EVENT_KEY`
-   and `INNGEST_SIGNING_KEY`.
-2. Deploy. In Cloud Mode `/api/inngest` verifies request signatures with the signing key.
-3. Sync the app in the Inngest dashboard with `https://<your-domain>/api/inngest` (or use the Vercel integration).
+TechTeam is built to run with the local Dev Server (pinned to 1.53.0, bound to `127.0.0.1`; `TECHTEAM_INNGEST_PORT` moves
+it, default 8288). Hosting TechTeam is not a supported setup. If you set `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`
+the client switches to Cloud Mode and `/api/inngest` verifies signatures with the signing key; Inngest Cloud then has to
+reach the app, which listens on `127.0.0.1` only. `npm run doctor` lists both variables as obsolete for that reason.
+
 
 ## Adding a function
 

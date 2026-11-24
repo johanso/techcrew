@@ -1,7 +1,7 @@
 # Project status
 
-Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-20**
-(release **v0.7.0**: references on cards, link captures, the Tester's comparison, add_dependency, agents fixing merge conflicts, leaner turns). For what has been tested and how to test the agents, see [testing.md](testing.md).
+Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-24**
+(latest release **v0.7.0**; `main` also has the unreleased **v0.8** (agents on your Claude plan) and **v0.9 local-first** work: TechTeam runs on your own computer for one user, with nothing remote but GitHub and the model providers; phases 1–7 of [local-first-plan.md](local-first-plan.md) are done). For what has been tested and how to test the agents, see [testing.md](testing.md).
 
 - [Feature status](#feature-status)
 - [Dummy data and placeholders](#dummy-data-and-placeholders)
@@ -22,7 +22,11 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | Logo upload to local disk | ✅ Real | `lib/storage.ts` |
 | Dashboard shell: sidebar, switcher, header, user menu | ✅ Real | `components/dashboard` |
 | Light / dark / system theme | ✅ Real | `app/layout.tsx`, `user-menu.tsx` |
-| Agents on the owner's Claude plan (local Claude Code, MCP endpoint, plan limits) | 🟡 Built and unit/integration-tested without spend; not run live yet | `lib/cli/`, `lib/cli-agents-config.ts`, `app/api/mcp`, [cli-agents.md](cli-agents.md) |
+| Runs on your computer: embedded Postgres 18 (or `DATABASE_URL`), local files, generated secrets, loopback only | ✅ Real. A clean clone starts with `npm run start:local` (checked in this docs pass: build, start, `/sign-in` answers). Not tested: a long run left unattended for days; Linux and macOS by hand (CI runs `npm run check` on Linux and Windows, and the build on Linux) | `scripts/local-db.mjs`, `lib/local-db-config.mjs`, `lib/secrets.ts`, `proxy.ts` |
+| `npm run doctor`, `npm run start:local`, Get started checklist, interrupted-run sweeper | ✅ Real, unit-tested (doctor checks behind injectable probes); the sweeper has not seen a real interrupted run | `lib/doctor/`, `scripts/start-local.mjs`, `lib/setup-status.ts`, `lib/run-sweep.ts` |
+| `npm run backup` / `npm run restore` | ✅ Real, unit-tested (the archive reader against hostile input too); no secrets in the archive. Runs in flight don't continue after a restore | `lib/backup/`, `scripts/backup.mjs`, `scripts/restore.mjs` |
+| Fallback order across companies (credit failover, switch and retry, plan-limit "Switch company") | ✅ Real, unit-tested; not run against a provider actually running dry | `lib/agent-config.ts` (`fallbackProvider`), `components/settings/fallback-order.tsx` |
+| Agents on the owner's Claude plan (local Claude Code, MCP endpoint, plan limits) | ✅ Used live by the owner; unit/integration-tested without spend. Not run: the isolation script on macOS and Windows, a plan actually running out of its window | `lib/cli/`, `lib/cli-agents-config.ts`, `app/api/mcp`, [cli-agents.md](cli-agents.md) |
 | Kanban board: columns, create/edit, drag and drop, search, filters | ✅ Real, persisted | `components/board`, `lib/board.ts` |
 | GitHub issue sync (auto + Refresh, close → Done) | ✅ Real | `lib/github-issues.ts` |
 | Remove task (soft delete) | ✅ Real | `removeCardAction` |
@@ -44,7 +48,7 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | Settings page | ✅ Your account (profile, AI providers with account keys, spending across projects) and this workspace (automation, sandbox, skills) editable; account and workspace details read-only | `app/dashboard/[workspaceId]/settings` |
 | AI keys on the account, company and model per agent | ✅ Real (one account key serves every project; agents can mix OpenAI, Anthropic and OpenRouter; mixed run 50 with OpenAI + OpenRouter, Anthropic not in a mix yet) | `lib/ai-keys.ts`, `components/ai-team/agent-config-dialog.tsx` |
 | OpenRouter (Google, DeepSeek, Z.ai, xAI, Moonshot models) | ✅ Real: all 10 models answer a strict tool call; live mixed run 50 (Developer DeepSeek V4 Pro, Tester DeepSeek V4.1 Flash, the rest OpenAI; $0.091, PR ready). Out of credit not tried live | `lib/openrouter.ts`, `lib/agent-loop.ts` |
-| Agent sandbox (run tests, build, commands) | ✅ Real, verified live (run 49 on techteam-sandbox-demo, $0.17) | `lib/sandbox/`, `deploy/setup.sh`, [sandbox.md](sandbox.md) |
+| Agent sandbox (run tests, build, commands): **optional, needs a Docker host** | ✅ Real, verified live (run 49 on techteam-sandbox-demo, $0.17) on a VPS. Docker-free local modes are phase 8 and not built | `lib/sandbox/`, `deploy/setup.sh`, [sandbox.md](sandbox.md) |
 | PR previews and the Tester's browser | ✅ Real: live run 51 (SAN-3, $0.185): preview over HTTPS after CI, the Tester browsed it on desktop and mobile with screenshots; firewall rule applied on the VPS | `lib/sandbox/preview.ts`, `lib/sandbox/browser.ts`, `deploy/browser/` |
 | Landing page `/` | ➖ None: redirects to the dashboard or sign-in | `app/page.tsx` |
 
@@ -57,6 +61,14 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 ## Known limitations
 
+- **One user per installation.** The "login" is your GitHub account; there are no other accounts, and TechTeam listens on
+  `127.0.0.1` only. To use it from another computer, move your data (`npm run backup` / `npm run restore`).
+- **The sandbox, previews and the Tester's browser need a Docker host** (a VPS prepared by `deploy/setup.sh`). Without
+  one, agents verify through CI only. A Docker-free local mode is phase 8 and not built.
+- **A restore doesn't continue runs** that were in flight when the backup was made, and nothing encrypted travels:
+  after a restore you sign in again and enter your AI keys again.
+- **Developed and used on Windows.** Linux and macOS are covered by CI (`npm run check`) but have not been tried by hand.
+- **Unused schema remains** until the final cleanup migration ([data-model.md](data-model.md#unused-tables-and-columns)).
 - **No public landing page**: `/` redirects (the starter's marketing page was removed).
 - **Single owner per workspace**; no members, invitations or roles.
 - **One repository per workspace**, fixed at creation; repository metadata (name, default branch, visibility) isn't
@@ -97,16 +109,25 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 ## Suggested next steps
 
-The plan lives in [roadmap.md](roadmap.md): smarter gates and the live process are done (v0.2), agent skills (v0.3), and
-CI in the loop with a Metrics page (v0.4), and the sandbox with PR previews, the Tester's browser, account keys and
-OpenRouter (v0.5), and references on cards with the sandbox's loose ends (v0.7). Next: v0.8, agents on the owner's
-plans through local CLIs (Claude Code built; the isolation check and a live run remain, then Codex); then v0.9, a
-shared project memory. Deploying TechTeam itself on the VPS moved to Later.
+The plan lives in [roadmap.md](roadmap.md). Done: smarter gates and the live process (v0.2), agent skills (v0.3), CI in
+the loop with a Metrics page (v0.4), the sandbox, previews, account keys and OpenRouter (v0.5), references on cards
+(v0.7), agents on your Claude plan (v0.8, on `main`) and local-first (v0.9, phases 1–7, on `main`). What remains before
+the v0.9 release:
+
+1. **Phase 0**: a smoke test (one simulated card through the whole pipeline against a throwaway repository), which does
+   not exist yet.
+2. **Phase 8**: a sandbox that needs no Docker host (WSL2 + bubblewrap, previews on `localhost`).
+3. **The final cleanup migration**: drop the unused tables and columns ([data-model.md](data-model.md#unused-tables-and-columns)).
+4. Try it on Linux and macOS by hand, and leave `npm run start:local` running for a few days.
+
+Then v0.10, a project memory (the Brain). Hosting TechTeam for several people is not planned.
 
 ## History
 
 | Commit | Change |
 | --- | --- |
+| local-first work | **v0.9, on `main`, unreleased**: GitHub device-flow sign-in, loopback only, embedded Postgres, local files, backup and restore, `npm run doctor` and `start:local`, the Get started checklist, the interrupted-run sweeper, the fallback order; the hosted auth service, S3, Cloudhike Jobs, Switch Trust and the tunnel removed (migrations 0018–0019). |
+| `feat/cli-agents` | **v0.8, on `main`, unreleased**: agents on the owner's Claude plan through Claude Code, the live model catalog (migrations 0016–0017). |
 | `v0.7.0` | **Sixth release** (before v0.6): references on cards (files and captured links) for the agents, the Tester comparing the preview with them, the `interface-design` skill, the install step off private ranges, bold fonts in the browser image, `add_dependency`, agents fixing merge conflicts, leaner turns and no lost work at the turn limit (migrations 0013–0015; live runs 52–55). Next: v0.6 deploy. |
 | `v0.5.0` | **Fifth release**: the sandbox (PR #12), account keys and a company per agent (#13, #14), OpenRouter (#15, #16) and previews with the Tester's browser. Next: v0.7 card references and sandbox polish, or v0.6 deploy. |
 | `feat/sandbox-preview` | Sandbox milestone 2: PR previews over HTTPS on the sandbox host (Caddy, migrations 0011–0012), the Tester's headless browser (`browse_preview`) with screenshots in the agent log, a ufw rule keeping containers off the host's services. Built by two parallel agents on one shared contract. |

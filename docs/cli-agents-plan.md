@@ -12,7 +12,7 @@ and `CLAUDE.local.md` first; every rule there applies (branch first, noreply com
 
 ## 1. Context
 
-TechTeam stays the web app it is today (Next.js, Cloudhike Postgres + auth, S3, Inngest, the VPS sandbox). Nothing
+TechTeam stays the web app it was when this was written (Next.js, hosted Postgres and auth, S3, Inngest, the VPS sandbox; since then it became local-first, see local-first-plan.md). Nothing
 is packaged as a desktop app, and the earlier "local desktop app" idea is dropped.
 
 What's new: an agent can run on the **owner's subscription** through the official CLI installed on the computer

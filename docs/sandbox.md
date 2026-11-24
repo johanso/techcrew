@@ -4,7 +4,15 @@ Agents with the **Run tests in a sandbox** permission (`tests.run`; on for the D
 run the repository's code: install its dependencies, run its tests and build, or one command. They run in throwaway
 Docker containers under [gVisor](https://gvisor.dev) on a Docker host, a VPS in practice. Introduced in v0.5,
 with previews of each pull request and a browser for the Tester. References on cards (images, documents, URLs) and the loose ends are v0.7; see
-the [roadmap](roadmap.md#v07--card-references-and-sandbox-polish).
+the [roadmap](roadmap.md#v07--card-references-and-sandbox-polish-).
+
+**The sandbox is optional, and today it needs a Docker host.** TechTeam itself runs on your computer without Docker, and
+without a sandbox the agents still work: they edit through the GitHub API and rely on your repository's CI for tests and
+builds, and the Tester has no preview or browser. To switch the sandbox on, set `SANDBOX_DOCKER_HOST` to a Docker host
+that `deploy/setup.sh` prepared (a VPS over SSH, or the local socket of a Linux machine set up the same way). gVisor and
+the firewall rules are Linux, so Docker Desktop on Windows or macOS is not a supported host. Modes that need no Docker
+host (WSL2 with bubblewrap, previews on `localhost` instead of a domain) are planned as phase 8 of the
+[local-first plan](local-first-plan.md#phase-8--pluggable-sandbox-not-started) and are **not built yet**.
 
 ## How a call runs
 
