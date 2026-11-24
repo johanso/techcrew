@@ -417,6 +417,10 @@ Where new code goes:
   every workspace the user owns, or on one workspace, used only when the account has none) and read only via
   `getAIKeys`. The client only ever gets `ProviderKeyView` (masked hints + the source in use); the show/hide eye applies to what the
   user is typing, never to a saved key. Model calls take the key as an argument (`openAIClient(key)`, `anthropicClient(key)`).
+- A stored secret is read with `tryDecrypt` (`lib/crypto.ts`), never bare `decrypt`: when the encryption key changed it
+  returns null and the secret counts as **not set** (an unreadable AI key is "not connected", its `SavedKeyView` has
+  `unreadable: true` so Settings asks for it again; an unreadable GitHub token makes `getGithubToken` throw the 401
+  `GithubError`, i.e. "connection expired"). A page must never 500 on one. A bad key configuration still throws.
 - Uploaded files go to local disk via `lib/storage.ts` (keys are relative, validated, and the only thing the database holds). Allowed logo types: PNG, JPEG, WebP, GIF, ≤ 1 MB. No SVG (script risk).
 - Handle a GitHub `401` as "connection expired": prompt the user to reconnect.
 - New env vars must be added to `.env.example` with a placeholder and a comment. Never put real credentials in `.env.example`.
