@@ -9,6 +9,8 @@ import {
   agentModelFor,
   defaultProvider,
   fallbackProvider,
+  normalizeFallbackOrder,
+  effectiveFallbackOrder,
   formatMicros,
   roleDefaultModel,
 } from "@/lib/agent-config";
@@ -131,5 +133,55 @@ describe("vision", () => {
     const blind = live.models.filter((m) => m.current && !m.vision).map((m) => m.id);
     // OpenAI and Claude models all take images; on OpenRouter, DeepSeek V4 Pro and GLM 5.3 are text only.
     expect(blind).toEqual(["deepseek/deepseek-v4-pro-0813", "z-ai/glm-5.3"]);
+  });
+});
+
+describe("fallbackProvider with an order", () => {
+  const all = { openai: true, anthropic: true, openrouter: true };
+
+  it("follows the order and skips the broke company", () => {
+    expect(fallbackProvider("anthropic", all, ["openrouter", "openai", "anthropic"])).toBe("openrouter");
+    expect(fallbackProvider("openrouter", all, ["openrouter", "openai", "anthropic"])).toBe("openai");
+  });
+
+  it("skips companies without a key", () => {
+    expect(fallbackProvider("anthropic", { ...all, openrouter: false }, ["openrouter", "openai"])).toBe("openai");
+  });
+
+  it("falls back to the built-in order for companies the order doesn't list", () => {
+    expect(fallbackProvider("anthropic", all, ["anthropic"])).toBe("openai");
+    expect(fallbackProvider("anthropic", { openai: false, anthropic: true, openrouter: true }, ["openai"])).toBe("openrouter");
+  });
+
+  it("never returns the broke company or one without a key", () => {
+    expect(fallbackProvider("anthropic", { openai: false, anthropic: true, openrouter: false }, ["anthropic", "openai"])).toBeNull();
+  });
+
+  it("behaves as before without an order", () => {
+    expect(fallbackProvider("openai", all, null)).toBe("anthropic");
+  });
+});
+
+describe("normalizeFallbackOrder", () => {
+  it("keeps known companies once, in order", () => {
+    expect(normalizeFallbackOrder(["openrouter", "openai", "openrouter", "anthropic"])).toEqual(["openrouter", "openai", "anthropic"]);
+  });
+
+  it("drops unknown ids and garbage", () => {
+    expect(normalizeFallbackOrder(["gemini", 3, null, "anthropic"])).toEqual(["anthropic"]);
+  });
+
+  it("is null for empty or non-array input", () => {
+    expect(normalizeFallbackOrder([])).toBeNull();
+    expect(normalizeFallbackOrder(["nope"])).toBeNull();
+    expect(normalizeFallbackOrder("openai")).toBeNull();
+    expect(normalizeFallbackOrder(undefined)).toBeNull();
+  });
+});
+
+describe("effectiveFallbackOrder", () => {
+  it("completes a partial order with the built-in one", () => {
+    expect(effectiveFallbackOrder(["openrouter"])).toEqual(["openrouter", "openai", "anthropic"]);
+    expect(effectiveFallbackOrder(null)).toEqual(["openai", "anthropic", "openrouter"]);
   });
 });

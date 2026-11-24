@@ -104,12 +104,28 @@ export function defaultProvider(connected: ProviderStatus): AgentProvider {
   return PROVIDER_IDS.find((provider) => connected[provider]) ?? "openai";
 }
 
+/** The built-in order companies are tried in when a workspace chose none. */
+export const DEFAULT_FALLBACK_ORDER: readonly AgentProvider[] = PROVIDER_IDS;
+
+/** A saved fallback order made safe: only known companies, each once, in order; null when nothing is left. */
+export function normalizeFallbackOrder(value: unknown): AgentProvider[] | null {
+  if (!Array.isArray(value)) return null;
+  const order: AgentProvider[] = [];
+  for (const item of value) if (isAgentProvider(item) && !order.includes(item)) order.push(item);
+  return order.length > 0 ? order : null;
+}
+
+/** The order to try companies in: the workspace's choice first, then the built-in order for the rest. */
+export function effectiveFallbackOrder(order?: readonly AgentProvider[] | null): AgentProvider[] {
+  return [...new Set([...(order ?? []), ...DEFAULT_FALLBACK_ORDER])];
+}
+
 /**
- * Where agents go when `broke` runs out of credit: the first other company with a key, in PROVIDER_IDS order, or
- * null when none has one.
+ * Where agents go when `broke` runs out (of credit or plan): the first company in the workspace's `order` that isn't
+ * `broke` and has a key, else any other company with a key in the built-in order; null when none has one.
  */
-export function fallbackProvider(broke: AgentProvider, connected: ProviderStatus): AgentProvider | null {
-  return PROVIDER_IDS.find((provider) => provider !== broke && connected[provider]) ?? null;
+export function fallbackProvider(broke: AgentProvider, connected: ProviderStatus, order?: readonly AgentProvider[] | null): AgentProvider | null {
+  return effectiveFallbackOrder(order).find((provider) => provider !== broke && connected[provider]) ?? null;
 }
 
 /**
