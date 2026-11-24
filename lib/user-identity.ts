@@ -44,8 +44,3 @@ export function resolveUser(identity: GithubIdentity, users: UserRow[], connecti
 export function noreplyEmail(identity: Pick<GithubIdentity, "githubUserId" | "login">) {
   return `${identity.githubUserId}+${identity.login}@users.noreply.github.com`;
 }
-
-/** The value for `users.auth_user_id` of a user created by a GitHub sign-in. */
-export function authUserIdFor(githubUserId: number) {
-  return `github:${githubUserId}`;
-}

@@ -235,7 +235,7 @@ pull request, request changes with at least one concrete, reasonable improvement
 - **Unit tests**: `npm test` (Vitest, `vitest.config.mts`). Tests sit next to their module as `*.test.ts`;
   `server-only` is aliased to `test/server-only.ts`, so `lib/` modules import fine (no database is touched).
 
-- **Test users**: insert a `users` row in SQL (`auth_user_id` `e2e-…`, a unique email) and, for a browser session, sign in with a
+- **Test users**: insert a `users` row in SQL (a unique email) and, for a browser session, sign in with a
   personal access token of a throwaway GitHub account; or add a workspace row
   directly in SQL (no GitHub needed to view pages): `insert into workspaces (owner_id, name, icon, github_repo_id,
   github_repo_full_name, github_repo_url, github_default_branch, github_repo_private) values (…)`.

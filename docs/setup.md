@@ -194,8 +194,8 @@ Open the app, **Continue with GitHub** (the same account: it recognizes your use
 (Settings → AI).
 
 - Restore **never overwrites**: it refuses a database that already has a user or a workspace. With `DATABASE_URL`, run
-  `npm run db:migrate` first. An archive from a **newer** TechTeam is refused (update first); an older one restores and
-  new columns take their defaults.
+  `npm run db:migrate` first. An archive from a **newer** TechTeam is refused (update first); an older one restores (new columns take their defaults; tables and columns
+  that were dropped since, such as Switch Trust's, are skipped with a warning).
 - All rows go in one transaction and the counts are checked against the manifest: any problem restores nothing. Files are
   copied first (identical files are skipped, different ones kept and reported), so running it again is safe.
 - Runs that were queued or running when you backed up **won't continue** on the new computer. Backup warns about them

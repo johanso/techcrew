@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   EXCLUDED_TABLES,
+  RETIRED_TABLES,
   REVIEWED_SAFE_COLUMNS,
   SECRET_COLUMNS,
   SECRET_PATTERN,
@@ -30,6 +31,8 @@ describe("secret guard", () => {
   it("only names tables and columns that exist", () => {
     const tables = new Map(allTables().map((table) => [table.name, new Set(table.columns.map((column) => column.name))]));
     for (const name of Object.keys(EXCLUDED_TABLES)) expect(tables.has(name), name).toBe(true);
+    // A retired table is gone from the schema for good: a new table must not reuse its name.
+    for (const name of Object.keys(RETIRED_TABLES)) expect(tables.has(name), name).toBe(false);
     for (const registry of [SECRET_COLUMNS, REVIEWED_SAFE_COLUMNS]) {
       for (const [table, columns] of Object.entries(registry)) {
         for (const column of Object.keys(columns)) expect(tables.get(table)?.has(column), `${table}.${column}`).toBe(true);
@@ -39,7 +42,7 @@ describe("secret guard", () => {
 
   it("excludes the tables that hold keys, tokens or machine state", () => {
     const names = exportTables().map((table) => table.name);
-    for (const secret of ["github_connections", "user_ai_keys", "ai_provider_keys", "switch_connections", "cli_settings"]) {
+    for (const secret of ["github_connections", "user_ai_keys", "cli_settings"]) {
       expect(names).not.toContain(secret);
     }
   });
@@ -52,14 +55,17 @@ describe("secret guard", () => {
         expect(found?.notNull && !found.hasDefault, `${table}.${column}`).toBe(false);
       }
     }
-    const trustScans = exportTables().find((table) => table.name === "trust_scans");
-    expect(trustScans?.columns.some((column) => column.name === "token_hash")).toBe(false);
+  });
+
+  it("never exports a retired table, so a backup of an old database leaves its leftovers behind", () => {
+    const names = exportTables().map((table) => table.name);
+    for (const name of Object.keys(RETIRED_TABLES)) expect(names).not.toContain(name);
   });
 
   it("lists what was left out", () => {
     const summary = excludedSummary().join("\n");
     expect(summary).toContain("github_connections");
-    expect(summary).toContain("trust_scans.token_hash");
+    expect(summary).toContain("cli_settings");
   });
 });
 

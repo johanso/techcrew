@@ -64,7 +64,7 @@ function plural(count: number, word: string) {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-export async function getOverviewData(workspace: Pick<Workspace, "id" | "name" | "aiProvider" | "agentMergeMode">, viewerId: number): Promise<OverviewData> {
+export async function getOverviewData(workspace: Pick<Workspace, "id" | "name" | "agentMergeMode">, viewerId: number): Promise<OverviewData> {
   const [board, team, activity] = await Promise.all([
     getBoardData(workspace),
     getTeamOverview(workspace),

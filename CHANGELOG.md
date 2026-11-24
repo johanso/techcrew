@@ -28,6 +28,13 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 - `npm run doctor` reports the Docker engine (not installed, stopped, Windows containers, ready) and whether the sandbox
   images are installed, as information only.
 
+### Removed
+- **The schema nothing uses any more** (migration `0020_drop_unused_schema`): the tables `ai_provider_keys`,
+  `switch_connections` and `trust_scans`, and the columns `users.auth_user_id`, `workspaces.ai_provider` and
+  `agents.switch_agent_id`. New users no longer get a `github:<id>` auth id. **Upgrade: run `npm run backup` first. This
+  migration deletes the data in these tables, which nothing uses.** Backups made by v0.9.0 and earlier still restore:
+  rows of the dropped tables are skipped with a warning (`RETIRED_TABLES`), dropped columns are ignored.
+
 ### Changed
 - Every `docker` argument list is built in `lib/sandbox/docker-args.ts` and one test checks them all in both modes: no
   `--privileged`, Docker socket, host-path mount, host network, added capability, device or user but the unprivileged

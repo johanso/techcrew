@@ -133,8 +133,8 @@ TechTeam runs on the owner's computer with nothing remote but GitHub and the mod
   so the Tester's browser and the Developer's tests work on a plain computer with Docker. Bubblewrap/WSL2 is not part of
   it.
 - Phase 0: a smoke test of one simulated card against a throwaway repository.
-- The final cleanup migration (drops the unused Switch, auth-id and workspace-key schema), and trying it on Linux and
-  macOS by hand.
+- The final cleanup migration `0020` (drops the unused Switch, auth-id and workspace-key schema; done), and trying the
+  local mode on Linux and macOS by hand.
 
 ### v0.11 — Brain
 - A project memory every agent reads before working: repository conventions, decisions, what earlier cards learned.
