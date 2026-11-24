@@ -24,11 +24,11 @@ A user signs in, creates a **workspace**, and links **exactly one GitHub reposit
 AI agents then work on that repository on the workspace's behalf.
 
 ```
-sign-in / sign-up ─▶ /workspaces ──(no workspaces)──▶ /workspaces/new ──Next──▶ /dashboard/<id>
+sign in with GitHub ─▶ /workspaces ──(no workspaces)──▶ /workspaces/new ──Next──▶ /dashboard/<id>
                          │                                  │
                          └──(pick one)──▶ /dashboard/<id>   ├─ name
                                                             ├─ icon or uploaded logo
-                                                            └─ connect GitHub ─▶ select repository
+                                                            └─ select repository (GitHub is already connected by signing in)
 ```
 
 - `/dashboard` redirects to the newest workspace (`/dashboard/<id>`), or to `/workspaces/new` if there is none.
@@ -45,8 +45,8 @@ sign-in / sign-up ─▶ /workspaces ──(no workspaces)──▶ /workspaces/
 | Components | shadcn/ui, **base-nova** style, on `@base-ui/react` | Not Radix. Compose with the `render` prop, not `asChild`. |
 | Icons | `lucide-react` | Import the `…Icon` suffixed names (`RocketIcon`). |
 | Database | PostgreSQL + Drizzle ORM | Schema in `db/schema.ts`; SQL migrations in `drizzle/` (`db:generate` → `db:migrate`). `DATABASE_URL` unset: an embedded Postgres (`embedded-postgres`, `scripts/local-db.mjs`, started by `npm run dev`). |
-| Auth | Hosted Better Auth (CloudHike) | Token in an HTTP-only cookie; see `lib/auth.ts`. |
-| GitHub | OAuth App (`repo read:user`) | Separate from social sign-in; tokens are AES-256-GCM encrypted. |
+| Auth | GitHub OAuth device flow (or a personal access token), no remote auth service | Sign-in is also repository access. Stateless signed cookie `tt_session` (`lib/session.ts`, secret in the data dir). The app listens on `127.0.0.1` only and `proxy.ts` refuses foreign `Host` headers. |
+| GitHub | OAuth App, public client id, **no client secret** (`repo read:user`) | `GITHUB_CLIENT_ID` overrides the shipped default (`lib/github-client-id.ts`); tokens are AES-256-GCM encrypted, key in `TOKEN_ENCRYPTION_KEY` or `<data dir>/encryption.key`. |
 | File storage | Local disk (`TECHTEAM_DATA_DIR`, default `~/.techteam/data/files`) | Never public; served through ownership-checked routes. |
 | Jobs | Inngest | `lib/inngest/*`, `app/api/inngest`. |
 | AI | OpenAI (`openai` SDK, Responses API), Anthropic (`@anthropic-ai/sdk`, Messages API) and OpenRouter (`openai` SDK, Chat Completions: Google, DeepSeek, Z.ai, xAI, Moonshot models); locally, Claude models can run on the owner's plan through Claude Code (`lib/cli/`, docs/cli-agents.md) | `lib/openai.ts`, `lib/anthropic.ts`, `lib/openrouter.ts`; each agent's model picks the provider, the computer picks the route (plan or key). Optional — features degrade without keys. |
@@ -74,11 +74,9 @@ npm run skills:sync  # re-vendor the built-in agent skills at their pinned refs 
 
 ```
 app/
-  (auth)/                 Sign-in, sign-up, social callback. actions.ts = auth server actions.
+  (auth)/                 Sign-in (device flow + personal-token form) and sign-in/adopt (confirm adopting existing data).
+                          actions.ts = auth server actions (start/poll/cancel, token sign-in, adopt, signOut).
   api/
-    auth/social/[provider]/   Starts GitHub/Google sign-in (hosted auth).
-    github/connect/           Starts GitHub OAuth for repository access (state + PKCE).
-    github/callback/          Finishes it; stores the encrypted token.
     workspaces/[id]/logo/     Streams a workspace logo from local storage to its owner.
     workspaces/[id]/references/[referenceId]/  Streams a card reference from local storage to the workspace owner (sandboxed).
     inngest/                  Inngest handler (serves the agent pipeline and auto pickup).
@@ -120,7 +118,7 @@ app/
   page.tsx                `/`: redirects to /dashboard (signed in) or /sign-in. No landing page yet.
 components/
   ui/                     shadcn primitives. Generated — do not hand-edit; restyle via tokens.
-  auth/                   Auth-only UI (forms, social buttons, brand icons, FormMessage).
+  auth/                   Sign-in UI: github-sign-in (device-flow states, PersonalTokenForm), brand icons, FormMessage.
   workspace/              Workspace UI (avatar, create form, appearance + repo pickers, draft storage).
   board/                  Kanban: kanban-board (state + DndContext), board-column, board-card, card-dialog (create + edit),
                           card-references (the dialog's References section: upload, add a link, list, remove),
@@ -165,12 +163,24 @@ components/
   brand.tsx               Product mark.
 hooks/                    Client hooks (use-field-errors, use-mobile).
 lib/                      Server logic. Files that touch secrets/DB start with `import "server-only"`.
-  auth.ts                 Hosted-auth client, session cookie; getSession reuses sessions validated in the last 60 s
-                          (session-cache.ts: the auth service rate-limits the dashboard's polls).
-  current-user.ts         getCurrentUser() / requireUser(returnTo).
-  github.ts               GitHub OAuth + REST + connection persistence; commitFiles (several files, one commit); the
+  session.ts              Stateless sessions: seal/unseal (`<payload>.<expiresAtMs>.<hmac>`), signSession / verifySession,
+                          startSession / clearSessionCookie / getSessionUserId, sealed short-lived cookies
+                          (writeSealedCookie / readSealedCookie, optionally encrypted). session-config.ts: cookie names
+                          (`tt_session`, `tt_login`, `tt_adopt`) and lifetimes, pure (proxy.ts imports it).
+  secrets.ts              getEncryptionKey (TOKEN_ENCRYPTION_KEY, else `<data dir>/encryption.key`), getSessionSecret
+                          (`<data dir>/session.secret`); both generated on first use, owner-only. Pure parts tested.
+  device-flow.ts          Pure, injected fetch: requestDeviceCode, pollDeviceFlow (interval, slow_down, expired, denied,
+                          disabled). No client secret. sign-in.ts: the server side of sign-in (login cookie, completeSignIn,
+                          personal token, adoption answer).
+  user-identity.ts        Pure: resolveUser (which user a GitHub id is: by id, by saved connection, adopt the only user,
+                          create), noreplyEmail, authUserIdFor. local-user.ts: the database side under an advisory lock.
+  host-guard.ts           Pure: isAllowedHost (localhost / 127.0.0.1 / [::1] / NEXT_PUBLIC_APP_URL's host); proxy.ts uses it.
+  safe-redirect.ts        isSafeRedirectPath.
+  github-client-id.ts     DEFAULT_GITHUB_CLIENT_ID + resolveGithubClientId (GITHUB_CLIENT_ID wins).
+  current-user.ts         getCurrentUser() / requireUser(returnTo): verifies the session cookie, loads the `users` row.
+  github.ts               GitHub REST + connection persistence (saveGithubConnection is the only token writer); commitFiles (several files, one commit); the
                           merge's Git Data calls (mergeIntoBranch, getTreeEntries, getBlob / createBlob, commitTree).
-  crypto.ts               encrypt / decrypt for secrets at rest.
+  crypto.ts               encrypt / decrypt for secrets at rest (key from secrets.ts).
   ai-keys.ts              AI provider keys: getAIKeys (owner's account key, else workspace key, else env; keyInUse),
                           getProviderKeyViews (masked), verifyProviderKey, saveProviderKey / removeProviderKey (account
                           or workspace scope, encrypted).
@@ -342,7 +352,7 @@ deploy/                   setup.sh: prepares a fresh Ubuntu 24.04 VPS (firewall,
                           Idempotent, so the next VPS runs the same script. browser/: the sandbox browser image (run.mjs:
                           browse_preview; capture.mjs: link captures; net-guard.mjs: the public-address rules, also
                           imported by the app; fonts.conf: fontconfig aliases so UI stacks render real bold).
-proxy.ts                  Optimistic cookie guard for /dashboard and /workspaces.
+proxy.ts                  Host guard on every request (DNS rebinding) + optimistic `tt_session` guard for /dashboard and /workspaces.
 ```
 
 Where new code goes:
@@ -370,11 +380,18 @@ Where new code goes:
 - Pass slow data to the client as an un-awaited promise and `use()` it inside `<Suspense>` (see the repo list on `/workspaces/new`).
 
 **Auth & authorization**
-- Get the user with `requireUser(returnTo)` (pages/actions) or `getCurrentUser()` (route handlers). `proxy.ts` is only an optimistic guard.
+- Get the user with `requireUser(returnTo)` (pages/actions) or `getCurrentUser()` (route handlers). `proxy.ts` is only an
+  optimistic guard: it checks that a `tt_session` cookie exists, `getCurrentUser()` verifies its signature and expiry.
+- Sign-in is GitHub only (device flow, or a pasted personal access token): one step is identity and repository access, and
+  it saves the token (`saveGithubConnection`) and opens the session. There is no password, sign-up or remote auth service.
+  A user is found by `users.github_user_id` (`resolveUser`); the owner's first sign-in on a database with one existing
+  user asks before adopting that data. The device code stays in a sealed httpOnly cookie, never in the page.
+- The app listens on `127.0.0.1`: any URL the app calls on itself uses `127.0.0.1` (`selfOrigin`), not `localhost` (it can
+  resolve to `::1` first). `proxy.ts` answers 403 to a `Host` that isn't loopback or `NEXT_PUBLIC_APP_URL`'s host.
 - Pages under `/dashboard/[workspaceId]` call `getDashboardContext(workspaceId)` — never query the workspace by id
   directly. It is `cache()`d, so layout and page share one lookup.
 - Every id that comes from a request is untrusted: load it with an owner-scoped query (`getOwnedWorkspace(ownerId, id)`).
-- Post-auth redirects go through `isSafeRedirectPath` — never redirect to a raw query value.
+- Post-auth redirects go through `isSafeRedirectPath` (`lib/safe-redirect.ts`) — never redirect to a raw query value.
 
 **Server actions & forms**
 - Action signature: `(prev: State, formData: FormData) => Promise<State>`, used with `useActionState`.
@@ -898,8 +915,8 @@ See `.env.example` for the full list with comments. Feature-specific:
 
 | Variable | Needed for |
 | --- | --- |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Connecting GitHub on `/workspaces/new`. OAuth App callback: `<NEXT_PUBLIC_APP_URL>/api/github/callback`. |
-| `TOKEN_ENCRYPTION_KEY` | Encrypting GitHub tokens and AI provider keys (`openssl rand -base64 32`). Rotating it forces every user to reconnect GitHub and re-enter their AI keys. |
+| `GITHUB_CLIENT_ID` | Optional. Client id of the GitHub OAuth App used for sign-in (Device Flow enabled); default: the project's app (`lib/github-client-id.ts`). Public; there is no client secret and no callback URL. |
+| `TOKEN_ENCRYPTION_KEY` | Optional. Encrypts GitHub tokens and AI provider keys (`openssl rand -base64 32`); unset, a key is generated in `<TECHTEAM_DATA_DIR>/encryption.key`. Moving to another computer needs that file (or this value), otherwise reconnect GitHub and re-enter the AI keys. |
 | `TECHTEAM_DATA_DIR` | Where files (logos, screenshots, references) are kept: `<dir>/files`. Default `~/.techteam/data`. |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` | Optional server-wide fallback when neither the owner's account (Settings → AI keys) nor the workspace has a key. |
 | `SANDBOX_DOCKER_HOST`, `SANDBOX_IMAGE` | Agent sandboxes: the Docker host (`ssh://…` to a VPS set up with `deploy/setup.sh`, or the local socket on it). Unset: Settings → Sandbox can't be switched on. |

@@ -20,17 +20,28 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 
 ## Sessions
 
-- The session token from the auth service lives in the `session_token` cookie: **HTTP-only** (no JavaScript access),
-  `SameSite=Lax`, `Secure` in production, expiring with the session.
-- Every request that needs a user validates the token with the auth service (`GET /get-session`). Validated sessions
-  are kept in memory for **60 s** (`lib/session-cache.ts`, keyed by a SHA-256 of the token), because the dashboard polls
-  several actions and the service rate-limits ("Too many requests"). Trade-off: a session revoked from another device
-  keeps working on this server for up to a minute; signing out here forgets it at once. If the service fails, a session
-  validated in the last 10 minutes is still accepted; never past its own expiry. A missing or invalid token is treated
-  as signed out (not cached).
-- Social sign-in returns the token in the URL **fragment** (`#token=…`), which browsers never send to servers. The
-  callback page removes it from the address bar immediately and exchanges it through a server action.
-- Sign-out revokes the session on the auth service and deletes the cookie.
+- **Threat model**: TechTeam is one person's app on their own computer. It listens on `127.0.0.1` only
+  (`dev:app` / `start` pass `--hostname 127.0.0.1`), so nothing on the network can reach it; the risks left are other
+  programs and web pages on the same computer.
+- **DNS rebinding**: a web page can point its own domain at `127.0.0.1`. `proxy.ts` therefore answers 403 to every
+  request whose `Host` isn't `localhost`, `127.0.0.1`, `[::1]` (any port) or the host of `NEXT_PUBLIC_APP_URL`
+  (`lib/host-guard.ts`, tested). Inngest and the agents' MCP calls come to `127.0.0.1`, so they pass; they still need
+  their own credentials.
+- The session is a **stateless signed cookie**, `tt_session` = `<userId>.<expiresAtMs>.<hmac>` (HMAC-SHA256, verified in
+  constant time, `lib/session.ts`): **HTTP-only**, `SameSite=Lax`, 30 days, `Secure` only when `NEXT_PUBLIC_APP_URL` is
+  https (a `Secure` cookie would never come back over `http://127.0.0.1`). The 32-byte secret is generated on first use
+  in `<data dir>/session.secret` (owner-only on systems that support it; on Windows the profile folder's own access
+  rules apply). Deleting it signs everybody out. There is no server-side session list: signing out clears the cookie.
+- Sign-in is GitHub's **device flow**: the page shows a code, the owner types it on github.com, the server polls. The
+  device code never reaches the page: it lives in the sealed, httpOnly `tt_login` cookie, which expires with the code.
+  There is **no client secret** anywhere (a client id is public). Alternatively a **personal access token** is pasted
+  and checked with GitHub (`GET /user` and a repository listing); it is stored like an OAuth token.
+- The **`repo` scope is broad**: it lets the token read and write every repository of the account, private ones
+  included. It is what agents need to push branches; GitHub has no narrower scope for private repositories. Revoke it
+  at any time in GitHub → Settings → Applications.
+- The first sign-in on a database that already has exactly one user asks before handing that data to the GitHub
+  account (`/sign-in/adopt`). The pending identity, which includes the GitHub token, travels in the sealed **and
+  encrypted** `tt_adopt` cookie (10 minutes), never in a URL.
 
 ## Authorization
 
@@ -59,8 +70,8 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 
 - Real values go only in `.env` (gitignored). `.env.example` holds placeholders.
 - Server-only modules (`import "server-only"`) can't be bundled into client code by mistake.
-- `AUTH_SECRET_KEY`, `GITHUB_CLIENT_SECRET`, `TOKEN_ENCRYPTION_KEY` and `INNGEST_*` are never exposed to the
-  browser; only `NEXT_PUBLIC_APP_URL` is public by design.
+- `TOKEN_ENCRYPTION_KEY` (or the generated `<data dir>/encryption.key`), `session.secret` and `INNGEST_*` are never
+  exposed to the browser; only `NEXT_PUBLIC_APP_URL` is public by design. `GITHUB_CLIENT_ID` is public too.
 - ⚠️ An early version of `.env.example` (before the first commit) contained real-looking AWS keys. They were moved to
   `.env` and never committed, but **rotate that AWS access key** if it was ever shared.
 
@@ -75,7 +86,7 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 
 - Saved on the user's account (`user_ai_keys`, used by every workspace they own) or, optionally, on one workspace
   (`ai_provider_keys`), in their own tables so a workspace row never carries a secret. Encrypted like GitHub tokens
-  (`lib/crypto.ts`, `TOKEN_ENCRYPTION_KEY`). A workspace's agents use its **owner's** keys, like its GitHub token.
+  (`lib/crypto.ts`; key from `TOKEN_ENCRYPTION_KEY` or `<data dir>/encryption.key`). A workspace's agents use its **owner's** keys, like its GitHub token.
 - Checked with the provider before saving (a free model listing), so a wrong key fails at once.
 - Never sent back to the browser: Settings shows only a masked hint (`sk-ant-••••a1B2`). The eye button shows what you
   are typing, not the saved key. A successful save clears the field.
@@ -268,7 +279,8 @@ The source URL is the owner's own; the dialog opens it with `rel="noopener noref
 - Post-auth destinations (`next`) must be same-origin relative paths (`isSafeRedirectPath`: starts with `/`, not `//`
   or `/\`), which prevents open redirects.
 - Server Actions are protected by Next.js's Origin check (same-origin only by default).
-- The OAuth `state` and the short-lived, path-scoped `github_oauth` / `auth_next` cookies protect the redirect flows.
+- Sign-in has no redirect round trip (device flow), so no `state` or callback exists to forge. The short-lived sealed
+  `tt_login` / `tt_adopt` cookies hold its only state.
 
 ## Known gaps
 

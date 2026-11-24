@@ -16,10 +16,9 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 
 | Feature | Status | Where |
 | --- | --- | --- |
-| Email/password sign-up and sign-in, email verification | ✅ Real | `app/(auth)` |
-| GitHub and Google sign-in | ✅ Real | `app/api/auth/social`, `app/(auth)/auth/callback` |
+| Sign in with GitHub (device flow or personal access token, adopting existing data) | ✅ Real | `app/(auth)`, `lib/sign-in.ts` |
 | Workspace picker and creation (name, icon/logo, GitHub repo) | ✅ Real | `app/workspaces` |
-| GitHub account connection (OAuth App, encrypted token) | ✅ Real | `app/api/github`, `lib/github.ts` |
+| GitHub token (saved at sign-in, encrypted) | ✅ Real | `lib/sign-in.ts`, `lib/github.ts` |
 | Logo upload to local disk | ✅ Real | `lib/storage.ts` |
 | Dashboard shell: sidebar, switcher, header, user menu | ✅ Real | `components/dashboard` |
 | Light / dark / system theme | ✅ Real | `app/layout.tsx`, `user-menu.tsx` |

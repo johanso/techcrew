@@ -2,7 +2,7 @@
 
 What each part of the product does, from the user's point of view, with pointers to the code.
 
-- [Sign up and sign in](#sign-up-and-sign-in)
+- [Sign in](#sign-in)
 - [Workspaces](#workspaces)
 - [Dashboard shell](#dashboard-shell)
 - [Overview](#overview)
@@ -20,22 +20,25 @@ What each part of the product does, from the user's point of view, with pointers
 
 ---
 
-## Sign up and sign in
+## Sign in
 
-Pages: `/sign-up`, `/sign-in` (`app/(auth)/`). Layout: form on the left, product panel on the right (hidden on small screens).
+Pages: `/sign-in`, `/sign-in/adopt` (`app/(auth)/`). Layout: form on the left, product panel on the right (hidden on small screens).
+There is no sign-up and no password: signing in with GitHub is also what lets agents reach your repositories.
 
-- **Email + password.** Sign-up asks for name, email and a password of at least 8 characters; sign-in for email and
-  password. Validation runs on the server; errors appear under each field and disappear as soon as you edit it.
-- **GitHub / Google buttons** start social sign-in through the hosted auth service.
-- **Email verification.** If the auth project requires it, sign-up shows "We sent a verification link to …" instead
-  of signing in, and signing in before verifying shows "Please verify your email address…".
-- **Errors** are mapped to plain messages: wrong credentials, too many attempts (429), service unavailable (503),
-  email already registered (422).
-- **Redirects.** Both pages accept `?next=/some/path`. After signing in you go there (only same-origin paths are
-  accepted), otherwise to `/workspaces`. Visiting these pages while signed in redirects right away.
-- **Sign out** is in the user menu (header avatar). It revokes the session and clears the cookie.
+- **Continue with GitHub** shows a code. **Open GitHub** (new tab) is where you type it and authorize; the page says
+  "Waiting for you to authorize…" and signs you in by itself. The code can be copied. Cancel, a denied authorization, an
+  expired code and GitHub errors each have their own message and a way to start again.
+- **Use a personal access token instead** (collapsed): paste a token with the `repo` scope; it is checked with GitHub.
+- **Client id.** The project's own OAuth App is built in; `GITHUB_CLIENT_ID` replaces it. If no id resolves at all the page
+  says how to set one.
+- **Adopting existing data.** The first sign-in on a database that already has exactly one user (an installation from before
+  GitHub sign-in) asks: *Adopt it with @you* keeps every workspace, board and agent; *Create a separate account* starts empty.
+- **Redirects.** `/sign-in?next=/some/path` goes there afterwards (same-origin paths only), otherwise to `/workspaces`.
+  Visiting while signed in redirects right away.
+- **Sign out** is in the user menu (header avatar): it clears the cookie. **Disconnect** (create-workspace page) also deletes
+  the stored GitHub token. Where GitHub access is missing or revoked, the buttons say **Reconnect GitHub** and lead to `/sign-in`.
 
-Code: `app/(auth)/actions.ts`, `components/auth/*`, `lib/auth.ts`. Flow details: [architecture.md](architecture.md#authentication-and-sessions).
+Code: `app/(auth)/actions.ts`, `components/auth/*`, `lib/sign-in.ts`. Flow details: [architecture.md](architecture.md#authentication-and-sessions).
 
 ## Workspaces
 

@@ -9,9 +9,27 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 ## [Unreleased]
 
 ### Changed
+- **Sign in with GitHub, on your computer.** The hosted auth service is gone: there is no password, sign-up or
+  `AUTH_*` setting. One GitHub sign-in (OAuth device flow: you type a code on github.com; or a personal access token)
+  is both your identity and repository access, so the separate "Connect GitHub" step is now "Reconnect GitHub" and
+  leads to sign-in. The OAuth App needs no client secret: its public client id is built in (`GITHUB_CLIENT_ID`
+  overrides it). Sessions are a signed cookie (`tt_session`) with a secret generated in your data folder.
+- **Your first sign-in adopts your existing data.** On a database with exactly one user, TechTeam asks once whether to
+  adopt it with your GitHub account (workspaces, boards and agents stay as they are). **Run `npm run db:migrate`** on an
+  existing database first: it adds `users.github_user_id`.
+- **The app listens on `127.0.0.1` only** (`npm run dev:app`, `npm start`), refuses requests for any other host name
+  (DNS-rebinding guard) and calls itself at `127.0.0.1` (Inngest, the agents' MCP endpoint).
+- **The encryption key is generated for you**: unset, `TOKEN_ENCRYPTION_KEY` falls back to
+  `<TECHTEAM_DATA_DIR>/encryption.key`. Keep that file with your backups: moving to another computer without it means
+  reconnecting GitHub and entering the AI keys again. An existing `TOKEN_ENCRYPTION_KEY` keeps working.
 - **Files are stored on your computer**, not in an S3 bucket: workspace logos, the Tester's screenshots and card
   references live in `~/.techteam/data/files` (`TECHTEAM_DATA_DIR` changes the folder). The `S3_*` variables are gone and
   logo and reference uploads are always available.
+
+### Removed
+- Email/password and Google sign-in, the sign-up page, social sign-in, the web OAuth flow (`/api/github/connect` and
+  `/callback`), the session cache and the user mirror. `AUTH_URL`, `AUTH_PUBLISHABLE_KEY`, `AUTH_SECRET_KEY` and
+  `GITHUB_CLIENT_SECRET` are no longer read. The old `users.auth_user_id` column stays until the final cleanup.
 
 ### Added
 - **Embedded Postgres**: with `DATABASE_URL` unset, `npm run dev` starts its own Postgres (no Docker, no install; about

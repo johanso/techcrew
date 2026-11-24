@@ -27,8 +27,8 @@ How the app is put together. For coding conventions and the design system, see [
 | Font | **Plus Jakarta Sans** via `next/font` | Exposed as `--font-sans`. |
 | Theme | `next-themes` | Toggles the `dark` class on `<html>`; light by default, light/dark/system in the user menu. |
 | Database | **PostgreSQL** + **Drizzle ORM** (`postgres` driver) | Schema in `db/schema.ts`; SQL migrations in `drizzle/` (`db:generate`, `db:migrate`). |
-| Auth | **Hosted Better Auth** on CloudHike | Called over HTTP from `lib/auth.ts` (no SDK). |
-| GitHub | OAuth App + REST API v3 (`2022-11-28`) | Plain `fetch` in `lib/github.ts`; no Octokit. |
+| Auth | **GitHub device flow** (or a personal access token); stateless signed cookie | `lib/device-flow.ts`, `lib/sign-in.ts`, `lib/session.ts`. No remote auth service, no client secret. |
+| GitHub | OAuth App (public client id) + REST API v3 (`2022-11-28`) | Plain `fetch` in `lib/github.ts`; no Octokit. |
 | File storage | Local disk (`TECHTEAM_DATA_DIR`) | Workspace logos, the Tester's screenshots and card references, in `files/`. |
 | Background jobs | **Inngest** v3 | Durable functions served at `/api/inngest`. |
 | Agent sandboxes | **Docker** + **gVisor** on a VPS | The `docker` CLI over SSH (`SANDBOX_DOCKER_HOST`), no SDK; throwaway containers per call (`lib/sandbox/`). See [sandbox.md](sandbox.md). |
@@ -40,9 +40,9 @@ How the app is put together. For coding conventions and the design system, see [
 
 ```
 app/                         Routes (App Router)
-  (auth)/                    Sign-in, sign-up, social callback — route group, no URL segment
-    actions.ts               signUp, signIn, completeSocialSignIn, signOut (server actions)
-  api/                       Route handlers (OAuth redirects, binary responses, Inngest)
+  (auth)/                    Sign-in and sign-in/adopt — route group, no URL segment
+    actions.ts               startGithubSignIn, pollGithubSignIn, cancelGithubSignIn, signInWithToken, adoptExistingData, createSeparateAccount, signOut
+  api/                       Route handlers (binary responses, Inngest, MCP)
   dashboard/                 /dashboard and /dashboard/[workspaceId]/…
     [workspaceId]/
       layout.tsx             Dashboard shell: sidebar + header; owner check
@@ -55,7 +55,7 @@ app/                         Routes (App Router)
   page.tsx                   `/`: redirects to /dashboard (signed in) or /sign-in
 components/
   ui/                        shadcn primitives (generated; restyle via tokens)
-  auth/                      Sign-in/up forms, social buttons, brand icons, FormMessage
+  auth/                      Sign-in UI (device-flow states, personal-token form), brand icons, FormMessage
   workspace/                 Workspace avatar, create form, icon/logo picker, repo picker, draft storage
   dashboard/                 Shell (sidebar, switcher, header, user menu) and page building blocks
   board/                     Kanban board, cards, columns, dialog, filters, GitHub sync UI, agent log panel,
@@ -70,11 +70,14 @@ db/
   index.ts                   Drizzle client (`db`) + re-exports of the schema
 hooks/                       Client hooks (use-field-errors, use-mobile)
 lib/                         Server logic (most files start with `import "server-only"`)
-  auth.ts                    Hosted-auth client, session cookie helpers
+  session.ts, session-config.ts  Signed session cookie (`tt_session`), sealed short-lived cookies; cookie names
+  secrets.ts                 Encryption key and session secret (env, else files in the data dir)
+  device-flow.ts, sign-in.ts GitHub device flow (pure state machine) and the server side of sign-in
+  user-identity.ts, local-user.ts  Which user a GitHub id is (pure rules) and the database side
+  host-guard.ts, safe-redirect.ts  Host header check (proxy.ts), post-sign-in redirect check
   current-user.ts            getCurrentUser(), requireUser(returnTo)
-  user-sync.ts               Mirrors the auth user into the `users` table
   workspaces.ts              Owner-scoped workspace queries, getDashboardContext()
-  github.ts                  GitHub OAuth, REST calls, connection persistence
+  github.ts                  GitHub REST calls, connection persistence
   github-issues.ts           GitHub issue → board sync
   board.ts                   Board persistence and validation
   board-config.ts            Board vocabulary shared by server and client (no server-only)
@@ -143,8 +146,8 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | Path | Auth | What it is |
 | --- | --- | --- |
 | `/` | public | Redirects to `/dashboard` when signed in, else `/sign-in` (no landing page yet). |
-| `/sign-in`, `/sign-up` | public | Email/password forms + GitHub/Google buttons. Signed-in visitors are redirected to `next` or `/workspaces`. |
-| `/auth/callback` | public | Finishes social sign-in (reads `#token=` from the URL fragment). |
+| `/sign-in` | public | "Continue with GitHub" (device flow: code, Open GitHub, waiting) and a personal-token form. Signed-in visitors are redirected to `next` or `/workspaces`. |
+| `/sign-in/adopt` | pending sign-in | Asked once: adopt the database's existing data with this GitHub account, or create a separate account. |
 | `/workspaces` | signed in | Workspace picker — the landing page after sign-in. Redirects to `/workspaces/new` if you have none. |
 | `/workspaces/new` | signed in | Create a workspace. |
 | `/dashboard` | signed in | Redirects to the newest workspace's dashboard, or to `/workspaces/new`. |
@@ -161,9 +164,6 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 
 | Path | Method | Purpose |
 | --- | --- | --- |
-| `/api/auth/social/[provider]` | GET | Starts GitHub/Google sign-in with the hosted auth service. `provider` ∈ `github`, `google`. |
-| `/api/github/connect` | GET | Starts the GitHub OAuth flow for repository access (state + PKCE). |
-| `/api/github/callback` | GET | GitHub OAuth callback: verifies state, stores the encrypted token. |
 | `/api/workspaces/[id]/logo` | GET | Streams a workspace logo from local storage to its owner. |
 | `/api/inngest` | GET/POST/PUT | Inngest `serve()` endpoint (function registry and execution). |
 | `/api/mcp/runs/[runId]` | POST | TechTeam's MCP endpoint for a CLI agent's stage (local only; bearer derived per run, stage and round): the stage's tools over Streamable HTTP, stateless. See [cli-agents.md](cli-agents.md). |
@@ -172,7 +172,7 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 
 | File | Actions |
 | --- | --- |
-| `app/(auth)/actions.ts` | `signUp`, `signIn`, `completeSocialSignIn`, `signOut` |
+| `app/(auth)/actions.ts` | `startGithubSignIn`, `pollGithubSignIn`, `cancelGithubSignIn`, `signInWithToken`, `adoptExistingData`, `createSeparateAccount`, `signOut` |
 | `app/workspaces/actions.ts` | `createWorkspace`, `disconnectGithub` |
 | `app/dashboard/[workspaceId]/actions.ts` | `getTeamStatusAction`, `getNotificationsAction`, `markNotificationsReadAction` |
 | `app/dashboard/[workspaceId]/board/actions.ts` | `createCardAction`, `updateCardAction`, `moveCardsAction`, `removeCardAction`, `runCardAction`, `answerCardAction`, `stopCardAction`, `mergeCardAction`, `switchProviderAndRetryAction`, `getRunLogAction`, `syncIssuesAction`, `getBoardAction` |
@@ -192,60 +192,57 @@ sequenceDiagram
     participant L as dashboard/[workspaceId]/layout.tsx
     participant Pg as page.tsx
     participant DB as Postgres
-    participant A as Auth service
 
     B->>P: GET /dashboard/1/board
-    P->>P: session_token cookie present?
+    P->>P: Host allowed? tt_session cookie present?
     alt no cookie
         P-->>B: 302 /sign-in?next=/dashboard/1/board
     end
     P->>L: continue
-    L->>A: GET /get-session (Bearer token)  [getSession, cached per request]
-    L->>DB: users by auth id, workspaces by owner  [getDashboardContext, cached]
+    L->>DB: verify the cookie's signature, load the user, workspaces by owner  [getCurrentUser / getDashboardContext, cached]
     L-->>B: 404 unless the user owns workspace 1
     Pg->>DB: getDashboardContext() (same request → cache hit), then page data
     Pg-->>B: HTML + RSC payload (sidebar, header, board)
     B->>B: useGithubSync() calls syncIssuesAction on mount
 ```
 
-- `proxy.ts` only checks that the cookie **exists** (cheap, runs on every matching request). It is not a security
-  boundary.
-- `getSession()` and `getDashboardContext()` are wrapped in React `cache()`, so a layout and its page share one auth
-  call and one set of queries per request.
+- `proxy.ts` refuses a foreign `Host` (DNS rebinding) and checks that the cookie **exists** (cheap, runs on every request).
+  The cookie itself is verified by `getCurrentUser()`.
+- `getCurrentUser()` and `getDashboardContext()` are wrapped in React `cache()`, so a layout and its page share one user
+  lookup and one set of queries per request.
 - All dashboard pages are dynamic (they read cookies), so they re-render on every navigation — no
   `revalidatePath` is needed after mutations.
 
 ## Authentication and sessions
 
-Authentication is delegated to a **hosted Better Auth service** (CloudHike). `lib/auth.ts` is a thin HTTP client:
+Sign-in is GitHub only and is also repository access; nothing remote besides GitHub is involved.
 
-| Function | Auth service endpoint | Notes |
-| --- | --- | --- |
-| `signUpWithEmail` | `POST /sign-up/email` | Returns `token: null` when email verification is required. |
-| `signInWithEmail` | `POST /sign-in/email` | `401` wrong credentials, `403` email not verified, `429` rate limited. |
-| `fetchSession` | `GET /get-session` | Validates a token; `401` → no session. |
-| `revokeSession` | `POST /sign-out` | Best effort on sign-out. |
-| `socialSignInUrl` | `GET /social/{provider}?to=…` | Browser redirect; the service returns to `/auth/callback#token=…`. |
+**Device flow** (`lib/device-flow.ts`, pure with an injected `fetch`; `lib/sign-in.ts`):
 
-Every request sends `x-api-key: AUTH_PUBLISHABLE_KEY`, plus `authorization: Bearer <token>` when a session exists.
+1. "Continue with GitHub" calls `startGithubSignIn`: `POST github.com/login/device/code` (client id and scope
+   `repo read:user`, no secret). The page gets only the `user_code` and `verification_uri`; the device code goes into
+   the sealed httpOnly `tt_login` cookie, which lives as long as the code.
+2. The owner opens github.com/login/device and types the code. Meanwhile the page calls `pollGithubSignIn` after the
+   interval the server returns; the server polls `/login/oauth/access_token`, respecting `interval` and `slow_down`
+   (+5 s) and stopping on `expired_token`, `access_denied` and `device_flow_disabled`.
+3. On success: `GET /user` → `resolveGithubSignIn` finds, links or creates the `users` row → `saveGithubConnection`
+   stores the encrypted token (refreshed on every sign-in) → `startSession` sets `tt_session` → the page goes to `next`.
 
-**Session cookie** — `session_token`: HTTP-only, `SameSite=Lax`, `Secure` in production, expires with the
-session. The token never reaches browser JavaScript.
+A **personal access token** pasted in the secondary form is verified (`GET /user` and a repository listing) and then
+follows step 3.
 
-**Email/password flow** — the form posts to the `signIn`/`signUp` server action → the action calls the auth
-service → `startSession(token)` validates the token, sets the cookie, and mirrors the user into `users`
-(`syncUser`) → redirect to `next` (if it's a safe same-origin path) or `/workspaces`.
+**Which user** (`resolveUser`, pure, tested; `lib/local-user.ts` runs it under a Postgres advisory lock so two sign-ins
+can't create two rows): a user with that `github_user_id`; else a user whose saved `github_connections` row has that id
+(gets the id); else, if the database has exactly one user, `/sign-in/adopt` asks before handing them this account (the
+pending sign-in, token included, waits in the sealed and encrypted `tt_adopt` cookie); else a new user
+(`auth_user_id = github:<id>`, email `<id>+<login>@users.noreply.github.com`).
 
-**Social flow (GitHub / Google)**
+**Session cookie** — `tt_session` = `<userId>.<expiresAtMs>.<hmac>`: HMAC-SHA256 with the secret in
+`<data dir>/session.secret`, HTTP-only, `SameSite=Lax`, 30 days, `Secure` only for an https `NEXT_PUBLIC_APP_URL`.
+No table, no remote call, no cache. Signing out (and "Disconnect") clears the cookie.
 
-1. The button links to `/api/auth/social/github?next=…`. The route stores `next` in an `auth_next` cookie
-   (HTTP-only, 10 minutes) and redirects to the auth service.
-2. After the provider, the service redirects to `/auth/callback#token=…`. The fragment never reaches a server.
-3. The callback page reads the token, strips it from the address bar, and calls the `completeSocialSignIn` server
-   action, which starts the session (same as above) and redirects to the stored `next`.
-
-**Users table** — the auth service owns identities; the app keeps a mirror row per user (`users`), created on first
-sign-in and refreshed on every sign-in (`lib/user-sync.ts`). App data references `users.id`, never the auth id.
+**Local only** — the app listens on `127.0.0.1`; `proxy.ts` answers 403 to any other `Host`. The app calls itself
+(Inngest, the CLI agents' MCP endpoint) at `127.0.0.1`, because `localhost` can resolve to `::1` first.
 
 ## Authorization
 
@@ -294,7 +291,6 @@ The full design system — palette table, contrast rules, typography scale, layo
 
 | Service | Talks to it | Failure behavior |
 | --- | --- | --- |
-| Auth service | `lib/auth.ts` (server only) | Friendly form errors; `503` → "temporarily unavailable". |
 | GitHub | `lib/github.ts`, `lib/github-issues.ts` | `401` → "reconnect", `403/404` → "no access", others → retry later. See [github-integration.md](github-integration.md). |
 | Local files | `lib/storage.ts` | Write errors fail workspace creation with a generic message; read errors → 404 for the logo. |
 | Inngest | `lib/inngest/*`, `/api/inngest` | `send` failure → Run shows an error, the run is marked failed and nothing moves. See [background-jobs.md](background-jobs.md). |

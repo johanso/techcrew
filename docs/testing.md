@@ -209,11 +209,11 @@ pull request, request changes with at least one concrete, reasonable improvement
 - **Unit tests**: `npm test` (Vitest, `vitest.config.mts`). Tests sit next to their module as `*.test.ts`;
   `server-only` is aliased to `test/server-only.ts`, so `lib/` modules import fine (no database is touched).
 
-- **Test users**: sign up through the app (`/sign-up`) with an `e2e-…@example.com` address, then add a workspace row
+- **Test users**: insert a `users` row in SQL (`auth_user_id` `e2e-…`, a unique email) and, for a browser session, sign in with a
+  personal access token of a throwaway GitHub account; or add a workspace row
   directly in SQL (no GitHub needed to view pages): `insert into workspaces (owner_id, name, icon, github_repo_id,
   github_repo_full_name, github_repo_url, github_default_branch, github_repo_private) values (…)`.
-- **Cleanup**: delete the hosted auth user with the admin API (`GET {AUTH_URL}/admin/users?search=…`, then
-  `DELETE {AUTH_URL}/admin/users/<id>`, header `x-api-key: <AUTH_SECRET_KEY>`), then the local `users` row (workspaces,
+- **Cleanup**: delete the local `users` row (workspaces,
   agents, runs, keys cascade). **Close the browser first** (see Gotchas).
 - **Scripts against `lib/`**: run with `npx tsx --tsconfig tsconfig.json <file>` from a temporary folder **inside the
   project** (ESM resolves `drizzle-orm` etc. from the script's location). Modules start with `import "server-only"`,
