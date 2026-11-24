@@ -14,6 +14,10 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   logo and reference uploads are always available.
 
 ### Added
+- **Embedded Postgres**: with `DATABASE_URL` unset, `npm run dev` starts its own Postgres (no Docker, no install; about
+  110 MB downloaded with `npm install`), creates the database and applies the migrations. Data lives in
+  `~/.techteam/data/postgres` (`TECHTEAM_DATA_DIR`), on `127.0.0.1:54329` (`TECHTEAM_PG_PORT`), with a generated password.
+  Setting `DATABASE_URL` keeps the old behavior. `npm run db:local` runs it alone. Backups come in a later phase.
 - `npm run storage:import-s3` copies your existing files from the old bucket once, without deleting anything there.
 - **Agents on your Claude plan** (only when TechTeam runs on your computer): Settings → AI → *Plans on this computer*
   routes the agents on Claude models through **Claude Code** signed in with your own plan, instead of an Anthropic API

@@ -44,7 +44,7 @@ sign-in / sign-up ─▶ /workspaces ──(no workspaces)──▶ /workspaces/
 | Styling | Tailwind CSS v4 (CSS-first config) | All theme tokens live in `app/globals.css`. There is no `tailwind.config`. |
 | Components | shadcn/ui, **base-nova** style, on `@base-ui/react` | Not Radix. Compose with the `render` prop, not `asChild`. |
 | Icons | `lucide-react` | Import the `…Icon` suffixed names (`RocketIcon`). |
-| Database | PostgreSQL + Drizzle ORM | Schema in `db/schema.ts`; SQL migrations in `drizzle/` (`db:generate` → `db:migrate`). |
+| Database | PostgreSQL + Drizzle ORM | Schema in `db/schema.ts`; SQL migrations in `drizzle/` (`db:generate` → `db:migrate`). `DATABASE_URL` unset: an embedded Postgres (`embedded-postgres`, `scripts/local-db.mjs`, started by `npm run dev`). |
 | Auth | Hosted Better Auth (CloudHike) | Token in an HTTP-only cookie; see `lib/auth.ts`. |
 | GitHub | OAuth App (`repo read:user`) | Separate from social sign-in; tokens are AES-256-GCM encrypted. |
 | File storage | Local disk (`TECHTEAM_DATA_DIR`, default `~/.techteam/data/files`) | Never public; served through ownership-checked routes. |
@@ -332,7 +332,9 @@ agent-skills/             Built-in agent skills, vendored: sources.json (repo, p
                           usage note), catalog.json (generated: metadata + per-file title/summary for search), <slug>/
                           (files exactly as published + SOURCE.md + upstream LICENSE). Never hand-edit; run skills:sync.
 public/                   agents/<key>.webp: one face per agent role (256×256, round with transparent corners).
-scripts/                  db-baseline.mjs (mark migrations applied on a pushed DB), sync-agent-skills.mjs (skills:sync),
+scripts/                  local-db.mjs (`db:local`: the embedded Postgres when DATABASE_URL is unset; settings in
+                          lib/local-db-config.mjs, shared with db/index.ts and drizzle.config.ts),
+                          db-baseline.mjs (mark migrations applied on a pushed DB), sync-agent-skills.mjs (skills:sync),
                           cli-isolation-check.mts (agents on the plan: isolation check; spends plan usage, ask first).
 deploy/                   setup.sh: prepares a fresh Ubuntu 24.04 VPS (firewall, swap, Docker, gVisor for agent sandboxes,
                           `techteam` user, Caddy for previews, no host services for containers; `--lock-ssh` = keys
@@ -904,4 +906,5 @@ See `.env.example` for the full list with comments. Feature-specific:
 | `SANDBOX_PREVIEW_DOMAIN`, `SANDBOX_BROWSER_IMAGE` | PR previews at `pr-<n>-<random>.<domain>` (wildcard DNS to the sandbox host) and the sandbox browser image (the Tester's browser, link captures). Unset domain: previews can't be switched on. |
 | `AGENTS_SIMULATED` | Local testing: `true` runs the pipeline with scripted agents (`lib/agent-simulated.ts`) — no model calls or spend, but real GitHub work (branch, `agent-simulations/<branch>.md`, PR). |
 | `AGENTS_LOCAL_CLI`, `TECHTEAM_CLI_HOME`, `CLAUDE_CLI_PATH` | Agents on the owner's plan (local only, nothing to switch on): `AGENTS_LOCAL_CLI=false` turns it off on this computer; TechTeam's CLI home (default `~/.techteam/cli`); Claude Code's binary when it isn't in a known place. |
+| `DATABASE_URL`, `TECHTEAM_PG_PORT` | Optional. Unset `DATABASE_URL` = the embedded Postgres in `<TECHTEAM_DATA_DIR>/postgres` on `127.0.0.1:<port>` (default 54329). Set = that database, nothing embedded starts. |
 | `AGENTS_AUTO_PICKUP` | `false` keeps the auto pickup cron off on this computer (each computer's Inngest runs it; they share the database). |
