@@ -8,10 +8,14 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-11-24
+
 TechTeam now runs on your own computer, for one user. The remote services of the hosted design (sign-in service, S3,
 Cloudhike Jobs, Switch Trust, the tunnel) are gone; GitHub and the model providers you choose are all that is left.
-Plan: [docs/local-first-plan.md](docs/local-first-plan.md). **Existing installations**: run `npm run db:migrate`
-(migrations 0018 and 0019), then see [docs/setup.md](docs/setup.md#coming-from-the-hosted-version).
+Plan: [docs/local-first-plan.md](docs/local-first-plan.md). This release also carries **v0.8** (agents on your Claude
+plan and the live model catalog), which was never released on its own. **Existing installations**: run
+`npm run db:migrate` (migrations 0016 to 0019), then see
+[docs/setup.md](docs/setup.md#coming-from-the-hosted-version).
 
 ### Added
 - **Local-first.** `git clone`, `npm install`, `npm run dev` brings up everything. With `DATABASE_URL` unset it starts
@@ -472,10 +476,11 @@ takes a card from analysis to a merged pull request, with cost, trust and human 
   budget mid-run, Draft with AI with a real key, automatic provider switch.
 - Switch shows caps but not spend until usage is reported through the Switch SDK.
 
-[Unreleased]: https://github.com/jricardomillion/techcrew/compare/v0.7.0...HEAD
-[0.7.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.7.0
-[0.5.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.5.0
-[0.4.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.4.0
-[0.3.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.3.0
-[0.2.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.2.0
-[0.1.0]: https://github.com/jricardomillion/techcrew/releases/tag/v0.1.0
+[Unreleased]: https://github.com/johanso/techcrew/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/johanso/techcrew/compare/v0.7.0...v0.9.0
+[0.7.0]: https://github.com/johanso/techcrew/releases/tag/v0.7.0
+[0.5.0]: https://github.com/johanso/techcrew/releases/tag/v0.5.0
+[0.4.0]: https://github.com/johanso/techcrew/releases/tag/v0.4.0
+[0.3.0]: https://github.com/johanso/techcrew/releases/tag/v0.3.0
+[0.2.0]: https://github.com/johanso/techcrew/releases/tag/v0.2.0
+[0.1.0]: https://github.com/johanso/techcrew/releases/tag/v0.1.0
