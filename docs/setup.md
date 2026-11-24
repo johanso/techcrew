@@ -73,8 +73,9 @@ Postgres 18 (the `embedded-postgres` package, about 110 MB downloaded by `npm in
 first run and applies the pending migrations. It listens on `127.0.0.1` only, port 54329 (`TECHTEAM_PG_PORT`), with a
 password generated on first start and kept in `<data dir>/postgres.secret`. Data lives in `<data dir>/postgres`, where
 the data dir is `TECHTEAM_DATA_DIR` or `~/.techteam/data`. `npm run db:migrate` and `db:studio` work against it while
-it runs. To reset, stop TechTeam and delete the `postgres` folder and `postgres.secret`. There are no backups yet (no
-`pg_dump` is shipped; they come in a later phase). After a hard stop the next start removes the stale lock by itself.
+it runs. To reset, stop TechTeam and delete the `postgres` folder and `postgres.secret`. No `pg_dump` is shipped: back
+up with `npm run backup` (see [Moving to another computer](#moving-to-another-computer--bringing-your-data-from-the-old-setup)).
+After a hard stop the next start removes the stale lock by itself.
 
 To use your own database, set `DATABASE_URL`; nothing embedded starts. Any Postgres you can reach works. Examples:
 
