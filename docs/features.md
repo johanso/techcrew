@@ -50,6 +50,9 @@ redirects to `/workspaces/new`.
 
 ### Create a workspace — `/workspaces/new`
 
+With no workspace yet (where `/workspaces` sends you), a **Before you start** card above the form lists the same steps;
+the AI route says it is set up in Settings → AI once the workspace exists.
+
 A three-step form with a live preview card on top:
 
 1. **Name** — required, up to 60 characters.
@@ -106,6 +109,7 @@ The header bell shows a count of unread notifications (9+ above nine) and opens 
 | Analyst needs info | The analyst asked a question instead of starting | The card's agent log (Answer the analyst) |
 | Agents stopped | A run failed (paused agent, budget, missing permission, GitHub, out of turns, error) | The card's agent log |
 | Out of credit | The provider refused for lack of credit and the run stopped | The board (switch and retry) |
+| Run interrupted | TechTeam stopped mid-run and the run was ended (`interrupted`); press Run to continue the same branch | The card's agent log |
 | Switched provider | Auto failover moved the agents on a company out of credit to the next one in your fallback order | Settings → AI providers |
 
 Unread items are bold with a dot; opening one marks it read, and **Mark all as read** clears the count. The bell
@@ -123,6 +127,10 @@ own is a 404.
 `/dashboard/[workspaceId]` — real data from the board, the agents and the activity feed (`lib/overview.ts`):
 
 - Welcome header with your first name.
+- **Get started** checklist (`components/dashboard/setup-checklist.tsx`, `lib/setup-status.ts`), only while a step is
+  left: signed in with GitHub (always done), **Add an AI route** (done when an API key exists or Claude Code on your
+  plan can run agents on this computer, or agents are simulated; otherwise a link to Settings → AI) and **Create your
+  first workspace**. It disappears when all three are done; nothing is stored.
 - Three stat cards:
   - **Open tasks** — cards not in Done. Hint: how many are overdue, else due in the next 7 days.
   - **In progress** — cards in Analysis, In Development, In Review or Testing. Hint: how many agents they're assigned to.

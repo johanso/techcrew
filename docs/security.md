@@ -23,6 +23,8 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 - **Threat model**: TechTeam is one person's app on their own computer. It listens on `127.0.0.1` only
   (`dev:app` / `start` pass `--hostname 127.0.0.1`), so nothing on the network can reach it; the risks left are other
   programs and web pages on the same computer.
+- **Inngest Dev Server** (`inngest:dev`, `start:local`) is started with `--host 127.0.0.1`. Its connect gateway (8289 by
+  default) still binds all interfaces and has no flag to change that; TechTeam doesn't use Inngest's connect mode.
 - **DNS rebinding**: a web page can point its own domain at `127.0.0.1`. `proxy.ts` therefore answers 403 to every
   request whose `Host` isn't `localhost`, `127.0.0.1`, `[::1]` (any port) or the host of `NEXT_PUBLIC_APP_URL`
   (`lib/host-guard.ts`, tested). Inngest and the agents' MCP calls come to `127.0.0.1`, so they pass; they still need

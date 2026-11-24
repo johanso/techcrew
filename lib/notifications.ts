@@ -19,6 +19,8 @@ export const NOTIFICATION_KINDS = [
   "provider_switched",
   // The owner's plan ran out mid-run: waiting for its reset, or stopped (docs/cli-agents-plan.md).
   "plan_limit",
+  // TechTeam stopped mid-run and the sweeper ended the run (lib/run-sweep.ts).
+  "interrupted",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

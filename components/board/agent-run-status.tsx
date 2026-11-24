@@ -6,6 +6,7 @@ import {
   HourglassIcon,
   LoaderCircleIcon,
   MessageCircleQuestionIcon,
+  UnplugIcon,
   WalletIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -13,6 +14,7 @@ import {
 import { PROVIDERS } from "@/lib/agent-config";
 import { PHASE_META, type BoardCardRun } from "@/lib/agent-run-config";
 import { CLI_META } from "@/lib/cli-agents-config";
+import { INTERRUPTED_LABEL } from "@/lib/run-recovery-config";
 import { cn } from "@/lib/utils";
 
 // "3:40 PM" today, else "Nov 21, 3:40 PM": when the owner's plan resets.
@@ -50,6 +52,9 @@ export function runStatusMeta(run: BoardCardRun): { label: string; icon: LucideI
       }
       if (run.failure?.kind === "plan_limit") {
         return { label: `Your ${CLI_META[run.failure.cli].plan} ran out`, icon: HourglassIcon, tone: "text-warning" };
+      }
+      if (run.failure?.kind === "interrupted") {
+        return { label: INTERRUPTED_LABEL, icon: UnplugIcon, tone: "text-warning" };
       }
       return { label: "Agents stopped", icon: CircleAlertIcon, tone: "text-error" };
   }

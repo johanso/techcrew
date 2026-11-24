@@ -15,6 +15,13 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 - **`npm run start:local`**: the stable way to leave agents working. One terminal runs the production build (built first
   when the code changed), the embedded database and the Inngest Dev Server; Ctrl+C stops all three.
   `TECHTEAM_PORT` and `TECHTEAM_INNGEST_PORT` move the ports.
+- **A "Get started" checklist.** The Overview shows what is left before agents can work (an AI route: an API key or
+  Claude Code on your plan; a workspace) with a link to Settings → AI, until everything is done. A user without a
+  workspace sees a short "Before you start" version above the create form.
+- **Runs interrupted when TechTeam stopped are ended.** A run left `running` after the app or the Inngest Dev Server
+  stopped mid-run no longer blocks its card for ever: every 5 minutes (`run-sweep`), a run with no sign of life for 30
+  minutes (and not waiting for your plan) is failed as "Interrupted when TechTeam stopped", the card is released and the
+  bell says to press Run, which continues the same branch.
 - **Choose the order companies fall back in.** Settings → AI → This workspace only lists your companies with move up and
   move down buttons: when one runs out of credit, or your Claude plan runs out with "Switch company", agents go to the
   first company in that order with a key (default: OpenAI, Anthropic, OpenRouter). New column
@@ -24,7 +31,7 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 - **Agents work under `npm start`.** The Inngest SDK took a production build for Inngest Cloud and never reached the
   local Dev Server. Without Inngest Cloud keys the app now always uses the Dev Server.
 - **The Inngest Dev Server is pinned** (1.53.0) instead of downloading the latest at every start, and listens on
-  127.0.0.1 only under `start:local`.
+  127.0.0.1 only (`inngest:dev` and `start:local`; it listened on every network interface).
 - **A secret that can't be read no longer breaks the app.** After the encryption key changed or was removed, every saved
   AI key and GitHub token became undecryptable and the board answered 500 (Settings too, so the keys couldn't be
   entered again). Such a secret now counts as not set: Settings shows "The saved key can't be read, probably because

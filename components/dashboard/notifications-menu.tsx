@@ -14,6 +14,7 @@ import {
   GitPullRequestClosedIcon,
   HourglassIcon,
   MessageCircleQuestionIcon,
+  UnplugIcon,
   WalletIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -42,6 +43,7 @@ const KIND: Record<NotificationKind, { icon: LucideIcon; tone: string }> = {
   run_failed: { icon: CircleAlertIcon, tone: "text-error" },
   out_of_credit: { icon: WalletIcon, tone: "text-warning" },
   plan_limit: { icon: HourglassIcon, tone: "text-warning" },
+  interrupted: { icon: UnplugIcon, tone: "text-warning" },
   provider_switched: { icon: ArrowLeftRightIcon, tone: "text-action" },
 };
 
