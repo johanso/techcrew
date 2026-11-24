@@ -64,7 +64,9 @@ npm run db:generate  # after changing db/schema.ts: write the SQL migration into
 npm run db:migrate   # apply pending migrations
 npm run db:baseline  # once, for a database created with db:push before migrations: mark them applied
 npm run db:studio    # inspect data
-npm run inngest:dev  # only the Inngest Dev Server (npm run dev already starts it) — needed by Run, auto pickup, auto-merge
+npm run inngest:dev  # only the Inngest Dev Server (pinned version; npm run dev already starts it) — needed by Run, auto pickup, auto-merge
+npm run start:local  # stable mode: production build (rebuilds when the code changed) + database + pinned Inngest, one terminal
+npm run doctor       # checks Node, git, ports, database, secrets, GitHub, Claude Code and .env; `--json`; exit 1 only on a ✗
 npx next typegen     # regenerate PageProps / RouteContext types after adding routes
 npx shadcn add <c>   # add a shadcn component into components/ui
 npm run skills:sync  # re-vendor the built-in agent skills at their pinned refs (-- --update <slug> to bump); commit the diff
@@ -359,7 +361,9 @@ agent-skills/             Built-in agent skills, vendored: sources.json (repo, p
                           usage note), catalog.json (generated: metadata + per-file title/summary for search), <slug>/
                           (files exactly as published + SOURCE.md + upstream LICENSE). Never hand-edit; run skills:sync.
 public/                   agents/<key>.webp: one face per agent role (256×256, round with transparent corners).
-scripts/                  local-db.mjs (`db:local`: the embedded Postgres when DATABASE_URL is unset; settings in
+scripts/                  doctor.mjs (`npm run doctor`; checks in lib/doctor/*.mjs behind injectable probes, never prints a value
+                          from .env), start-local.mjs (`npm run start:local`; ports and build decision in lib/local-stack-config.mjs),
+                          local-db.mjs (`db:local`: the embedded Postgres when DATABASE_URL is unset; settings in
                           lib/local-db-config.mjs, shared with db/index.ts and drizzle.config.ts),
                           backup.mjs / restore.mjs (`npm run backup` / `restore`, docs/setup.md#moving-to-another-computer…;
                           the logic is in lib/backup/), import-s3.mjs (storage:import-s3),

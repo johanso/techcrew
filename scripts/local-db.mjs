@@ -116,6 +116,11 @@ async function stop() {
 }
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
+// A supervisor that started this with an IPC channel (npm run start:local) asks for a clean stop this way: Windows
+// has no SIGTERM for another process, and a hard kill would leave Postgres running.
+process.on("message", (message) => {
+  if (message === "stop") void stop();
+});
 
 try {
   await runMigrations();

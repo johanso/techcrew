@@ -163,16 +163,18 @@ CLI chunk) stays under the 30-minute limit.
 
 ```bash
 npm run dev            # app on :3000 + Inngest Dev Server, one terminal (concurrently)
-npm run inngest:dev    # only the Dev Server: npx inngest-cli@latest dev -u http://127.0.0.1:3000/api/inngest
+npm run inngest:dev    # only the Dev Server: npx inngest-cli@1.53.0 dev -u http://127.0.0.1:3000/api/inngest --host 127.0.0.1 (pinned, loopback only)
+npm run start:local    # production build + database + the Dev Server, one terminal (stable mode)
 ```
 
 - Dev Server UI: <http://localhost:8288> — see events, runs, step output and logs; replay runs.
 - No keys are needed locally. The SDK (v3) infers **Dev Mode** outside production and sends events to the Dev
   Server.
-- **If the Dev Server isn't running**, the SDK falls back to Inngest Cloud with the placeholder `INNGEST_EVENT_KEY`
-  and gets `401 Event key not found`. Run then fails with "Is the Inngest Dev Server running? Start the app with
-  `npm run dev` (it starts Inngest too)." — the run is marked failed and nothing is assigned.
-- Force a mode with `INNGEST_DEV=1` (dev) or `INNGEST_DEV=0` (cloud).
+- **If the Dev Server isn't running**, sending the event fails (connection refused) and Run fails with "Is the Inngest
+  Dev Server running? Start the app with `npm run dev` (it starts Inngest too)." — the run is marked failed and nothing
+  is assigned. The SDK only falls back to Inngest Cloud (and a `401 Event key not found`) when Cloud keys are set.
+- Cloud mode needs the keys: without `INNGEST_EVENT_KEY` or `INNGEST_SIGNING_KEY` the client is always in dev mode
+  (`lib/inngest/client.ts`), also under `next start`, where the SDK would infer cloud mode from `NODE_ENV=production`.
 
 ## Production
 

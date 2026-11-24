@@ -2,17 +2,22 @@
   "name": "techteam",
   "version": "0.7.0",
   "private": true,
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "dev": "concurrently --kill-others-on-fail --names db,app,inngest --prefix-colors green,blue,magenta \"npm:db:local\" \"npm:dev:app\" \"npm:inngest:dev\"",
     "dev:app": "next dev --port 3000 --hostname 127.0.0.1",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
+    "start:local": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/start-local.mjs",
+    "doctor": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/doctor.mjs",
     "lint": "eslint .",
     "db:local": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/local-db.mjs",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "inngest:dev": "npx inngest-cli@latest dev -u http://127.0.0.1:3000/api/inngest",
+    "inngest:dev": "npx inngest-cli@1.53.0 dev -u http://127.0.0.1:3000/api/inngest --host 127.0.0.1",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "drizzle-kit migrate",
