@@ -31,7 +31,7 @@ export function AutoFailoverToggle({ workspaceId, enabled, canSwitch }: { worksp
           <span className="text-sm font-semibold">Switch automatically when out of credit</span>
           <span className="text-xs text-muted-foreground">
             If a company runs out of credit while agents work, the agents on it move to the next company with a key
-            (OpenAI, Anthropic, then OpenRouter; closest model) and the stage starts over there, instead of stopping.
+            in the order below (closest model) and the stage starts over there, instead of stopping.
             You get a notification either way.
             {!canSwitch && " Needs API keys for at least two companies."}
           </span>
