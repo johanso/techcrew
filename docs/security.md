@@ -70,19 +70,21 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 
 ## Secrets
 
-- Real values go only in `.env` (gitignored). `.env.example` holds placeholders.
+- Nothing needs a secret in `.env`: the encryption key, the session secret and the embedded database's password are
+  generated in the data folder (`~/.techteam/data`: `encryption.key`, `session.secret`, `postgres.secret`), owner-only
+  where the system supports it. `.env` is gitignored and `.env.example` holds placeholders only.
+- **Backups never contain secrets** (GitHub tokens, AI keys, Claude plan settings, the model cache): `lib/backup/registry.mjs`
+  lists them and a test fails when a new secret column isn't registered. Keep the data folder's secret files private.
 - Server-only modules (`import "server-only"`) can't be bundled into client code by mistake.
-- `TOKEN_ENCRYPTION_KEY` (or the generated `<data dir>/encryption.key`), `session.secret` and `INNGEST_*` are never
+- `TOKEN_ENCRYPTION_KEY` (or the generated `<data dir>/encryption.key`), `session.secret` and the database password are never
   exposed to the browser; only `NEXT_PUBLIC_APP_URL` is public by design. `GITHUB_CLIENT_ID` is public too.
-- ⚠️ An early version of `.env.example` (before the first commit) contained real-looking AWS keys. They were moved to
-  `.env` and never committed, but **rotate that AWS access key** if it was ever shared.
 
 ## GitHub tokens
 
 - Encrypted at rest with AES-256-GCM, a random IV each time, and an auth tag that detects tampering (`lib/crypto.ts`).
 - Decrypted only server-side, only when calling GitHub, and never logged or returned to the client.
 - Requested scopes are the minimum for the product: `repo` (agents will push) and `read:user`.
-- The OAuth flow uses `state` (CSRF) and PKCE (`S256`).
+- Sign-in is the device flow: no redirect, so no `state` or PKCE to forge. A token is saved only after GitHub answers `GET /user` with it.
 
 ## AI provider keys
 
@@ -219,8 +221,8 @@ Files the owner attaches to a card for the agents ([features.md](features.md#car
   content (`detectReferenceFormat`, tested). No SVG, GIF or HTML. Size per kind (image 5 MB, text 1 MB, PDF 5 MB), 10
   per card, counted again under a row lock on the card when the row is written. One file per Server Action call, so
   each fits the 6 MB body limit.
-- **Where they live.** The file and a PDF's extracted text are in the private bucket under
-  `card-references/<workspace>/<card>/<uuid>.<ext>`; the database keeps a small row (no content). The owner-checked
+- **Where they live.** The file and a PDF's extracted text are in the private data folder under
+  `files/card-references/<workspace>/<card>/<uuid>.<ext>`; the database keeps a small row (no content). The owner-checked
   route (`/api/workspaces/[id]/references/[referenceId]`) serves the stored type with `nosniff`, `Cache-Control:
   private` and `Content-Security-Policy: default-src 'none'; sandbox`; text as `text/plain`, PDFs only as a download.
   Removing a card deletes its references (file deletes are best effort and logged).
@@ -229,7 +231,7 @@ Files the owner attaches to a card for the agents ([features.md](features.md#car
 - **What goes to the model providers.** Only when an agent calls `read_reference`: text as tool output, images as
   base64 inside the request (OpenAI `function_call_output` → `input_image`; Anthropic `tool_result` → `image`;
   OpenRouter as a user message after the tool messages, under the same routing rules as the code: hosts that keep no
-  data). Never a URL: the bucket stays private and no presigned link leaves the server. A model without vision gets a
+  data). Never a URL: the files stay on disk and no link to them leaves the server. A model without vision gets a
   note instead of the image.
 - **Nothing stored twice.** The conversation (`agent_run_messages`, OpenAI's pending tool outputs in the Inngest step
   state) holds a placeholder for each image; it's loaded from local storage for each request and becomes a note if the reference
@@ -272,7 +274,7 @@ The source URL is the owner's own; the dialog opens it with `rel="noopener noref
 - Workspace logos: PNG, JPEG, WebP or GIF only, ≤ 1 MB, checked on the client and again on the server. Card references:
   see [Card references](#card-references).
 - **SVG is rejected** on purpose: it can carry scripts and would be served from the app's own origin.
-- Stored in a private bucket under a random UUID key; served with `X-Content-Type-Options: nosniff` and
+- Stored in the data folder (`files/`) under a random UUID key; served with `X-Content-Type-Options: nosniff` and
   `Cache-Control: private`.
 - Server Action body limit is raised to 6 MB (`next.config.ts`) to fit a 5 MB skill upload, a 5 MB card reference (one
   per call) and the 1 MB logo, plus multipart overhead.
@@ -289,6 +291,7 @@ The source URL is the owner's own; the dialog opens it with `rel="noopener noref
 
 | Gap | Risk | Suggested fix |
 | --- | --- | --- |
+| Whoever can read your user profile can read the data folder (`encryption.key`, `session.secret`, `postgres.secret`, the GitHub token and AI keys' ciphertext sit side by side). | The secrets protect against a leaked backup or database dump, not against someone using your account on your computer. | Use full-disk encryption and a locked screen; keep the folder out of shared drives and cloud sync. |
 | Agents can be steered by a malicious issue within their tools (e.g. a harmful code change on their branch). | A bad PR. Nothing merges without review + tests, and auto-merge is off by default. | Keep auto-merge off for repos that accept issues from outsiders; review agent PRs. |
 | An uploaded skill's guidance can be subtly wrong or steer code style without tripping the scan. | Worse code on an agent branch; reviews and the human gate still apply. | Review skills before assigning them; prefer built-ins; keep their findings visible. |
 | The agent log stores tool targets and the first line of tool answers (paths, error messages). | Repository paths and error text are kept in Postgres. File contents never are (reads store no summary). | Nothing needed; keep `toolStep` from summarizing read tools. |

@@ -6,6 +6,7 @@ another computer is a backup and a restore.
 
 For the current state see [status.md](status.md); for the phases around this one see [roadmap.md](roadmap.md).
 
+- [Status](#status)
 - [Decisions](#decisions)
 - [End state](#end-state)
 - [Phases](#phases)
@@ -13,6 +14,23 @@ For the current state see [status.md](status.md); for the phases around this one
 - [Out of scope](#out-of-scope)
 
 ---
+
+## Status
+
+As of 2026-11-24, on `main`:
+
+| Phase | State | Notes |
+| --- | --- | --- |
+| 0 Safety net | **Not done** | `npm run smoke` doesn't exist: it needs a throwaway test repository on GitHub. The v0.8 live validation (agents on the Claude plan) was done by the owner in real use, not by the isolation script. |
+| 1 Remove remote services | Done | Hosted auth, Switch Trust, Cloudhike Jobs and the tunnel are gone from the code. Their tables and columns stay (see the final cleanup). |
+| 2 Local files | Done | `lib/storage.ts` writes under the data folder; `npm run storage:import-s3` copies an old bucket once. |
+| 3 Local Postgres | Done | Embedded Postgres 18 (`embedded-postgres`) or `DATABASE_URL`. PGlite was never needed. |
+| 4 Identity with GitHub | Done | Device flow or personal access token, signed cookie, loopback only, host guard. |
+| 5 Backup and restore | Done | `npm run backup` / `npm run restore`, no secrets in the archive. |
+| 6 First run and easy operation | Done, with changes | `npm run doctor`, `npm run start:local` (stable mode), a **Get started** checklist on the Overview instead of a wizard, and a sweeper that ends runs left behind when TechTeam stopped. The README quickstart was run on a clean clone. |
+| 7 Model routes | Done | `workspaces.ai_fallback_order`; the credit failover, the board's switch and retry and the plan-limit "Switch company" policy follow it. |
+| 8 Pluggable sandbox | **Not started** | The sandbox still needs a Docker host (`deploy/setup.sh`). WSL2 + bubblewrap and previews on `localhost` are planned. |
+| Final cleanup | **Pending** | One migration dropping the unused tables and columns listed in [data-model.md](data-model.md#unused-tables-and-columns), and the stack rows that still mention them. |
 
 ## Decisions
 
@@ -40,7 +58,7 @@ For the current state see [status.md](status.md); for the phases around this one
 | Jobs and scans | CloudHike Jobs, Switch Trust, tunnel | Removed (the rule-based Trust Score stays) |
 | Inngest | Dev Server | Unchanged (already local) |
 | Sandbox | VPS with gVisor and Caddy | Modes: off (CI), WSL2 + bubblewrap, Docker; previews on `localhost` |
-| Configuration | ~25 variables | None required; a first-run wizard |
+| Configuration | ~25 variables | None required; `npm run doctor` and a Get started checklist |
 
 A new user needs Node, git and a GitHub account. Optional: Claude Code, WSL2 (sandbox), model API keys.
 
@@ -49,29 +67,29 @@ A new user needs Node, git and a GitHub account. Optional: Claude Code, WSL2 (sa
 Each phase is a branch and a pull request: `npm run check` and `npm run build` pass, the change is under **Unreleased**
 in the changelog, and AGENTS.md and `docs/` are updated. Read `node_modules/next/dist/docs/` before Next.js-specific code.
 
-### Phase 0 — Safety net
+### Phase 0 — Safety net (not done)
 - Validate v0.8 live: the isolation check and one real Developer run on the plan (spends plan usage: ask first).
 - `npm run smoke`: one card through the whole pipeline in simulated mode against a test repository. Not part of
   `check` (it touches GitHub).
 - Done when the smoke passes and v0.8 is validated.
 
-### Phase 1 — Remove remote services
+### Phase 1 — Remove remote services (done)
 - Delete `switch-*`, `jobs.ts`, `app/api/switch-trust`, `inngest/switch-weekly`, the Switch settings form,
   `PUBLIC_APP_URL`; clean docs and `.env.example`.
 - Leave the Switch tables and columns for the final migration (never edit an applied migration).
 - Done when the app runs without `JOBS_*`, `SWITCH_*` or a tunnel and the smoke passes.
 
-### Phase 2 — Local files
+### Phase 2 — Local files (done)
 - `lib/storage.ts` writes under the data folder (overridable). Database rows hold relative keys only.
 - A one-time script copies today's objects from S3.
 - Done when logos, screenshots and references work without `S3_*`.
 
-### Phase 3 — Local Postgres
+### Phase 3 — Local Postgres (done)
 - Embedded Postgres started by `npm run dev` next to Inngest; migrations run on start; `DATABASE_URL` still works.
 - First prove it starts on Windows; PGlite is the fallback.
 - Done when `npm run dev` brings everything up from nothing.
 
-### Phase 4 — Identity with GitHub
+### Phase 4 — Identity with GitHub (done)
 - Device flow with a public client id shipped in the repo (overridable), so there is no client secret and nobody
   creates their own OAuth App. Sign-in and repository access are one step; `users` keeps one row.
 - Remove `AUTH_*`, sign-in and sign-up pages, social sign-in and `user-sync`.
@@ -87,7 +105,7 @@ in the changelog, and AGENTS.md and `docs/` are updated. Read `node_modules/next
   about runs in flight. The owner pulls the old remote data from a computer that reaches it: docs/setup.md.
 - Done when a backup restored under a clean profile shows the same projects, board and agents.
 
-### Phase 6 — First run and easy operation
+### Phase 6 — First run and easy operation (done)
 - First-run wizard and `npm run doctor` (Node, git, GitHub, Claude Code, database, sandbox).
 - A stable mode (`npm run build && npm start`) for long runs; check what happens to runs in flight when Inngest
   restarts and resume them at start if needed.
@@ -102,14 +120,14 @@ in the changelog, and AGENTS.md and `docs/` are updated. Read `node_modules/next
   credit failover, the board's switch and retry and the plan-limit "Switch company" policy. The log and the bell name
   the company moved to.
 
-### Phase 8 — Pluggable sandbox
+### Phase 8 — Pluggable sandbox (not started)
 - 8a: an interface with three modes (off, Docker, bubblewrap); previews on `localhost` instead of a domain and Caddy;
   `deploy/` becomes optional.
 - 8b: WSL2 with bubblewrap; the preview's server and the Tester's browser run in one sandbox with no outside network.
   Install runs with `--ignore-scripts` unless a package needs its script.
 - Done when the Tester takes screenshots of a preview without Docker.
 
-### Final cleanup
+### Final cleanup (pending)
 - A migration dropping the unused Switch and auth tables and columns; update the roadmap and the stack table in AGENTS.md.
 
 ## Risks

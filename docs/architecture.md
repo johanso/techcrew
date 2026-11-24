@@ -26,15 +26,15 @@ How the app is put together. For coding conventions and the design system, see [
 | Icons | `lucide-react` | Import `…Icon` names (`RocketIcon`). |
 | Font | **Plus Jakarta Sans** via `next/font` | Exposed as `--font-sans`. |
 | Theme | `next-themes` | Toggles the `dark` class on `<html>`; light by default, light/dark/system in the user menu. |
-| Database | **PostgreSQL** + **Drizzle ORM** (`postgres` driver) | Schema in `db/schema.ts`; SQL migrations in `drizzle/` (`db:generate`, `db:migrate`). |
+| Database | **PostgreSQL** + **Drizzle ORM** (`postgres` driver) | Embedded Postgres 18 started by `npm run dev` (`embedded-postgres`, `scripts/local-db.mjs`) when `DATABASE_URL` is unset, else your own. Schema in `db/schema.ts`; SQL migrations in `drizzle/` (`db:generate`, `db:migrate`). |
 | Auth | **GitHub device flow** (or a personal access token); stateless signed cookie | `lib/device-flow.ts`, `lib/sign-in.ts`, `lib/session.ts`. No remote auth service, no client secret. |
 | GitHub | OAuth App (public client id) + REST API v3 (`2022-11-28`) | Plain `fetch` in `lib/github.ts`; no Octokit. |
 | File storage | Local disk (`TECHTEAM_DATA_DIR`) | Workspace logos, the Tester's screenshots and card references, in `files/`. |
 | Background jobs | **Inngest** v3 | Durable functions served at `/api/inngest`. |
-| Agent sandboxes | **Docker** + **gVisor** on a VPS | The `docker` CLI over SSH (`SANDBOX_DOCKER_HOST`), no SDK; throwaway containers per call (`lib/sandbox/`). See [sandbox.md](sandbox.md). |
+| Agent sandboxes (optional) | **Docker** + **gVisor** on a Docker host (a VPS today) | The `docker` CLI over SSH (`SANDBOX_DOCKER_HOST`), no SDK; throwaway containers per call (`lib/sandbox/`). See [sandbox.md](sandbox.md). |
 | Drag and drop | `@dnd-kit/core` 6 + `@dnd-kit/sortable` 10 | Stable API (not the 0.x `@dnd-kit/react`). |
 | Dates | `date-fns` | |
-| Quality | **ESLint 9** (flat config, `eslint-config-next`), **Vitest 4** | `npm run check` = `tsc` + lint + unit tests. |
+| Quality | **ESLint 9** (flat config, `eslint-config-next`), **Vitest 4** | `npm run check` = typegen + `tsc` + lint + unit tests; CI on Linux and Windows. |
 
 ## Folder structure
 
@@ -63,7 +63,7 @@ components/
   ai-team/                   AI Team: agent cards (faces, live working state), configure dialog, trust, spend and
                              skills panels, live process (six steps per card in flight), live team polling
   skills/                    Agent skills UI: Settings library + upload, badges, findings, agent checkboxes
-  settings/                  Settings forms: automation, providers, Switch, sandbox (commands + Test the sandbox)
+  settings/                  Settings forms: automation, API keys, Claude plan, fallback order, sandbox (commands + Test the sandbox)
   app-header.tsx, brand.tsx  Top bar for /workspaces pages; product mark + APP_NAME
 db/
   schema.ts                  Drizzle schema (all tables)
@@ -82,7 +82,7 @@ lib/                         Server logic (most files start with `import "server
   board.ts                   Board persistence and validation
   board-config.ts            Board vocabulary shared by server and client (no server-only)
   crypto.ts                  AES-256-GCM encrypt/decrypt
-  ai-keys.ts                 Workspace AI provider keys (encrypted; env fallback), verification, masking
+  ai-keys.ts                 AI provider keys on the account (encrypted; environment fallback), verification, masking
   storage.ts                 Local file uploads, reads and deletes
   reference-config.ts        Card references: kinds, limits, type by magic bytes, image size, what agents read (pure, shared)
   references.ts              Card references: upload (file + PDF text), list, remove, delete with the card; agent reads
@@ -123,7 +123,12 @@ lib/                         Server logic (most files start with `import "server
   activity.ts                Workspace activity feed (agent_activity + cards people created)
   notifications.ts           Header bell: notify(), list, mark read
   workspace-icons.ts         Selectable workspace icons (shared client/server)
-  inngest/                   Inngest client, boilerplate functions, agent pipeline + auto pickup
+  inngest/                   Inngest client and functions: agent pipeline, auto pickup, run sweep, preview sweep
+  doctor/, backup/           Plain .mjs behind npm run doctor / backup / restore (checks and probes; archive, registry of secret columns)  local-db-config.mjs, local-stack-config.mjs  Embedded database settings (data dir, port, secret) and start:local's ports and build decision  setup.ts, setup-status.ts  The Get started checklist (server facts, pure steps)  run-sweep.ts, run-recovery-config.ts  Ends runs left behind when TechTeam stopped (rules pure and tested)  cli/, cli-agents-config.ts, mcp-protocol.ts  Agents on your Claude plan: Claude Code, its MCP endpoint, route rules
+  local-db-config.mjs, local-stack-config.mjs  Embedded database settings (data dir, port, secret); start:local's ports and build decision
+  setup.ts, setup-status.ts  The Get started checklist (server facts, pure steps)
+  run-sweep.ts, run-recovery-config.ts  Ends runs left behind when TechTeam stopped (rules pure and tested)
+  cli/, cli-agents-config.ts, mcp-protocol.ts  Agents on your Claude plan: Claude Code, its MCP endpoint, route rules
   sandbox/                   Agent sandboxes: config.ts (pure: commands, detection, report), docker.ts (containers
                              over the docker CLI, sweep), index.ts (repo commands for runs and the Settings check)
   utils.ts                   cn(), initials()
@@ -132,7 +137,8 @@ drizzle.config.ts            drizzle-kit config (public schema only)
 docs/                        This documentation
 drizzle/                     SQL migrations + snapshots (generated; 0000_baseline = schema as of 2026-11)
 test/                        Test helpers (server-only stand-in); tests live next to their modules (*.test.ts)
-scripts/                     db-baseline.mjs, sync-agent-skills.mjs (npm run skills:sync)
+scripts/                     doctor.mjs, start-local.mjs, local-db.mjs, backup.mjs, restore.mjs, import-s3.mjs, db-baseline.mjs,
+                             sync-agent-skills.mjs, cli-isolation-check.mts (the npm run commands; logic in lib/doctor, lib/backup)
 deploy/                      setup.sh: prepares a fresh Ubuntu 24.04 VPS as the sandbox host (idempotent)
 agent-skills/                Built-in skills vendored at pinned commits (sources.json, catalog.json, <slug>/)
 public/                      agents/<key>.webp: one face per agent role
@@ -156,7 +162,7 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `/dashboard/[workspaceId]/ai-team` | owner | AI Team: agents, configure dialog, trust score, spending, activity. |
 | `/dashboard/[workspaceId]/pull-requests` | owner | Agent pull requests (refreshed from GitHub on load), review/test verdicts, **Merge**. |
 | `/dashboard/[workspaceId]/activity` | owner | Workspace activity timeline (`?show=` for older events). |
-| `/dashboard/[workspaceId]/settings` | owner | Your account: profile (`#account`), AI providers (`#ai`: account keys, then this workspace's automatic switch and optional keys), spending across projects (`#usage`). This workspace: details (`#workspace`), automation (`#agents`), Sandbox (`#sandbox`), Agent skills summary (`#skills`). |
+| `/dashboard/[workspaceId]/settings` | owner | Your account: profile (`#account`), AI (`#ai`: Claude plan on this computer, account keys, models, then this workspace's automatic switch and fallback order), spending across projects (`#usage`). This workspace: details (`#workspace`), automation (`#agents`), Sandbox (`#sandbox`), Agent skills summary (`#skills`). |
 
 "owner" = signed in **and** owner of that workspace; anything else is a 404.
 
@@ -176,9 +182,9 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `app/workspaces/actions.ts` | `createWorkspace`, `disconnectGithub` |
 | `app/dashboard/[workspaceId]/actions.ts` | `getTeamStatusAction`, `getNotificationsAction`, `markNotificationsReadAction` |
 | `app/dashboard/[workspaceId]/board/actions.ts` | `createCardAction`, `updateCardAction`, `moveCardsAction`, `removeCardAction`, `runCardAction`, `answerCardAction`, `stopCardAction`, `mergeCardAction`, `switchProviderAndRetryAction`, `getRunLogAction`, `syncIssuesAction`, `getBoardAction` |
-| `app/dashboard/[workspaceId]/ai-team/actions.ts` | `saveAgentAction`, `scanAgentAction`, `switchScanAgentAction`, `generateAgentAction`, `setAgentSkillAction` |
+| `app/dashboard/[workspaceId]/ai-team/actions.ts` | `saveAgentAction`, `scanAgentAction`, `generateAgentAction`, `setAgentSkillAction` |
 | `app/dashboard/[workspaceId]/pull-requests/actions.ts` | `mergePullRequestAction` |
-| `app/dashboard/[workspaceId]/settings/actions.ts` | `saveAutomationAction`, `saveSandboxAction`, `checkSandboxAction`, `saveAutoFailoverAction`, `saveProviderKeyAction`, `removeProviderKeyAction`, `connectSwitchAction`, `disconnectSwitchAction`, `saveSwitchWeeklyAction`, `inspectSkillAction`, `installSkillAction`, `saveSkillAssignmentsAction`, `deleteSkillAction` |
+| `app/dashboard/[workspaceId]/settings/actions.ts` | `saveAutomationAction`, `saveSandboxAction`, `checkSandboxAction`, `saveAutoFailoverAction`, `saveProviderKeyAction`, `removeProviderKeyAction`, `saveFallbackOrderAction`, `refreshModelsAction`, `claudePlanAction`, `savePlanLimitAction`, `inspectSkillAction`, `installSkillAction`, `saveSkillAssignmentsAction`, `deleteSkillAction` |
 
 Server Actions are POST endpoints. Each one re-checks the session and ownership itself; never assume the page that
 rendered the form already did.
@@ -292,7 +298,8 @@ The full design system — palette table, contrast rules, typography scale, layo
 | Service | Talks to it | Failure behavior |
 | --- | --- | --- |
 | GitHub | `lib/github.ts`, `lib/github-issues.ts` | `401` → "reconnect", `403/404` → "no access", others → retry later. See [github-integration.md](github-integration.md). |
+| Embedded Postgres | `scripts/local-db.mjs`, `lib/local-db-config.mjs`, `db/index.ts` | Started by `npm run dev` / `start:local` when `DATABASE_URL` is unset; the app waits for its ready file. A stale lock after a hard stop is removed on the next start. |
 | Local files | `lib/storage.ts` | Write errors fail workspace creation with a generic message; read errors → 404 for the logo. |
 | Inngest | `lib/inngest/*`, `/api/inngest` | `send` failure → Run shows an error, the run is marked failed and nothing moves. See [background-jobs.md](background-jobs.md). |
-| Sandbox host (Docker over SSH) | `lib/sandbox/*` | Unset `SANDBOX_DOCKER_HOST` → Settings can't turn it on and agents get no run tools. An unreachable host or a timeout comes back to the agent as a failed run ("Failed while preparing the checkout", "Timed out…"), never as a stage error. See [sandbox.md](sandbox.md). |
+| Sandbox host (optional; Docker over SSH) | `lib/sandbox/*` | Unset `SANDBOX_DOCKER_HOST` → Settings can't turn it on and agents get no run tools. An unreachable host or a timeout comes back to the agent as a failed run ("Failed while preparing the checkout", "Timed out…"), never as a stage error. See [sandbox.md](sandbox.md). |
 | Claude Code (local CLI) | `lib/cli/*`, `/api/mcp/runs/[runId]` | Only when TechTeam runs locally. Missing, signed out or on another account → the stage takes the API key or Run refuses with the fix; a crash retries the step and resumes the session; the plan running out follows the owner's choice. See [cli-agents.md](cli-agents.md). |

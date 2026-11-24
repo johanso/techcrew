@@ -1,7 +1,7 @@
 # Testing the agents
 
 How to exercise the AI agent features end to end, what has been verified and what hasn't, and the tricks that make
-testing practical. Written for the next developer or agent picking this up. Last updated **2026-11-05**.
+testing practical. Written for the next developer or agent picking this up. The plan rows below were run before TechTeam became local-first (2026-11): rows that mention S3, a hosted database or a VPS are history, and their ✅ still holds for the behavior (files are now local). The rows were not systematically re-run after the local-first phases; what has been verified since is in [status.md](status.md).
 
 - [What to set up](#what-to-set-up)
 - [Three ways to run the agents](#three-ways-to-run-the-agents)
@@ -18,8 +18,8 @@ testing practical. Written for the next developer or agent picking this up. Last
    Run fails with "Is the Inngest Dev Server running?" and the run is marked failed.
 2. Sign in, create a workspace linked to a **throwaway repository**. Agents create real branches, commits, pull
    requests, issue comments and (with **File issues**) issues on it, even in simulated mode.
-3. GitHub connected for the workspace owner (Settings shows the account). A `401 Bad credentials` from GitHub means
-   the stored token is revoked: reconnect.
+3. Signed in with GitHub (Settings → Account shows it). A `401 Bad credentials` from GitHub means
+   the stored token is revoked: sign in again.
 4. Pick how agents run (next section). Restart `npm run dev` after editing `.env`.
 
 ## Three ways to run the agents
@@ -27,8 +27,8 @@ testing practical. Written for the next developer or agent picking this up. Last
 | Mode | How | Costs | Use it for |
 | --- | --- | --- | --- |
 | **Simulated** | `AGENTS_SIMULATED=true` in `.env` (overrides every model and key) | Nothing | The pipeline itself: columns, branch, commit, PR, review/test recording, merge, rerun. |
-| **Real, account key** | Settings → Your account → AI keys: save an OpenAI and/or Anthropic key once (every project uses it); choose the company per workspace in AI provider | Provider API usage, charged to each agent's monthly budget | Real agent behavior and prompt tuning. |
-| **Real, server key** | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` in `.env` | Same | Fallback when a workspace saved no key. |
+| **Real, account key** | Settings → AI → API keys: save an OpenAI, Anthropic and/or OpenRouter key once (every project uses it); each agent picks its company on the AI Team page | Provider API usage, charged to each agent's monthly budget | Real agent behavior and prompt tuning. |
+| **Real, environment key** | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` in `.env` | Same | Fallback for a company the account has no key for. |
 | **Real, your Claude plan** | Locally only: Settings → AI → Plans on this computer ([cli-agents.md](cli-agents.md)) | Your plan's usage (no API spend; ≈ API cost shown as a reference) | Claude models without an Anthropic key, on your own computer. |
 
 **Simulated agents** (`lib/agent-simulated.ts`): each stage takes two turns, one real tool call then a fixed passing
@@ -152,7 +152,7 @@ How each provider runs a stage (`lib/agent-loop.ts`):
 | 53 | Containers can't reach the host | From a container on a preview network: `nc -z <gateway> 22` | Refused; `ssh techteam-vps` and installs still work | ✅ Applied on the VPS (2026-11-19): from a preview network and the default bridge, the host's port 22 (gateway and public IP) is refused; installs still reach npm; `ssh techteam-vps` works; Caddy still serves previews |
 | 54 | Card references: upload and remove | Card dialog → References → Add files: a PNG, a `.md`, a text PDF, a scanned PDF, then an SVG and a PDF renamed `.png`; remove one; reload | Thumbnails and icons with sizes ("no text found" for the scan); the SVG and the renamed file refused with a reason; the paperclip count on the card follows; removed files gone from S3; 11th file refused | 🟡 Live 2026-11-19 (AJU-22): a PNG, a `.md` and a text PDF uploaded, thumbnail and icons, paperclip count 3, the `.md` removed (row and S3 object gone), PDF text extracted to S3; loading rows and thumbnail spinners added after. Not yet tried live: scanned PDF, refused SVG/renamed file, 11th file. Type detection, limits, image sizes and names unit-tested (`reference-config.test.ts`) |
 | 55 | References removed with the card | A card with references → ⋯ → Remove task | Rows deleted, S3 objects deleted (a failure is logged, the removal still succeeds) | ✅ 2026-11-19: AJU-22 removed, 0 rows, `card-references/` empty in S3 |
-| 56 | References without S3 | Unset `S3_*`, open a card | "File storage isn't set up on this server, so references can't be added." | ⬜ Not verified live |
+| 56 | References without S3 | (obsolete) | Files are local now: there is no setup that can be missing, so uploads are always available | ➖ Removed with S3 (v0.9) |
 | 57 | Agents read references (simulated) | Simulated mode, a card with an image and a `.md`, ▶ Run | Every stage logs *Listed references* and *Read reference* (target = the file name, no content); the Analyst's brief lists the reference to follow | ⬜ Not run (creates a branch and a PR on GitHub) |
 | 58 | Image input per provider | A real run with an image reference on OpenAI, Anthropic and OpenRouter (a vision model, e.g. Gemini) | The model describes what's in the image; `agent_run_messages` holds `techteam-reference:<id>`, never base64; removing the reference mid-run turns it into a note | 🟡 OpenAI ✅ 2026-11-19 (run 52, SAN-4, GPT-6.1 Sol / Luna): the Analyst, Developer, Reviewer, Lead and Tester each read `split-summary-mobile.png` and built or judged against it. Anthropic and OpenRouter not verified live; their builders unit-tested (`reference-images.test.ts`) against the documented shapes |
 | 59 | Run with images and a model without vision | Developer on DeepSeek V4 Pro, a card with an image, ▶ Run; then auto pickup on | Refused: "KEY has image references, but Developer's model (DeepSeek V4 Pro) can't see images…" with **Open AI Team**; auto pickup leaves it in Todo and takes the next card without images; no model changes | 🟡 Run verified 2026-11-19 (AJU-22 in "Ajustes de Test": the message and **Open AI Team**, no run created). Auto pickup not tried live |

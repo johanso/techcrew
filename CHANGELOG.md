@@ -8,13 +8,32 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+TechTeam now runs on your own computer, for one user. The remote services of the hosted design (sign-in service, S3,
+Cloudhike Jobs, Switch Trust, the tunnel) are gone; GitHub and the model providers you choose are all that is left.
+Plan: [docs/local-first-plan.md](docs/local-first-plan.md). **Existing installations**: run `npm run db:migrate`
+(migrations 0018 and 0019), then see [docs/setup.md](docs/setup.md#coming-from-the-hosted-version).
+
 ### Added
+- **Local-first.** `git clone`, `npm install`, `npm run dev` brings up everything. With `DATABASE_URL` unset it starts
+  an **embedded Postgres 18** (no Docker, no install; about 110 MB downloaded with `npm install`), creates the database
+  and applies the migrations. Data lives in one folder, `~/.techteam/data` (`TECHTEAM_DATA_DIR`): the database on
+  `127.0.0.1:54329` (`TECHTEAM_PG_PORT`), the files, and generated secrets. Setting `DATABASE_URL` keeps the old
+  behavior. `npm run db:local` runs the database alone.
+- **Sign in with GitHub.** One GitHub sign-in (OAuth device flow: you type a code on github.com; or a personal access
+  token) is both your identity and repository access. The OAuth App needs no client secret: its public client id is
+  built in (`GITHUB_CLIENT_ID` overrides it). Sessions are a signed cookie (`tt_session`) with a secret generated in your
+  data folder. The first sign-in on a database with exactly one user asks once whether to **adopt** that user's data with
+  your GitHub account (migration 0018 adds `users.github_user_id`).
+- **`npm run backup` and `npm run restore`**: one `.tar.gz` with your database (read only, one consistent snapshot) and
+  files, restored into an empty database in one transaction. No secrets are included: sign in with GitHub and enter your
+  AI keys again after restoring. `--with-s3` also collects the old S3 bucket, so the old remote data can be carried over
+  as one file; `npm run storage:import-s3` copies old files from the bucket once. See docs/setup.md.
 - **`npm run doctor`** checks this computer (Node, git, tar, data folder and disk, ports, database and migrations, app
   address, encryption key, GitHub sign-in, Claude Code, Docker/WSL, obsolete `.env` settings) and prints a fix for each
   problem. `--json` for scripts. It never prints a secret or a value from `.env`.
 - **`npm run start:local`**: the stable way to leave agents working. One terminal runs the production build (built first
-  when the code changed), the embedded database and the Inngest Dev Server; Ctrl+C stops all three.
-  `TECHTEAM_PORT` and `TECHTEAM_INNGEST_PORT` move the ports.
+  when the code changed), the embedded database and the Inngest Dev Server; Ctrl+C stops all three. `TECHTEAM_PORT` and
+  `TECHTEAM_INNGEST_PORT` move the ports.
 - **A "Get started" checklist.** The Overview shows what is left before agents can work (an AI route: an API key or
   Claude Code on your plan; a workspace) with a link to Settings → AI, until everything is done. A user without a
   workspace sees a short "Before you start" version above the create form.
@@ -25,7 +44,69 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 - **Choose the order companies fall back in.** Settings → AI → This workspace only lists your companies with move up and
   move down buttons: when one runs out of credit, or your Claude plan runs out with "Switch company", agents go to the
   first company in that order with a key (default: OpenAI, Anthropic, OpenRouter). New column
-  `workspaces.ai_fallback_order`; applied at start.
+  `workspaces.ai_fallback_order` (migration 0019).
+- **Agents on your Claude plan** (only when TechTeam runs on your computer): Settings → AI → *Plans on this computer*
+  routes the agents on Claude models through **Claude Code** signed in with your own plan, instead of an Anthropic API
+  key. Agents keep their model; the route is per computer. TechTeam uses its own Claude Code login
+  (`~/.techteam/cli/claude`), separate from the one you use in your terminal; you confirm the account once and every
+  stage checks it. Agents still work only through TechTeam's tools (a local MCP endpoint), with the same permissions,
+  agent log, references, skills and sandbox. Plan stages record turns and tokens plus the API-equivalent cost as a
+  reference, never as spend, and budgets don't apply to them. See [docs/cli-agents.md](docs/cli-agents.md).
+- **When the plan runs out**: wait for the reset and resume the same session (the card says when), continue on the API
+  key, or switch company (auto failover). A model the plan refuses is remembered on that computer and takes the API key
+  (or the stage stops with the reason).
+- AI Team cards show each agent's route on this computer ("Your Claude plan" / "API key"); spending tiles, the run log
+  and Metrics say **API** spend, and Settings shows this month's plan usage.
+- `AGENTS_AUTO_PICKUP=false` keeps auto pickup off on one computer; a card can have only one run in flight, whichever
+  computer starts it (database guard).
+- **Live model catalog**: each company's models come from OpenRouter's public model list (no key, no spend), stored in
+  the database (`model_catalog`, migration 0017) and refreshed daily or with Settings → AI → **Refresh models**. AI
+  Team's model picker shows each company's current models with tier, vision and price per 1M tokens (or *Your plan*),
+  so new models can be picked without a code change. Offline before the first fetch, the app uses a built-in list. See
+  [docs/model-catalog-plan.md](docs/model-catalog-plan.md).
+- CI also runs `npm run check` on Windows.
+
+### Changed
+- **The app listens on `127.0.0.1` only** (`npm run dev:app`, `npm start`), refuses requests for any other host name
+  (DNS-rebinding guard) and calls itself at `127.0.0.1` (Inngest, the agents' MCP endpoint).
+- **Files are stored on your computer**, not in an S3 bucket: workspace logos, the Tester's screenshots and card
+  references live in `~/.techteam/data/files`. The `S3_*` variables are gone and logo and reference uploads are always
+  available.
+- **The encryption key is generated for you**: unset, `TOKEN_ENCRYPTION_KEY` falls back to
+  `<TECHTEAM_DATA_DIR>/encryption.key`. Keep that file with your backups: moving to another computer without it means
+  entering the AI keys again. An existing `TOKEN_ENCRYPTION_KEY` keeps working.
+- **One command for local development**: `npm run dev` starts the database, the app and the Inngest Dev Server together
+  in one terminal (`concurrently`; stopping one stops all). `npm run dev:app` starts only the app, `npm run inngest:dev`
+  only Inngest. The app is pinned to port 3000 so a busy port fails loudly instead of leaving Inngest pointed at the
+  wrong address.
+- **Settings → Your account shows your GitHub identity**: avatar, name, `@login`, "Signed in with GitHub", member since,
+  last sign-in and a **Sign out** button. The "Verified email", email and account id rows are gone. The separate
+  "Connect GitHub" step is now "Reconnect GitHub" and leads to sign-in.
+- **The Sandbox section is one line without a sandbox host.** No dead switches, commands or buttons, and `package.json`
+  isn't read from GitHub. With a host, it is unchanged. The sandbox stays optional and still needs a Docker host.
+- **`.env.example` is minimal.** It sets only `NEXT_PUBLIC_APP_URL`; every other setting is optional and documented in
+  [docs/setup.md](docs/setup.md). A copied placeholder (`your_openai_api_key`, `preview.example.com`) used to count as a
+  real key or domain.
+- Models are data, not code: the hand-written `AGENT_MODELS` list is gone. Only current models are offered (the newest
+  of each family); an agent on a model that left the list keeps running on it, shown as *older*. Role defaults are a
+  tier (balanced, the Tester fast) resolved to each company's current model, so new OpenAI agents start on GPT-6.1
+  Terra instead of GPT-6.1 Sol (existing agents keep their model). Tiers rank each company's models by output price.
+  API costs use the catalog's prices; request knobs (effort levels, verbosity) come from the catalog, with the
+  hand-checked levels kept as overrides.
+
+### Removed
+- **The hosted services.** Email/password and Google sign-in, the sign-up page, the web OAuth flow
+  (`/api/github/connect` and `/callback`), the session cache and the user mirror; **Switch Trust** (SwitchAgent scans:
+  the Settings card, scan buttons, weekly scans and the endpoints Switch called; the Trust Score keeps its rule-based
+  scan and the optional AI review, **Scan again**); **Cloudhike Jobs** and `PUBLIC_APP_URL` (nothing calls the app back
+  from the internet, so no tunnel); **S3**. `AUTH_URL`, `AUTH_PUBLISHABLE_KEY`, `AUTH_SECRET_KEY`,
+  `GITHUB_CLIENT_SECRET`, `S3_*`, `JOBS_API_URL`, `JOBS_API_KEY`, `PUBLIC_APP_URL` and `SWITCH_AGENT_AI_API_KEY` are no
+  longer read and can be deleted from `.env` (`npm run doctor` lists them). The unused tables and columns
+  (`users.auth_user_id`, `switch_connections`, `trust_scans`, `agents.switch_agent_id`) stay until a cleanup migration.
+- **Workspace API keys.** Settings → AI → This workspace only no longer has "Workspace keys (optional)": AI keys live on
+  your account (or the environment), and nothing reads or writes `ai_provider_keys` any more.
+- **Multi-computer notices in Settings** ("Off on your other computers…", the `AGENTS_AUTO_PICKUP=false` note under
+  Agent automation): each computer has its own database. The variable still works for computers that share a Postgres.
 
 ### Fixed
 - **Agents work under `npm start`.** The Inngest SDK took a production build for Inngest Cloud and never reached the
@@ -37,89 +118,6 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   entered again). Such a secret now counts as not set: Settings shows "The saved key can't be read, probably because
   the encryption key changed. Enter it again." on that key (saving replaces it), and an unreadable GitHub token is
   treated like an expired connection (sign in again).
-
-### Removed
-- **Workspace API keys.** Settings → AI → This workspace only no longer has "Workspace keys (optional)": AI keys live on
-  your account (or the environment), and nothing reads or writes `ai_provider_keys` any more (the table stays, unused,
-  until a cleanup migration).
-- **Multi-computer notices in Settings** ("Off on your other computers…", the `AGENTS_AUTO_PICKUP=false` note under
-  Agent automation): each computer has its own database. The variable still works for computers that share a Postgres.
-
-### Changed
-- **The Sandbox section is one line without a sandbox host.** No dead switches, commands or buttons, and `package.json`
-  isn't read from GitHub. With a host, it is unchanged.
-- **Settings → Your account shows your GitHub identity**: avatar, name, `@login`, "Signed in with GitHub", member
-  since, last sign-in and a **Sign out** button. The "Verified email", email and account id rows are gone.
-- **`.env.example` is minimal.** It sets only `NEXT_PUBLIC_APP_URL`; every other setting is optional and documented in
-  [docs/setup.md](docs/setup.md). A copied placeholder (`your_openai_api_key`, `preview.example.com`) used to count as a
-  real key or domain. The Inngest Cloud keys (production only) are gone from it: the Dev Server needs none.
-- **Sign in with GitHub, on your computer.** The hosted auth service is gone: there is no password, sign-up or
-  `AUTH_*` setting. One GitHub sign-in (OAuth device flow: you type a code on github.com; or a personal access token)
-  is both your identity and repository access, so the separate "Connect GitHub" step is now "Reconnect GitHub" and
-  leads to sign-in. The OAuth App needs no client secret: its public client id is built in (`GITHUB_CLIENT_ID`
-  overrides it). Sessions are a signed cookie (`tt_session`) with a secret generated in your data folder.
-- **Your first sign-in adopts your existing data.** On a database with exactly one user, TechTeam asks once whether to
-  adopt it with your GitHub account (workspaces, boards and agents stay as they are). **Run `npm run db:migrate`** on an
-  existing database first: it adds `users.github_user_id`.
-- **The app listens on `127.0.0.1` only** (`npm run dev:app`, `npm start`), refuses requests for any other host name
-  (DNS-rebinding guard) and calls itself at `127.0.0.1` (Inngest, the agents' MCP endpoint).
-- **The encryption key is generated for you**: unset, `TOKEN_ENCRYPTION_KEY` falls back to
-  `<TECHTEAM_DATA_DIR>/encryption.key`. Keep that file with your backups: moving to another computer without it means
-  reconnecting GitHub and entering the AI keys again. An existing `TOKEN_ENCRYPTION_KEY` keeps working.
-- **Files are stored on your computer**, not in an S3 bucket: workspace logos, the Tester's screenshots and card
-  references live in `~/.techteam/data/files` (`TECHTEAM_DATA_DIR` changes the folder). The `S3_*` variables are gone and
-  logo and reference uploads are always available.
-
-### Removed
-- Email/password and Google sign-in, the sign-up page, social sign-in, the web OAuth flow (`/api/github/connect` and
-  `/callback`), the session cache and the user mirror. `AUTH_URL`, `AUTH_PUBLISHABLE_KEY`, `AUTH_SECRET_KEY` and
-  `GITHUB_CLIENT_SECRET` are no longer read. The old `users.auth_user_id` column stays until the final cleanup.
-
-### Added
-- **Embedded Postgres**: with `DATABASE_URL` unset, `npm run dev` starts its own Postgres (no Docker, no install; about
-  110 MB downloaded with `npm install`), creates the database and applies the migrations. Data lives in
-  `~/.techteam/data/postgres` (`TECHTEAM_DATA_DIR`), on `127.0.0.1:54329` (`TECHTEAM_PG_PORT`), with a generated password.
-  Setting `DATABASE_URL` keeps the old behavior. `npm run db:local` runs it alone. `npm run backup` / `restore` move your data.
-- **`npm run backup` and `npm run restore`**: one `.tar.gz` with your database (read only, one consistent snapshot) and
-  files (`--with-s3` also collects the old S3 bucket), restored into an empty database in one transaction. No secrets
-  are included: sign in with GitHub and enter your AI keys again after restoring. The old remote data can be pulled
-  from any computer that reaches it and carried over as one file; see docs/setup.md.
-- `npm run storage:import-s3` copies your existing files from the old bucket once, without deleting anything there.
-- **Agents on your Claude plan** (only when TechTeam runs on your computer): Settings → AI → *Plans on this computer*
-  routes the agents on Claude models through **Claude Code** signed in with your own plan, instead of an Anthropic API
-  key. Agents keep their model; the route is per computer. TechTeam uses its own Claude Code login
-  (`~/.techteam/cli/claude`), separate from the one you use in your terminal; you confirm the account once and every
-  stage checks it. Agents still work only through TechTeam's tools (a new local MCP endpoint), with the same
-  permissions, agent log, references, skills and sandbox. Plan stages record turns and tokens plus the API-equivalent
-  cost as a reference, never as spend, and budgets don't apply to them. See [docs/cli-agents.md](docs/cli-agents.md).
-- **When the plan runs out**: wait for the reset and resume the same session (the card says when), continue on the
-  API key, or switch company (auto failover). A model the plan refuses is remembered on that computer and takes the API key (or the stage stops with the reason).
-- AI Team cards show each agent's route on this computer ("Your Claude plan" / "API key"); spending tiles, the run log
-  and Metrics say **API** spend, and Settings shows this month's plan usage.
-- `AGENTS_AUTO_PICKUP=false` keeps auto pickup off on one computer; a card can have only one run in flight, whichever
-  computer starts it (database guard).
-- CI also runs `npm run check` on Windows.
-- **Live model catalog**: each company's models come from OpenRouter's public model list (no key, no spend), stored in
-  the database (`model_catalog`, migration 0017) and refreshed daily or with Settings → AI → **Refresh models**. AI
-  Team's model picker shows each company's current models with tier, vision and price per 1M tokens (or *Your plan*),
-  so Claude Fable 5.2 and GPT-6.2 Sol and Astra can be picked without a code change. Offline before the first fetch,
-  the app uses a built-in list. See [docs/model-catalog-plan.md](docs/model-catalog-plan.md).
-
-### Changed
-- Models are data, not code: the hand-written `AGENT_MODELS` list is gone. Only current models are offered (the newest
-  of each family); an agent on a model that left the list keeps running on it, shown as *older*. Role defaults are a
-  tier (balanced, the Tester fast) resolved to each company's current model, so new OpenAI agents start on GPT-6.1
-  Terra instead of GPT-6.1 Sol (existing agents keep their model). Tiers rank each company's models by output price.
-  API costs use the catalog's prices (Claude Sonnet 5.5's cache read is now $0.10 per 1M, as listed); request knobs
-  (effort levels, verbosity) come from the catalog, with the hand-checked levels kept as overrides.
-- **One command for local development**: `npm run dev` starts the app and the Inngest Dev Server together in one
-  terminal (`concurrently`; stopping one stops both). `npm run dev:app` starts only the app, `npm run inngest:dev`
-  only Inngest. The app is pinned to port 3000 so a busy port fails loudly instead of leaving Inngest pointed at the
-  wrong address.
-
-### Removed
-- **Switch Trust (SwitchAgent scans)**: the Settings card, scan buttons, weekly scans and the endpoints Switch called. The Trust Score keeps its rule-based scan and the optional AI review (**Scan again**).
-- **Cloudhike Jobs and `PUBLIC_APP_URL`**: nothing calls the app back from the internet any more, so no tunnel is needed. `JOBS_API_URL`, `JOBS_API_KEY`, `PUBLIC_APP_URL` and `SWITCH_AGENT_AI_API_KEY` can be deleted from `.env`. The Switch tables and columns stay in the database until a cleanup migration.
 
 ## [0.7.0] — 2026-11-20
 

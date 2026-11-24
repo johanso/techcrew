@@ -1,103 +1,110 @@
 # TechTeam
 
-A workspace for running a software team made of AI agents. Each **workspace** is linked to exactly one
-**GitHub repository**; its issues flow onto a **Kanban board**, and a team of AI agents (Analyst → Developer → Reviewer + Security → Lead → Tester) takes
-cards from analysis to a merged pull request.
+An AI software team that works on your GitHub repository. You link **one repository per workspace**; its issues land on
+a Kanban board, and a team of AI agents (Analyst, Developer, Reviewer, Security, Lead, Tester) takes each card from
+analysis to a reviewed, tested, merged pull request. TechTeam runs **on your own computer**, for one user: your data
+stays in a folder you own, and the only remote services are GitHub and the AI companies you choose.
 
-> The product name lives in one constant, `APP_NAME` in [`components/brand.tsx`](components/brand.tsx).
->
-> **Current version: v0.4.0** (CI in the loop, Metrics page, a board that fits the screen). What's in it: [CHANGELOG.md](CHANGELOG.md). What comes next: [docs/roadmap.md](docs/roadmap.md).
+> Version 0.7.0 is the latest release; this branch also has the local-first rewrite (v0.9, unreleased). What changed:
+> [CHANGELOG.md](CHANGELOG.md). What is real and what is not: [docs/status.md](docs/status.md).
 
----
+## How it works
 
-## What works today
+1. You sign in with GitHub, create a workspace and pick a repository you can push to.
+2. Its open issues appear on the board; you can also create cards in the app.
+3. Press **Run** on a card (or let auto pickup take Todo cards): the Analyst writes a brief, the Developer commits on an
+   `agent/...` branch and opens a pull request.
+4. CI runs on the pull request; Reviewer and Security look at the diff in parallel; the Lead approves or sends it back,
+   and rates the risk.
+5. The Tester checks it, then it merges by itself or waits for you, depending on the merge mode (default: you merge).
+6. Agents run on your **Claude plan** (through Claude Code) and/or your **API keys** (OpenAI, Anthropic, OpenRouter), with a
+   fallback order for when a plan or credit runs out. They never write to the default branch.
 
-| Area | Status | Notes |
-| --- | --- | --- |
-| Sign in with GitHub | ✅ Real | Device flow (or a personal access token): identity and repository access in one step. No password, no client secret. Signed session cookie on your computer. |
-| Workspace onboarding | ✅ Real | Name, icon or uploaded logo, repository selection. |
-| Dashboard shell | ✅ Real | Collapsible sidebar, workspace switcher, user menu, light/dark/system theme. |
-| Kanban board | ✅ Real | Six columns (Todo, Analysis, In Development, In Review, Testing, Done), drag and drop (mouse, touch, keyboard), search, type filters, create/edit dialog. Persisted in Postgres. |
-| GitHub issue sync | ✅ Real | Open issues of the linked repo appear on the board automatically; Refresh button; closing an issue moves its card to Done. |
-| Card actions | ✅ Real | **Run** (starts the agent pipeline), **Stop agents**, **View agent log** (what each agent did, stage by stage), **Remove task** (soft delete). |
-| Agent pipeline | ✅ Real, needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (or `AGENTS_SIMULATED=true` to try it free) | Analyst plans → Developer commits on a branch and opens a PR → Reviewer and Security in parallel → Lead approves and rates the risk → Tester → merge (manual, automatic when low risk, or automatic). Rework loops, max turns per agent, permissions enforced as tools, skills searched and read with `search_skill` / `read_skill`, follow-up card on merge conflicts or failing builds. Auto pickup of Todo cards (optional). Out of credit: the board says so and switches company with one click (or automatically, opt-in). No code execution: verification is static plus CI. |
-| Overview page | ✅ Real | Stats, upcoming tasks and recent activity from the board and the activity feed; empty states when there is nothing yet. |
-| AI Team | ✅ Real | Six default agents (Analyst, Developer, Reviewer, Security, Lead, Tester), each with a face, per workspace: configure instructions, permissions, skills, model and budget; Trust Score with **Scan again**; spending; activity drawer. Each agent runs on an OpenAI or Claude model. AI drafts instructions and reviews configs (optional). |
-| Live process | ✅ Real | AI Team page: each card in flight as six steps (who works, what they're doing, last actions, turns and cost so far, results of finished steps); "Inactive" when nothing runs. Agent cards show what a working agent is doing. |
-| Pull Requests page | ✅ Real | Agent PRs with review/test verdicts and **Merge**. |
-| Settings → Agent automation | ✅ Real | Task pickup and merge mode per workspace. |
-| Agent skills | ✅ Real | Knowledge packs in the Agent Skills format that agents search and read (never run). Built-ins vendored at pinned commits (`modern-web-guidance`, `chrome-extensions`, the `interface-design` UI/UX skill; `npm run skills:sync`); upload your own `SKILL.md` or `.zip` in **Settings → Agent skills** (validated, security-scanned, AI-reviewed when a key exists, then assigned per agent); switch them per agent in AI Team → Configure. |
-| Settings → AI | ✅ Real | Encrypted OpenAI / Anthropic / OpenRouter keys on your account for every project, API spending this month across projects, optional automatic switch when out of credit. Each agent picks its company and model on the AI Team page. |
-| Agents on your Claude plan | 🟡 Built, not run live yet | Running locally, agents on Claude models can use your Claude plan through Claude Code instead of an API key, with TechTeam's own login and the same tools and permissions ([docs/cli-agents.md](docs/cli-agents.md)). |
-| Activity page | ✅ Real | Workspace timeline (agent events + cards people created, moved, edited or removed), grouped by day. |
-| Notifications (header bell) | ✅ Real | PR ready to merge, analyst questions, stopped runs, out of credit, provider switched, merges and blocked merges. |
-| Landing page (`/`) | ➖ None yet | Redirects to the dashboard (signed in) or to sign-in. |
+## Quickstart
 
-Details: [docs/status.md](docs/status.md).
-
----
-
-## Quick start
+You need **Node.js 22.18 or newer**, **git** and a **GitHub account**. For agents to work you also need a Claude plan
+with [Claude Code](https://claude.com/claude-code) installed, or an API key for OpenAI, Anthropic or OpenRouter.
+Docker is optional (agent sandbox, [docs/sandbox.md](docs/sandbox.md)).
 
 ```bash
-npm install
-cp .env.example .env          # optional: every value has a default — see docs/setup.md
-npm run db:migrate            # create the tables in your Postgres database
-npm run dev                   # http://localhost:3000 + the Inngest Dev Server (agent pipeline), in one terminal
+git clone https://github.com/johanso/techcrew.git techteam
+cd techteam
+npm install            # also downloads an embedded Postgres 18 for your system (~110 MB)
+cp .env.example .env   # optional; sets the app's address, which agents on your Claude plan need
+npm run doctor         # checks this computer and says how to fix what it finds
+npm run dev            # database, app and the Inngest Dev Server, one terminal
 ```
 
-You need: Node.js 22+, a GitHub account (you sign in with it; no OAuth App to create), and an
-OpenAI, Anthropic and/or OpenRouter API key for the agents, AI drafting and AI-assisted trust scans.
-Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
+Then:
 
----
+1. Open <http://localhost:3000> and choose **Continue with GitHub**. It shows a code: type it on github.com when asked.
+2. Follow the **Get started** checklist: in **Settings → AI** add your Claude plan or an API key, and create a workspace
+   (name, icon, repository).
+3. On the **Board**, create a card (try a small one on a throwaway repository) and press ▶ **Run**.
+
+Stop it with Ctrl+C. To leave agents working for hours, use `npm run start:local` instead (production build, clean
+shutdown). Full guide, settings and troubleshooting: **[docs/setup.md](docs/setup.md)**.
+
+## Where your data lives
+
+In one folder, `~/.techteam/data` by default (`TECHTEAM_DATA_DIR` changes it): the embedded database, your files and the
+secrets TechTeam generates (an encryption key, a session secret, the database password). Nothing needs configuring.
+To move to another computer, run `npm run backup` on the old one and `npm run restore -- <file>` on the new one: one
+`.tar.gz`, no secrets inside, so you sign in with GitHub and enter your AI keys again.
+[docs/setup.md#moving-to-another-computer](docs/setup.md#moving-to-another-computer).
 
 ## Scripts
 
 | Command | What it does |
 | --- | --- |
-| `npm run dev` | Next.js dev server (Turbopack) on port 3000. |
-| `npm run build` | Production build. Must pass before merging. |
-| `npm run start` | Serve the production build. |
-| `npm run db:generate` | After changing `db/schema.ts`: write the SQL migration into `drizzle/` (review it, commit it). |
-| `npm run db:migrate` | Apply pending migrations to the database. See [docs/data-model.md](docs/data-model.md#schema-changes). |
-| `npm run db:baseline` | One time, for a database created with `db:push` before migrations existed: marks the migrations as applied. |
-| `npm run db:push` | Prototyping only: push the schema without a migration. Don't use it on shared or production databases. |
-| `npm run db:studio` | Drizzle Studio: browse and edit data in the browser. |
-| `npm run dev` | The app on port 3000 **and** the Inngest Dev Server, together in one terminal (stopping one stops both). |
-| `npm run dev:app` | Only the app (`next dev --port 3000`). |
-| `npm run inngest:dev` | Only the local Inngest Dev Server, pointed at `/api/inngest`. Required for the agent pipeline (**Run**, auto pickup, auto-merge); `npm run dev` already starts it. |
-| `npm run backup` / `npm run restore -- <file>` | One archive of your database and files (no secrets), and its restore into an empty database. [Moving to another computer](docs/setup.md#moving-to-another-computer--bringing-your-data-from-the-old-setup). |
-| `npm run lint` | ESLint (flat config: Next.js core web vitals + TypeScript). |
-| `npm test` | Unit tests (Vitest). `npm run test:watch` while working. |
-| `npm run check` | Route types (`next typegen`) + type check + lint + tests: run before every commit. CI runs it plus `npm run build` on every push and PR. |
-| `npx next typegen` | Regenerate `PageProps` / `RouteContext` types after adding routes. |
+| `npm run dev` | Embedded database + app on `127.0.0.1:3000` + Inngest Dev Server (`8288`), one terminal. `dev:app` = only the app; `inngest:dev` = only Inngest. |
+| `npm run start:local` | Stable mode: builds when the code changed (`-- --rebuild` forces it), runs the production build, the database and Inngest, stops all on Ctrl+C. |
+| `npm run doctor` | Checks Node, git, ports, database, secrets, GitHub, Claude Code and `.env`; `-- --json` for scripts. |
+| `npm run backup` / `npm run restore -- <file>` | One archive of your database and files (no secrets), restored into an empty database. |
+| `npm run db:local` | Only the embedded database (`npm run dev` starts it for you). |
+| `npm run db:migrate` / `db:generate` / `db:studio` | Apply migrations / write one after editing `db/schema.ts` / browse the data. `db:baseline` and `db:push` are for old or throwaway databases. |
+| `npm run storage:import-s3` | One time: copy files from the old S3 bucket of the hosted version. |
+| `npm run skills:sync` | Maintainers: re-vendor the built-in agent skills at their pinned commits. |
+| `npm run check` | Route types, `tsc`, ESLint and unit tests. Run before every commit; CI also runs the build. |
+| `npm test` / `npm run lint` / `npm run build` | Unit tests (Vitest) / ESLint / production build. |
 
----
+## Security in short
+
+TechTeam listens on `127.0.0.1` only and refuses requests for any other host name. Your GitHub token and AI keys are
+encrypted on disk; backups contain no secrets. Sign-in asks GitHub for the **`repo` scope**, which is broad (every
+repository of the account, private ones included): it is what lets agents push branches, and you can revoke it any time
+in GitHub's settings. Agents only write to their own branches, never to protected paths, and never merge on their own
+unless you choose an automatic merge mode. More: [docs/security.md](docs/security.md).
+
+## Project layout
+
+`app/` routes and server actions, `components/` UI, `lib/` server logic (agents in `lib/agent-*.ts`, `lib/inngest/`,
+`lib/sandbox/`, `lib/doctor/`, `lib/backup/`), `db/` schema, `drizzle/` migrations, `scripts/` the commands above,
+`agent-skills/` vendored built-in skills, `deploy/` the optional sandbox host setup. Details:
+[docs/architecture.md](docs/architecture.md) and [AGENTS.md](AGENTS.md).
 
 ## Documentation
 
-| Guide | Read it to… |
+| Guide | Read it to... |
 | --- | --- |
-| [docs/setup.md](docs/setup.md) | Set up a local environment: every environment variable and external service. |
-| [docs/architecture.md](docs/architecture.md) | Understand the stack, folder layout, request flow, auth and the server/client split. |
-| [docs/data-model.md](docs/data-model.md) | Learn every table and column, constraints, and how schema changes are applied. |
+| [docs/setup.md](docs/setup.md) | Install, settings, data folder, Claude plan and API keys, moving computers, troubleshooting. |
 | [docs/features.md](docs/features.md) | See how each feature behaves, screen by screen. |
-| [docs/github-integration.md](docs/github-integration.md) | Understand the GitHub OAuth connection, repository linking and issue sync rules. |
-| [docs/background-jobs.md](docs/background-jobs.md) | Work with Inngest: the agent job, local dev server, production keys. |
-| [docs/sandbox.md](docs/sandbox.md) | The agent sandbox: how run_tests / run_build / run_command run in gVisor containers, Settings → Sandbox, setting up a host with `deploy/setup.sh`. |
-| [docs/security.md](docs/security.md) | Know how sessions, authorization, secrets and uploads are protected — and the known gaps. |
-| [docs/status.md](docs/status.md) | See what's real, dummy or placeholder, known limitations, and suggested next steps. |
-| [docs/roadmap.md](docs/roadmap.md) | See where the product goes next (phases toward an AI software factory) and how a version is released. |
-| [CHANGELOG.md](CHANGELOG.md) | See what each version added, what was verified live, and its known limitations. |
-| [docs/cli-agents.md](docs/cli-agents.md) | Agents on your Claude plan through a local Claude Code: routes, isolation, the MCP endpoint, plan limits, two computers. |
-| [docs/testing.md](docs/testing.md) | Test the AI agents: simulated mode, providers and models, the test plan with what's verified, techniques and gotchas. |
-| [AGENTS.md](AGENTS.md) | **Coding conventions and the design system** (colors, typography, components). Mandatory reading before changing code — for people and AI agents alike. |
+| [docs/architecture.md](docs/architecture.md) | Understand the stack, folders, request flow, sign-in and the server/client split. |
+| [docs/data-model.md](docs/data-model.md) | Every table and column, and how schema changes are applied. |
+| [docs/github-integration.md](docs/github-integration.md) | The GitHub connection, repository linking and issue sync rules. |
+| [docs/background-jobs.md](docs/background-jobs.md) | Inngest: the agent pipeline, auto pickup, the run sweeper, the pinned Dev Server. |
+| [docs/cli-agents.md](docs/cli-agents.md) | Agents on your Claude plan through Claude Code: routes, isolation, plan limits. |
+| [docs/sandbox.md](docs/sandbox.md) | The optional agent sandbox, previews and the Tester's browser. |
+| [docs/security.md](docs/security.md) | How sessions, secrets and agents are protected, and the known gaps. |
+| [docs/status.md](docs/status.md) | What is real, what is verified, known limitations. |
+| [docs/testing.md](docs/testing.md) | Test the agents: simulated mode, the test plan and what is verified. |
+| [docs/roadmap.md](docs/roadmap.md) | Where the product goes next, and how a version is released. |
+| [docs/local-first-plan.md](docs/local-first-plan.md) | The local-first plan and the state of each phase. |
+| [CHANGELOG.md](CHANGELOG.md) | What each version added. |
+| [AGENTS.md](AGENTS.md) | **Coding conventions and the design system.** Mandatory reading before changing code, for people and AI agents. |
 
----
-
-## Tech stack (short)
+## Tech stack
 
 Next.js 16 (App Router, React 19) · TypeScript (strict) · Tailwind CSS v4 · shadcn/ui on Base UI · Drizzle ORM +
-PostgreSQL · GitHub device-flow sign-in · REST API · local file storage · Inngest · dnd-kit · next-themes.
-Full list and rationale in [docs/architecture.md](docs/architecture.md#stack).
+PostgreSQL (embedded or your own) · GitHub device-flow sign-in · Inngest · dnd-kit · next-themes. Rationale in
+[docs/architecture.md](docs/architecture.md#stack).

@@ -48,14 +48,16 @@ sign in with GitHub ─▶ /workspaces ──(no workspaces)──▶ /workspace
 | Auth | GitHub OAuth device flow (or a personal access token), no remote auth service | Sign-in is also repository access. Stateless signed cookie `tt_session` (`lib/session.ts`, secret in the data dir). The app listens on `127.0.0.1` only and `proxy.ts` refuses foreign `Host` headers. |
 | GitHub | OAuth App, public client id, **no client secret** (`repo read:user`) | `GITHUB_CLIENT_ID` overrides the shipped default (`lib/github-client-id.ts`); tokens are AES-256-GCM encrypted, key in `TOKEN_ENCRYPTION_KEY` or `<data dir>/encryption.key`. |
 | File storage | Local disk (`TECHTEAM_DATA_DIR`, default `~/.techteam/data/files`) | Never public; served through ownership-checked routes. |
-| Jobs | Inngest | `lib/inngest/*`, `app/api/inngest`. |
+| Jobs | Inngest, always the local Dev Server (pinned `inngest-cli@1.53.0`, bound to `127.0.0.1`) | `lib/inngest/*`, `app/api/inngest`: `agent-task-run`, `agent-auto-pickup`, `run-sweep`, `preview-sweep`. No Inngest Cloud. |
+| Operation | `npm run doctor`, `npm run start:local`, `npm run backup` / `restore` | `scripts/` + `lib/doctor`, `lib/backup` (plain `.mjs`, tested). Backups hold no secrets. |
+| Sandbox (optional) | Docker + gVisor on a Docker host | Needs `SANDBOX_DOCKER_HOST` (`deploy/setup.sh`); a Docker-free local mode is phase 8 of `docs/local-first-plan.md`, not built. |
 | AI | OpenAI (`openai` SDK, Responses API), Anthropic (`@anthropic-ai/sdk`, Messages API) and OpenRouter (`openai` SDK, Chat Completions: Google, DeepSeek, Z.ai, xAI, Moonshot models); locally, Claude models can run on the owner's plan through Claude Code (`lib/cli/`, docs/cli-agents.md) | `lib/openai.ts`, `lib/anthropic.ts`, `lib/openrouter.ts`; each agent's model picks the provider, the computer picks the route (plan or key). Optional — features degrade without keys. |
 | Quality | ESLint 9 (flat config, `eslint-config-next`) + Vitest 4 | `npm run check` = typegen + tsc + lint + unit tests. CI: `.github/workflows/ci.yml`. |
 
 ## 3. Commands
 
 ```bash
-npm run dev          # app on http://localhost:3000 + Inngest Dev Server, one terminal (dev:app = only the app)
+npm run dev          # embedded database + app on http://127.0.0.1:3000 + Inngest Dev Server, one terminal (dev:app = only the app)
 npm run build        # production build — must pass before you finish
 npm run check        # next typegen + tsc + eslint + vitest — must pass before you finish (CI runs it + build)
 npm test             # unit tests (Vitest); npm run test:watch while working
@@ -64,6 +66,9 @@ npm run db:generate  # after changing db/schema.ts: write the SQL migration into
 npm run db:migrate   # apply pending migrations
 npm run db:baseline  # once, for a database created with db:push before migrations: mark them applied
 npm run db:studio    # inspect data
+npm run db:local     # only the embedded Postgres (npm run dev starts it when DATABASE_URL is unset)
+npm run backup       # one .tar.gz of the database and files, no secrets (-- --out <file>); npm run restore -- <file> into an empty database
+npm run storage:import-s3  # one time: copy files from the old S3 bucket (needs the old S3_* variables)
 npm run inngest:dev  # only the Inngest Dev Server (pinned version; npm run dev already starts it) — needed by Run, auto pickup, auto-merge
 npm run start:local  # stable mode: production build (rebuilds when the code changed) + database + pinned Inngest, one terminal
 npm run doctor       # checks Node, git, ports, database, secrets, GitHub, Claude Code and .env; `--json`; exit 1 only on a ✗
@@ -253,6 +258,12 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           snapshot, cursor), import.mjs (one transaction, never into a non-empty database), adoption.mjs
                           (github_user_id for sign-in), connection.mjs. s3-source.mjs and storage-key.mjs are shared with
                           import-s3 and lib/storage.ts.
+  doctor/                 Plain .mjs behind `npm run doctor`: checks.mjs (the checks, over injectable probes), probes.mjs (real
+                          probes: ports, database, GitHub, Claude Code), env-hygiene.mjs (obsolete `.env` names, names only),
+                          claude.mjs, report.mjs. Never prints a secret or a value from `.env`. Tested.
+  local-db-config.mjs     The embedded Postgres' settings (data dir, port, secret, ready file); shared by db/index.ts,
+                          drizzle.config.ts and scripts/local-db.mjs. local-stack-config.mjs: start:local's ports, the
+                          pinned Inngest version and the build decision.
   db-errors.ts            Pure: isUniqueViolation (createRun's one-run-per-card guard).
   agent-ai.ts             Config AI (OpenAI if configured, else Anthropic, else OpenRouter): generateAgentConfig() (repo-aware, sandbox-aware instructions),
                           scanAgentWithAI(), reviewSkillWithAI() (upload review + type/load/roles), isConfigAIAvailable().
@@ -365,7 +376,7 @@ scripts/                  doctor.mjs (`npm run doctor`; checks in lib/doctor/*.m
                           from .env), start-local.mjs (`npm run start:local`; ports and build decision in lib/local-stack-config.mjs),
                           local-db.mjs (`db:local`: the embedded Postgres when DATABASE_URL is unset; settings in
                           lib/local-db-config.mjs, shared with db/index.ts and drizzle.config.ts),
-                          backup.mjs / restore.mjs (`npm run backup` / `restore`, docs/setup.md#moving-to-another-computer…;
+                          backup.mjs / restore.mjs (`npm run backup` / `restore`, docs/setup.md#moving-to-another-computer;
                           the logic is in lib/backup/), import-s3.mjs (storage:import-s3),
                           db-baseline.mjs (mark migrations applied on a pushed DB), sync-agent-skills.mjs (skills:sync),
                           cli-isolation-check.mts (agents on the plan: isolation check; spends plan usage, ask first).
@@ -438,8 +449,9 @@ Where new code goes:
 
 **Database**
 - Change `db/schema.ts`, then `npm run db:generate`, read the SQL, `npm run db:migrate`, and commit schema + migration +
-  code together. `db:push` is for throwaway local databases only. Never touch the `auth` schema (owned by the hosted
-  auth service).
+  code together. `db:push` is for throwaway local databases only. Never touch an `auth` schema (left by the removed
+  hosted auth service; drizzle is limited to `public`). Tables and columns the code no longer reads stay until the final
+  cleanup migration ([`docs/data-model.md`](docs/data-model.md#unused-tables-and-columns)): don't build on them.
 - Tables are `snake_case` plural; columns `snake_case` in SQL, `camelCase` in TS. Foreign keys to `users.id` use `onDelete: "cascade"`.
 
 **Tests & lint**
@@ -939,14 +951,18 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
 
 ## 7. Environment variables
 
-See `.env.example` for the full list with comments. Feature-specific:
+Every setting is optional: see `.env.example` and [`docs/setup.md`](docs/setup.md#settings-environment-variables) for the
+full table. Nothing needs a secret in `.env` (the encryption key, the session secret and the database password are
+generated in the data folder). A new variable goes in `docs/setup.md`, `.env.example` and here.
 
 | Variable | Needed for |
 | --- | --- |
+| `NEXT_PUBLIC_APP_URL` | The address the app is opened at (`.env.example` sets `http://localhost:3000`): host guard, cookie `Secure`, the self-call origin and `cliAgentsAllowed` (agents on the plan need a local address). Match it when `TECHTEAM_PORT` moves the port. |
+| `TECHTEAM_PORT`, `TECHTEAM_INNGEST_PORT` | Ports of the app and the Inngest Dev Server for `start:local` and `doctor` (defaults 3000 and 8288). `npm run dev` always uses the defaults. |
 | `GITHUB_CLIENT_ID` | Optional. Client id of the GitHub OAuth App used for sign-in (Device Flow enabled); default: the project's app (`lib/github-client-id.ts`). Public; there is no client secret and no callback URL. |
 | `TOKEN_ENCRYPTION_KEY` | Optional. Encrypts GitHub tokens and AI provider keys (`openssl rand -base64 32`); unset, a key is generated in `<TECHTEAM_DATA_DIR>/encryption.key`. Moving to another computer needs that file (or this value), otherwise reconnect GitHub and re-enter the AI keys. |
 | `TECHTEAM_DATA_DIR` | Where files (logos, screenshots, references) are kept: `<dir>/files`. Default `~/.techteam/data`. |
-| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` | Optional server-wide fallback when neither the owner's account (Settings → AI keys) nor the workspace has a key. |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` | Optional fallback for a company the owner saved no account key for (Settings → AI). |
 | `SANDBOX_DOCKER_HOST`, `SANDBOX_IMAGE` | Agent sandboxes: the Docker host (`ssh://…` to a VPS set up with `deploy/setup.sh`, or the local socket on it). Unset: Settings → Sandbox can't be switched on. |
 | `SANDBOX_PREVIEW_DOMAIN`, `SANDBOX_BROWSER_IMAGE` | PR previews at `pr-<n>-<random>.<domain>` (wildcard DNS to the sandbox host) and the sandbox browser image (the Tester's browser, link captures). Unset domain: previews can't be switched on. |
 | `AGENTS_SIMULATED` | Local testing: `true` runs the pipeline with scripted agents (`lib/agent-simulated.ts`) — no model calls or spend, but real GitHub work (branch, `agent-simulations/<branch>.md`, PR). |
