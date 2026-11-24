@@ -2,20 +2,14 @@ import "server-only";
 
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 
+import { getEncryptionKey } from "@/lib/secrets";
+
 /**
- * AES-256-GCM for secrets at rest (GitHub access tokens).
- * Key: TOKEN_ENCRYPTION_KEY, 32 random bytes as base64 — `openssl rand -base64 32`.
+ * AES-256-GCM for secrets at rest (GitHub access tokens, AI provider keys). The key comes from lib/secrets.ts.
  * Output format: `v1.<iv>.<authTag>.<ciphertext>` (base64url parts).
  */
 
-function key() {
-  const raw = process.env.TOKEN_ENCRYPTION_KEY;
-  const buf = raw ? Buffer.from(raw, "base64") : null;
-  if (!buf || buf.length !== 32) {
-    throw new Error("TOKEN_ENCRYPTION_KEY must be 32 bytes encoded as base64 (openssl rand -base64 32).");
-  }
-  return buf;
-}
+const key = getEncryptionKey;
 
 export function encrypt(plaintext: string) {
   const iv = randomBytes(12);
@@ -34,7 +28,7 @@ export function decrypt(payload: string) {
 
 /**
  * A stable secret for `label` (e.g. the credential an outside service uses to call one agent's endpoint), derived
- * from TOKEN_ENCRYPTION_KEY so nothing extra is stored. Rotating the key changes every derived secret.
+ * from the encryption key so nothing extra is stored. Replacing the key changes every derived secret.
  */
 export function deriveSecret(label: string) {
   return createHmac("sha256", key()).update(label).digest("base64url");
