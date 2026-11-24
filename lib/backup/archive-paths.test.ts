@@ -1,9 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { checkListing, classifyEntry, pairTypes } from "./archive-paths.mjs";
+import { checkListing, classifyEntry, pairTypes, splitLines } from "./archive-paths.mjs";
 
 const tables = new Set(["users", "tasks"]);
 const entry = (name: string, type = "-") => ({ name, type });
+
+describe("splitLines", () => {
+  it("splits LF and CRLF listings without leaving a \\r on a name (Windows' own tar prints CRLF)", () => {
+    expect(splitLines("files/\nfiles/a/\nmanifest.json\n")).toEqual(["files/", "files/a/", "manifest.json"]);
+    expect(splitLines("files/\r\nfiles/a/\r\nmanifest.json\r\n")).toEqual(["files/", "files/a/", "manifest.json"]);
+    expect(splitLines("")).toEqual([]);
+  });
+
+  it("lets a CRLF listing pair with its verbose listing and pass the checks", () => {
+    const names = splitLines("manifest.json\r\ntables/\r\n");
+    const pairs = pairTypes("-rw-r--r-- 0/0 10 2026-01-01 00:00 manifest.json\r\ndrwxr-xr-x 0/0 0 2026-01-01 00:00 tables/\r\n", names);
+    expect(pairs).toEqual([entry("manifest.json"), entry("tables/", "d")]);
+    expect(checkListing(pairs, tables).problems).toEqual([]);
+  });
+});
 
 describe("classifyEntry", () => {
   it("accepts the manifest, table files, stored files and their folders", () => {
