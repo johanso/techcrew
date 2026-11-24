@@ -8,7 +8,13 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+### Changed
+- **Files are stored on your computer**, not in an S3 bucket: workspace logos, the Tester's screenshots and card
+  references live in `~/.techteam/data/files` (`TECHTEAM_DATA_DIR` changes the folder). The `S3_*` variables are gone and
+  logo and reference uploads are always available.
+
 ### Added
+- `npm run storage:import-s3` copies your existing files from the old bucket once, without deleting anything there.
 - **Agents on your Claude plan** (only when TechTeam runs on your computer): Settings → AI → *Plans on this computer*
   routes the agents on Claude models through **Claude Code** signed in with your own plan, instead of an Anthropic API
   key. Agents keep their model; the route is per computer. TechTeam uses its own Claude Code login

@@ -245,7 +245,7 @@ export async function reorderTasks(workspace: BoardWorkspace, columns: Partial<R
 /**
  * Takes a card off the board. The row stays as a tombstone: keys are never reused, and the next sync
  * doesn't import a GitHub issue again (the issue itself stays open on GitHub). Its references are deleted (rows, then
- * S3 objects, best effort). False if it's already gone.
+ * stored files, best effort). False if it's already gone.
  */
 export async function removeTask(workspace: BoardWorkspace, taskId: number) {
   const removed = await db

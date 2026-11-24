@@ -96,7 +96,7 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
 
 ### v0.7 — Card references and sandbox polish ✅
 The owner designs and specifies outside TechTeam (a design tool, a document); the agents build from it.
-- **References on cards**: images, Markdown, text and PDFs (files and PDF text in S3, removed with the card), and
+- **References on cards**: images, Markdown, text and PDFs (files and PDF text on local disk, removed with the card), and
   **links captured once** by the sandbox browser behind a checking proxy (desktop and mobile screenshots plus an
   outline). Agents read them with `list_references` / `read_reference`; Run refuses when a stage's model can't see them
   (live runs 52, AJU-22, AJU-23).

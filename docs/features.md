@@ -51,8 +51,7 @@ A three-step form with a live preview card on top:
 
 1. **Name** — required, up to 60 characters.
 2. **Icon or logo** — pick one of 16 icons, or **Upload custom logo** (PNG, JPG, WebP or GIF, up to 1 MB; SVG is
-   deliberately not allowed). A logo replaces the icon; **Remove** goes back to the icon. Upload is disabled when S3
-   isn't configured.
+   deliberately not allowed). A logo replaces the icon; **Remove** goes back to the icon. Logos are stored on this computer.
 3. **Link a GitHub repository** — **Connect GitHub** sends you through GitHub's authorization page and back. Once
    connected you see "Connected as @login" (with **Disconnect**) and a searchable list of your repositories.
    Only repositories you can **push** to and that aren't archived are listed (up to 300, most recently pushed
@@ -210,8 +209,7 @@ belong to the board, not to the issue). A new card says "Save the card to add re
   is stored. Without a sandbox host the input is disabled and says why. Links count toward the 10.
 - **PDFs** are read once, at upload: the text of up to 100 pages (300,000 characters) is kept for the agents. A scanned
   PDF has no text; the agents are told so.
-- **Removing the card** deletes its references, files included. Without file storage on the server (`S3_*`), the
-  section says references can't be added.
+- **Removing the card** deletes its references, files included.
 
 **What the agents do with them.** Every agent gets `list_references` and `read_reference` on a card with references,
 like skills: Markdown, text and PDF text come back as text (in pages), images as the image itself, a link as its

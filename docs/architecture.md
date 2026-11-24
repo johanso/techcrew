@@ -29,7 +29,7 @@ How the app is put together. For coding conventions and the design system, see [
 | Database | **PostgreSQL** + **Drizzle ORM** (`postgres` driver) | Schema in `db/schema.ts`; SQL migrations in `drizzle/` (`db:generate`, `db:migrate`). |
 | Auth | **Hosted Better Auth** on CloudHike | Called over HTTP from `lib/auth.ts` (no SDK). |
 | GitHub | OAuth App + REST API v3 (`2022-11-28`) | Plain `fetch` in `lib/github.ts`; no Octokit. |
-| File storage | AWS S3 (`@aws-sdk/client-s3`) | Private bucket for workspace logos, the Tester's screenshots and card references. |
+| File storage | Local disk (`TECHTEAM_DATA_DIR`) | Workspace logos, the Tester's screenshots and card references, in `files/`. |
 | Background jobs | **Inngest** v3 | Durable functions served at `/api/inngest`. |
 | Background HTTP jobs | **Cloudhike Jobs** | SwitchAgent scans: a job calls `/api/switch-trust/scans/<id>` back (`lib/jobs.ts`). |
 | Agent sandboxes | **Docker** + **gVisor** on a VPS | The `docker` CLI over SSH (`SANDBOX_DOCKER_HOST`), no SDK; throwaway containers per call (`lib/sandbox/`). See [sandbox.md](sandbox.md). |
@@ -81,10 +81,10 @@ lib/                         Server logic (most files start with `import "server
   board-config.ts            Board vocabulary shared by server and client (no server-only)
   crypto.ts                  AES-256-GCM encrypt/decrypt
   ai-keys.ts                 Workspace AI provider keys (encrypted; env fallback), verification, masking
-  storage.ts                 S3 uploads, reads and deletes
+  storage.ts                 Local file uploads, reads and deletes
   reference-config.ts        Card references: kinds, limits, type by magic bytes, image size, what agents read (pure, shared)
-  references.ts              Card references: upload (S3 + PDF text), list, remove, delete with the card; agent reads
-  reference-images.ts        Reference images as model input per provider, placeholders hydrated from S3 (pure)
+  references.ts              Card references: upload (file + PDF text), list, remove, delete with the card; agent reads
+  reference-images.ts        Reference images as model input per provider, placeholders hydrated from local storage (pure)
   reference-pdf.ts           PDF text at upload (unpdf, page and character caps)
   agents.ts                  Agents persistence, team view, activity/spend ledger, task key prefix
   agent-config.ts            Agent roles, permissions, models (shared client/server)
@@ -170,7 +170,7 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | `/api/auth/social/[provider]` | GET | Starts GitHub/Google sign-in with the hosted auth service. `provider` ∈ `github`, `google`. |
 | `/api/github/connect` | GET | Starts the GitHub OAuth flow for repository access (state + PKCE). |
 | `/api/github/callback` | GET | GitHub OAuth callback: verifies state, stores the encrypted token. |
-| `/api/workspaces/[id]/logo` | GET | Streams a workspace logo from S3 to its owner. |
+| `/api/workspaces/[id]/logo` | GET | Streams a workspace logo from local storage to its owner. |
 | `/api/inngest` | GET/POST/PUT | Inngest `serve()` endpoint (function registry and execution). |
 | `/api/switch-trust/scans/[scanId]` | POST | Cloudhike job target: advances one SwitchAgent scan (single-use bearer token). |
 | `/api/switch-trust/agents/[agentId]/v1/chat/completions` | POST | OpenAI-compatible endpoint Switch Trust evaluates an agent through (per-agent derived bearer credential; also at the base path and `/chat/completions`). |
@@ -304,7 +304,7 @@ The full design system — palette table, contrast rules, typography scale, layo
 | --- | --- | --- |
 | Auth service | `lib/auth.ts` (server only) | Friendly form errors; `503` → "temporarily unavailable". |
 | GitHub | `lib/github.ts`, `lib/github-issues.ts` | `401` → "reconnect", `403/404` → "no access", others → retry later. See [github-integration.md](github-integration.md). |
-| S3 | `lib/storage.ts` | Upload errors fail workspace creation with a generic message; read errors → 404 for the logo. |
+| Local files | `lib/storage.ts` | Write errors fail workspace creation with a generic message; read errors → 404 for the logo. |
 | Inngest | `lib/inngest/*`, `/api/inngest` | `send` failure → Run shows an error, the run is marked failed and nothing moves. See [background-jobs.md](background-jobs.md). |
 | Sandbox host (Docker over SSH) | `lib/sandbox/*` | Unset `SANDBOX_DOCKER_HOST` → Settings can't turn it on and agents get no run tools. An unreachable host or a timeout comes back to the agent as a failed run ("Failed while preparing the checkout", "Timed out…"), never as a stage error. See [sandbox.md](sandbox.md). |
 | Claude Code (local CLI) | `lib/cli/*`, `/api/mcp/runs/[runId]` | Only when TechTeam runs locally. Missing, signed out or on another account → the stage takes the API key or Run refuses with the fix; a crash retries the step and resumes the session; the plan running out follows the owner's choice. See [cli-agents.md](cli-agents.md). |

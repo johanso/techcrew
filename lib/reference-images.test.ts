@@ -186,7 +186,7 @@ describe("OpenRouter (Chat Completions)", () => {
 describe("memoLoader", () => {
   it("loads each image once per request and turns failures into a missing image", async () => {
     const inner = vi.fn(async (image: ToolImage) => {
-      if (image.kind === "reference" && image.id === 2) throw new Error("S3 down");
+      if (image.kind === "reference" && image.id === 2) throw new Error("disk error");
       return PNG;
     });
     const memo = memoLoader(inner);

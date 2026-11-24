@@ -25,14 +25,12 @@ export function AppearancePicker({
   onIconChange,
   logo,
   onLogoChange,
-  uploadsEnabled,
   error,
 }: {
   icon: WorkspaceIconKey;
   onIconChange: (icon: WorkspaceIconKey) => void;
   logo: File | null;
   onLogoChange: (logo: File | null) => void;
-  uploadsEnabled: boolean;
   error?: string;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
@@ -98,7 +96,6 @@ export function AppearancePicker({
           type="button"
           variant="outline"
           className="h-9"
-          disabled={!uploadsEnabled}
           onClick={() => fileInput.current?.click()}
         >
           <ImageUpIcon />
@@ -111,11 +108,7 @@ export function AppearancePicker({
           </Button>
         )}
         <p className="text-xs text-muted-foreground">
-          {uploadsEnabled
-            ? logo
-              ? `${logo.name} · replaces the icon`
-              : "PNG, JPG, WebP or GIF · up to 1 MB · square works best"
-            : "Logo uploads are unavailable until file storage is configured."}
+          {logo ? `${logo.name} · replaces the icon` : "PNG, JPG, WebP or GIF · up to 1 MB · square works best"}
         </p>
       </div>
 

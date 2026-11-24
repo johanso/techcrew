@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 
 import { requireUser } from "@/lib/current-user";
 import { GithubError, deleteGithubConnection, getGithubToken, getLinkableRepo } from "@/lib/github";
-import { LOGO_MAX_BYTES, isAllowedLogoType, isStorageConfigured, uploadWorkspaceLogo } from "@/lib/storage";
+import { LOGO_MAX_BYTES, isAllowedLogoType, uploadWorkspaceLogo } from "@/lib/storage";
 import { isWorkspaceIcon } from "@/lib/workspace-icons";
 import { insertWorkspace } from "@/lib/workspaces";
 
@@ -31,7 +31,6 @@ export async function createWorkspace(_prev: WorkspaceFormState, formData: FormD
   if (!isWorkspaceIcon(icon)) errors.icon = "Choose an icon.";
   if (logoFile && !isAllowedLogoType(logoFile.type)) errors.logo = "Upload a PNG, JPG, WebP or GIF image.";
   else if (logoFile && logoFile.size > LOGO_MAX_BYTES) errors.logo = "The logo must be 1 MB or smaller.";
-  else if (logoFile && !isStorageConfigured()) errors.logo = "Logo uploads aren't configured yet. Pick an icon instead.";
   if (!REPO_FULL_NAME.test(repoFullName)) errors.repo = "Select the repository this workspace will work on.";
   if (Object.keys(errors).length) return { errors };
 

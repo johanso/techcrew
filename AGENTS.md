@@ -47,7 +47,7 @@ sign-in / sign-up ─▶ /workspaces ──(no workspaces)──▶ /workspaces/
 | Database | PostgreSQL + Drizzle ORM | Schema in `db/schema.ts`; SQL migrations in `drizzle/` (`db:generate` → `db:migrate`). |
 | Auth | Hosted Better Auth (CloudHike) | Token in an HTTP-only cookie; see `lib/auth.ts`. |
 | GitHub | OAuth App (`repo read:user`) | Separate from social sign-in; tokens are AES-256-GCM encrypted. |
-| File storage | Private S3 bucket | Never public; served through ownership-checked routes. |
+| File storage | Local disk (`TECHTEAM_DATA_DIR`, default `~/.techteam/data/files`) | Never public; served through ownership-checked routes. |
 | Jobs | Inngest | `lib/inngest/*`, `app/api/inngest`. |
 | AI | OpenAI (`openai` SDK, Responses API), Anthropic (`@anthropic-ai/sdk`, Messages API) and OpenRouter (`openai` SDK, Chat Completions: Google, DeepSeek, Z.ai, xAI, Moonshot models); locally, Claude models can run on the owner's plan through Claude Code (`lib/cli/`, docs/cli-agents.md) | `lib/openai.ts`, `lib/anthropic.ts`, `lib/openrouter.ts`; each agent's model picks the provider, the computer picks the route (plan or key). Optional — features degrade without keys. |
 | Quality | ESLint 9 (flat config, `eslint-config-next`) + Vitest 4 | `npm run check` = typegen + tsc + lint + unit tests. CI: `.github/workflows/ci.yml`. |
@@ -79,8 +79,8 @@ app/
     auth/social/[provider]/   Starts GitHub/Google sign-in (hosted auth).
     github/connect/           Starts GitHub OAuth for repository access (state + PKCE).
     github/callback/          Finishes it; stores the encrypted token.
-    workspaces/[id]/logo/     Streams a workspace logo from S3 to its owner.
-    workspaces/[id]/references/[referenceId]/  Streams a card reference from S3 to the workspace owner (sandboxed).
+    workspaces/[id]/logo/     Streams a workspace logo from local storage to its owner.
+    workspaces/[id]/references/[referenceId]/  Streams a card reference from local storage to the workspace owner (sandboxed).
     inngest/                  Inngest handler (serves the agent pipeline and auto pickup).
     mcp/runs/[runId]/         TechTeam's MCP endpoint for a CLI agent's stage (local only; per-run bearer): lists and
                               calls the stage's tools (lib/cli/stage-mcp.ts).
@@ -178,7 +178,7 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   ai-keys.ts              AI provider keys: getAIKeys (owner's account key, else workspace key, else env; keyInUse),
                           getProviderKeyViews (masked), verifyProviderKey, saveProviderKey / removeProviderKey (account
                           or workspace scope, encrypted).
-  storage.ts              S3 uploads/reads/deletes (logos, screenshots, card references), logo limits.
+  storage.ts              Local files under TECHTEAM_DATA_DIR/files (logos, screenshots, card references): uploads/reads/deletes by validated relative key, atomic writes, logo limits.
   workspaces.ts           Workspace queries (always scoped by owner) + getDashboardContext().
   overview.ts             getOverviewData(): stats + upcoming tasks from getBoardData, recent work activity.
   activity.ts             getActivityFeed(): agent_activity + cards people created + task_events, newest first;
@@ -311,12 +311,12 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   reference-config.ts     Card references vocabulary shared by server + client: kinds, limits, detectReferenceFormat (magic
                           bytes), imageDimensions, validateReference, ReferenceView, what agents read (list, paged text,
                           notes, LINK_FRAME + linkAttached), referenceVisionStages + referenceVisionProblem. Pure, tested.
-  references.ts           Card references persistence: addTaskReference (validate → S3 → PDF text → row under a card
-                          lock), addLinkReference (capture → 2 JPEGs + outline in S3 → row), listTaskReferences,
+  references.ts           Card references persistence: addTaskReference (validate → local file → PDF text → row under a card
+                          lock), addLinkReference (capture → 2 JPEGs + outline as files → row), listTaskReferences,
                           removeTaskReference, deleteTaskReferences (card removed), getReferenceCounts,
                           getOwnedReferenceFile (route); agents: getAgentReferences, readReferenceForAgent,
                           taskHasVisualReferences, loadReferenceImage (image, or a link's desktop / mobile), loadImageObject.
-  reference-images.ts     Pure: images as model input per provider, as placeholders hydrated from S3 per request
+  reference-images.ts     Pure: images as model input per provider, as placeholders hydrated from local storage per request
                           (`techteam-reference:<id>[:desktop|:mobile]`, `techteam-screenshot:<uuid>` for the run's own
                           browser screenshots; OpenAI function_call_output, Anthropic tool_result, OpenRouter user
                           message after the tool messages). Tested.
@@ -394,12 +394,12 @@ Where new code goes:
 - Re-validate external state at write time (e.g. `createWorkspace` re-reads the repo from GitHub instead of trusting client data).
 
 **Secrets & external services**
-- GitHub tokens are stored only via `saveGithubConnection` (encrypted) and read only via `getGithubToken`. Never send a token, ciphertext or S3 key to the client.
+- GitHub tokens are stored only via `saveGithubConnection` (encrypted) and read only via `getGithubToken`. Never send a token, ciphertext or storage key to the client.
 - AI provider keys are stored only via `saveProviderKey` (verified with the provider, encrypted; on the account, used by
   every workspace the user owns, or on one workspace, used only when the account has none) and read only via
   `getAIKeys`. The client only ever gets `ProviderKeyView` (masked hints + the source in use); the show/hide eye applies to what the
   user is typing, never to a saved key. Model calls take the key as an argument (`openAIClient(key)`, `anthropicClient(key)`).
-- Uploaded files go to private S3 via `lib/storage.ts`. Allowed logo types: PNG, JPEG, WebP, GIF, ≤ 1 MB. No SVG (script risk).
+- Uploaded files go to local disk via `lib/storage.ts` (keys are relative, validated, and the only thing the database holds). Allowed logo types: PNG, JPEG, WebP, GIF, ≤ 1 MB. No SVG (script risk).
 - Handle a GitHub `401` as "connection expired": prompt the user to reconnect.
 - New env vars must be added to `.env.example` with a placeholder and a comment. Never put real credentials in `.env.example`.
 
@@ -576,9 +576,9 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   - **Type by content**, never the name alone (`detectReferenceFormat`): PNG/JPEG/WebP, UTF-8 Markdown/text, PDF. No
     SVG. Limits live in `lib/reference-config.ts` only (10 per card; image 5 MB, text 1 MB, PDF 5 MB). The dialog sends
     one file per Server Action call so each fits `serverActions.bodySizeLimit` (6 MB).
-  - **Files and PDF text live in S3** (`card-references/<workspace>/<task>/<uuid>.<ext>`); `task_references` keeps a
+  - **Files and PDF text live on local disk** (`card-references/<workspace>/<task>/<uuid>.<ext>`); `task_references` keeps a
     small row. Never put file content or base64 in the database. Served only by the owner-checked route.
-  - **Removing a card deletes its references** (`removeTask` → `deleteTaskReferences`: rows, then S3 best effort, logged).
+  - **Removing a card deletes its references** (`removeTask` → `deleteTaskReferences`: rows, then files best effort, logged).
   - The board card shows a paperclip + `BoardCard.references` (count); the dialog reports changes back to the board.
   - **Links** (`kind: "link"`, [`docs/sandbox.md`](docs/sandbox.md#link-captures)): captured **once**, when added, by
     the sandbox browser (`captureLink`): desktop and mobile JPEGs (`storage_key`, `mobile_key`) and an outline
@@ -730,7 +730,7 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     (`BROWSER_IMAGE`) carries a scripts revision: bump it when anything in `deploy/browser/` changes.
   - **References** (`list_references`, `read_reference`): offered in every stage when the card has references, read-only,
     loaded every turn. Text and PDF text come back paged; images as image input, **never stored**: the conversation
-    (and OpenAI's pending outputs) keep a placeholder that `lib/reference-images.ts` hydrates from S3 per request (a
+    (and OpenAI's pending outputs) keep a placeholder that `lib/reference-images.ts` hydrates from local storage per request (a
     removed reference becomes a note). Keep the fixed-position rules of `agent_run_messages`. A model without `vision`
     gets a note instead of the image. The agent log keeps the reference's name only. The protocol frames references as
     the owner's requirements but data; the Analyst's brief lists the ones to follow (`AnalystBrief.references`).
@@ -918,7 +918,7 @@ See `.env.example` for the full list with comments. Feature-specific:
 | --- | --- |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Connecting GitHub on `/workspaces/new`. OAuth App callback: `<NEXT_PUBLIC_APP_URL>/api/github/callback`. |
 | `TOKEN_ENCRYPTION_KEY` | Encrypting GitHub tokens and AI provider keys (`openssl rand -base64 32`). Rotating it forces every user to reconnect GitHub and re-enter their AI keys. |
-| `S3_*` | Workspace logo uploads. Without them the upload button is disabled; icons still work. |
+| `TECHTEAM_DATA_DIR` | Where files (logos, screenshots, references) are kept: `<dir>/files`. Default `~/.techteam/data`. |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` | Optional server-wide fallback when neither the owner's account (Settings → AI keys) nor the workspace has a key. |
 | `JOBS_API_URL`, `JOBS_API_KEY` | Cloudhike Jobs: runs SwitchAgent scans in the background. |
 | `PUBLIC_APP_URL` | The app's internet-reachable URL for callbacks (jobs, Switch evaluations); defaults to `NEXT_PUBLIC_APP_URL`. A tunnel in local dev. |
