@@ -16,7 +16,7 @@ import {
 // ── Search ─────────────────────────────────────────────────────────────────────
 
 export type SearchableFile = { path: string; title: string; summary: string };
-export type SkillMatch = SearchableFile & { score: number };
+export type SkillMatch<T extends SearchableFile = SearchableFile> = T & { score: number };
 
 const STOPWORDS = new Set(["a", "an", "the", "to", "of", "for", "with", "and", "or", "in", "on", "how", "use", "using", "my", "your", "is", "be", "by", "it"]);
 
@@ -42,11 +42,11 @@ function matches(term: string, haystack: string[]) {
  * Files of one skill ranked for a query: title words weigh most, then path segments, then the summary. Files that
  * match no term are left out. Ties keep path order.
  */
-export function rankSkillFiles(files: SearchableFile[], query: string, limit = SEARCH_SKILL_RESULTS): SkillMatch[] {
+export function rankSkillFiles<T extends SearchableFile>(files: T[], query: string, limit = SEARCH_SKILL_RESULTS): SkillMatch<T>[] {
   const terms = [...new Set(words(query))];
   if (!terms.length) return [];
   const phrase = terms.join(" ");
-  const ranked: SkillMatch[] = [];
+  const ranked: SkillMatch<T>[] = [];
   for (const file of files) {
     const title = words(file.title);
     const path = words(file.path.replace(/\.(md|txt)$/i, ""));
