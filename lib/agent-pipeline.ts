@@ -3,7 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 
 import { NonRetriableError } from "inngest";
-import { and, desc, eq, isNotNull, lt } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, lt } from "drizzle-orm";
 import type { FunctionTool } from "openai/resources/responses/responses";
 
 import { agentActivity, agentRuns, agentRunSteps, db, pullRequests, tasks, workspaces, type AgentRow } from "@/db";
@@ -58,10 +58,13 @@ import {
   appendRunStep,
   clearCliResult,
   countStageToolCalls,
+  failIdleRun,
   finishRun,
+  getEndedStages,
   getRun,
   markStageRunning,
   placeTask,
+  releaseTask,
   readCliResult,
   savePreviewStep,
   saveRunSteps,
@@ -125,6 +128,7 @@ import {
 } from "@/lib/github";
 import { continuationNote } from "@/lib/merge-config";
 import { agentLogHref, notify } from "@/lib/notifications";
+import { interruptedNotice } from "@/lib/run-recovery-config";
 import { isOpenAIOutOfCredit } from "@/lib/openai";
 import { isOpenRouterOutOfCredit } from "@/lib/openrouter";
 import { sandboxAvailable } from "@/lib/sandbox";
@@ -895,7 +899,7 @@ export async function agentOnPlan(workspace: RouteWorkspace, key: AgentKey) {
  * The companies whose models this computer can run on the owner's plan without an API key (AI Team's model picker
  * shows them as "Your plan" and lets the owner pick them). Empty on a deploy or with no plan switched on.
  */
-export async function planProvidersHere(workspace: RouteWorkspace): Promise<Partial<Record<AgentProvider, boolean>>> {
+export async function planProvidersHere(workspace: Pick<RouteWorkspace, "ownerId">): Promise<Partial<Record<AgentProvider, boolean>>> {
   if (!cliAgentsAvailable() || isSimulatedAgents()) return {};
   const cli = await claudeMachineState(workspace.ownerId);
   if (!cli) return {};
@@ -1519,6 +1523,49 @@ export async function stopRun(
     href: failure?.kind === "out_of_credit" ? `/dashboard/${ctx.workspace.id}/board` : agentLogHref(ctx.workspace.id, ctx.task.id),
     taskId: ctx.task.id,
   });
+}
+
+/**
+ * Ends a run TechTeam left behind (lib/run-sweep.ts): failed with `interrupted`, the stages still open closed in the
+ * agent log and the activity feed, the card released, the owner told once. Returns false when another sweep (or the
+ * run itself) got there first, so nothing is done twice.
+ */
+export async function stopInterruptedRun(runId: number, idleBefore: Date) {
+  const ctx = await loadRunContext(runId);
+  if (!ctx) return false;
+  const notice = interruptedNotice(ctx.key);
+  if (!(await failIdleRun(runId, idleBefore, notice.body, { kind: "interrupted" }))) return false;
+
+  const phase = ctx.run.stage;
+  const stages = isRunStage(phase) ? PHASE_META[phase].agents.map((agent) => AGENT_STAGE[agent]) : [];
+  const ended = (await getEndedStages([{ id: runId, reworkRounds: ctx.run.reworkRounds }])).get(runId) ?? [];
+  for (const stage of stages.filter((s) => !ended.includes(s))) {
+    // The stage's activity row is still titled with its verb ("Implementing ROA-2"): finished stages are retitled.
+    const [open] = await db
+      .select({ id: agentActivity.id })
+      .from(agentActivity)
+      .where(
+        and(
+          eq(agentActivity.taskId, ctx.task.id),
+          eq(agentActivity.kind, "task_run"),
+          eq(agentActivity.title, `${STAGE_META[stage].verb} ${ctx.key}`),
+          gte(agentActivity.createdAt, ctx.run.startedAt)
+        )
+      )
+      .orderBy(desc(agentActivity.id))
+      .limit(1);
+    if (open) await updateAgentActivity(open.id, { title: "Stopped", detail: notice.body });
+    await logStageStop(ctx, stage, notice.body, open?.id ?? null);
+  }
+  await releaseTask(ctx.workspace.id, ctx.task.id);
+  await notify(ctx.workspace.id, {
+    kind: "interrupted",
+    title: notice.title,
+    body: notice.body,
+    href: agentLogHref(ctx.workspace.id, ctx.task.id),
+    taskId: ctx.task.id,
+  });
+  return true;
 }
 
 /** The agent stage of a phase with one agent (null for review, which has two, and merge, which has none). */

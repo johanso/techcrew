@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, inArray, isNull, max, min, ne, notExists, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, max, min, ne, notExists, sql } from "drizzle-orm";
 
 import { agentRunSteps, agentRuns, db, pullRequests, taskReferences, tasks, workspaces, type AgentRunRow } from "@/db";
 import type { AgentKey, AgentModelId } from "@/lib/agent-config";
@@ -108,6 +108,10 @@ export async function markStageRunning(runId: number, phase: RunStage) {
 export async function finishRun(runId: number, status: RunStatus, error: string | null = null, failure: RunFailure | null = null) {
   const terminal = status !== "awaiting_merge";
   await updateRun(runId, { status, error, failure, waiting: null, cliResults: null, ...(terminal ? { finishedAt: new Date() } : {}) });
+  releaseRunResources(runId, status);
+}
+
+function releaseRunResources(runId: number, status: RunStatus) {
   // No agent works on the run any more (a merge needs no sandbox): free its checkout in the background, and the
   // working folder of its CLI sessions on this computer.
   void removeRunSandbox(runId);
@@ -117,6 +121,24 @@ export async function finishRun(runId: number, status: RunStatus, error: string 
   if (status === "cancelled" || status === "completed") {
     void stopRunPreview(runId, status === "cancelled" ? "The run was stopped." : "The pull request was merged.");
   }
+}
+
+/**
+ * Fails a run that was left behind (lib/run-sweep.ts), only if it is still queued or running, not waiting for the
+ * owner's plan and not updated since `idleBefore`. One conditional update, so two sweeps (or a run that came back to
+ * life) can't end it twice: returns whether this call ended it.
+ */
+export async function failIdleRun(runId: number, idleBefore: Date, error: string, failure: RunFailure) {
+  const rows = await db
+    .update(agentRuns)
+    .set({ status: "failed", error, failure, waiting: null, cliResults: null, finishedAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(eq(agentRuns.id, runId), inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]), isNull(agentRuns.waiting), lt(agentRuns.updatedAt, idleBefore))
+    )
+    .returning({ id: agentRuns.id });
+  if (!rows.length) return false;
+  releaseRunResources(runId, "failed");
+  return true;
 }
 
 /** What the run waits for outside itself (the owner's plan to reset), or null when it stopped waiting. */
