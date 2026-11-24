@@ -424,11 +424,7 @@ card runs. Security and Lead are read-only by default (read the repository, issu
   trust scans) and **Skills** (only the skills this agent has on, with type, load and source badges and a switch
   that saves at once; one switched off stays listed until the dialog closes, so it can be switched back; **Add a
   skill** opens a search over the rest of the library, *Recommended* ones for the role first, up to 8 results; a
-  warning when a skill assumes a permission the agent lacks; **Manage skills** → Settings → Agent skills). Saving logs exactly what changed and re-scores the agent. With **Switch Trust** connected the panel
-  becomes the **Switch Trust Score**: **SwitchAgent Scan** queues one Switch evaluation of the agent in the background
-  (the card and panel say "Scanning…" and the page refreshes itself until the score lands), shows tests held, OWASP
-  coverage, findings, a failed scan's reason, and a note when the configuration changed after the scan. See
-  [switch-trust.md](switch-trust.md).
+  warning when a skill assumes a permission the agent lacks; **Manage skills** → Settings → Agent skills). Saving logs exactly what changed and re-scores the agent.
 - **View activity** (drawer) — this month's event count and spend, open cards, then events grouped by day: joined,
   configuration changes, pauses, AI drafts and scans (with their cost), cards assigned by Run, each pipeline stage
   (with its cost and turn count), pull requests opened/merged and follow-up issues filed.
@@ -602,11 +598,6 @@ This workspace:
 - **Sandbox** (`#sandbox`) — **Let agents run code in the sandbox** (off by default; needs a sandbox host on the
   server) and the **install / test / build** commands, prefilled from `package.json`. **Test the sandbox** runs them on
   the default branch and shows the result. See [sandbox.md](sandbox.md).
-- **Switch Trust** (`#switch`) — connect the workspace's Switch account: API key (masked, show/hide), instance URL,
-  tenant and workspace IDs (detected from the key), **Connect securely**. Connecting checks the key with Switch and
-  starts a SwitchAgent scan of every agent; the status line shows the masked key and the evaluation each agent
-  runs; **Disconnect** asks first. A warning explains when this server can't run scans (no jobs config or a local URL).
-  **Scan every week** (toggle, on by default) re-scans every agent each Monday.
 - **Agent skills** (`#skills`) — a summary card (installed and uploaded counts) with **Manage skills**, which opens the library page; see [Agent skills](#agent-skills).
 
 Account and workspace details are read-only.

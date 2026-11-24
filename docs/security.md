@@ -87,17 +87,6 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
   code), `require_parameters` (only hosts that support tools and structured output) and no 4-bit quantizations.
   Hosts don't all enforce strict schemas, so the finish call is checked again (`parseFinishArguments`).
 
-## Switch Trust
-
-- The Switch key is stored like the AI provider keys (encrypted, masked hint only, checked with Switch before saving).
-- Switch reaches each agent at a public endpoint (`/api/switch-trust/agents/<id>/…`) protected by a per-agent bearer
-  credential derived from `TOKEN_ENCRYPTION_KEY` (HMAC), compared in constant time. Only Switch receives it. The
-  endpoint answers with the agent's own instructions as the system prompt (tests can't replace it), no tools, capped
-  output, and refuses an agent over its monthly budget.
-- Cloudhike jobs call `/api/switch-trust/scans/<id>` with a random single-use token; only its sha256 is stored and it
-  is rotated per job and cleared when the scan ends.
-- Test conversations are attacker-written: they're never stored or shown, only counts and Switch's categories.
-
 ## Agents
 
 The pipeline acts on the repository with the workspace owner's token, so its guardrails live in code, not prompts:

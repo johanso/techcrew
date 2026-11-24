@@ -84,9 +84,6 @@ app/
     inngest/                  Inngest handler (serves the agent pipeline and auto pickup).
     mcp/runs/[runId]/         TechTeam's MCP endpoint for a CLI agent's stage (local only; per-run bearer): lists and
                               calls the stage's tools (lib/cli/stage-mcp.ts).
-    switch-trust/scans/[scanId]/  Cloudhike job target: advances one SwitchAgent scan (single-use bearer token).
-    switch-trust/agents/[agentId]/  OpenAI-compatible endpoint Switch evaluates an agent through (+ v1/chat/completions,
-                              chat/completions aliases); derived per-agent bearer credential.
   workspaces/
     page.tsx              Workspace picker (post-sign-in landing). Redirects to /new if empty.
     new/page.tsx          Create-workspace page.
@@ -99,7 +96,7 @@ app/
       actions.ts          Workspace-wide reads: getTeamStatusAction (live team), getNotificationsAction,
                           markNotificationsReadAction.
       board/ ai-team/ pull-requests/ metrics/ activity/   One page.tsx per sidebar section.
-      ai-team/actions.ts  saveAgentAction, scanAgentAction, switchScanAgentAction (SwitchAgent Scan), generateAgentAction
+      ai-team/actions.ts  saveAgentAction, scanAgentAction, generateAgentAction
                           (auth + validation).
       board/actions.ts    createCardAction, updateCardAction, moveCardsAction, removeCardAction, runCardAction,
                           answerCardAction (answer the analyst + run again), stopCardAction, mergeCardAction, switchProviderAndRetryAction (out of credit), getRunLogAction
@@ -112,10 +109,10 @@ app/
                           project, then Models (updated when, Refresh models), then "This workspace only": automatic
                           switch + optional workspace keys), API spending
                           and plan usage this month across projects (#usage). This workspace: workspace (#workspace), agent automation (#agents), Sandbox
-                          (#sandbox), Switch Trust (#switch) and an Agent skills card (#skills) linking to
+                          (#sandbox) and an Agent skills card (#skills) linking to
                           skills/page.tsx (the library on its own page). actions.ts: automation, saveSandboxAction /
                           checkSandboxAction (Test the sandbox),
-                          auto failover toggle, save/remove provider key, refreshModelsAction, connect/disconnect Switch,
+                          auto failover toggle, save/remove provider key, refreshModelsAction,
                           inspectSkillAction / installSkillAction (upload, two steps), saveSkillAssignmentsAction,
                           deleteSkillAction.
   globals.css             THE theme: palette, semantic tokens, Tailwind mapping.
@@ -141,7 +138,7 @@ components/
                           this computer: Claude Code),
                           provider-key-form
                           (account or workspace scope; masked key + show/hide), model-catalog-status (Models updated ·
-                          Refresh models), account-spend (spending across projects), switch-connection-form (Switch Trust account), switch-weekly-toggle,
+                          Refresh models), account-spend (spending across projects),
                           sandbox-form (Settings → Sandbox: switch, commands, Test the sandbox),
                           option-cards (radio
                           cards shared by the settings forms).
@@ -150,8 +147,7 @@ components/
                           spending-panel, skills-panel (only the agent's skills with switches + "Add a skill" search, setAgentSkillAction), agent-activity-sheet, agent-visuals (AgentPortrait, AgentStatusBadge, BudgetMeter,
                           TrustRing), agent-face (the face image + initial fallback), live-process (the six steps of each
                           card in flight), live-team (LiveTeamProvider + useLiveTeam: one poll of getTeamStatusAction; also
-                          keeps the Overview's AI team card live), trust-scan-watcher (refreshes the page while a
-                          SwitchAgent scan is pending).
+                          keeps the Overview's AI team card live).
   skills/                 Agent skills UI: skill-library (Settings → Agent skills page: search + agent filter, list,
                           Assign, New version, Delete), skill-filters (pure
                           search/filter, tested), skill-upload-button (the dialog), skill-upload (choose → inspect → confirm → install → Done, in a
@@ -210,13 +206,6 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   skill-runtime.ts        Pure: skillsPromptBlock (always vs on demand), rankSkillFiles + formatSearchResults, pageSkillFile.
   skill-install.ts        inspectSkillUpload (rules → AI review, sealed token) / installSkillUpload, setAgentSkill,
                           setSkillAssignments, deleteUploadedSkill; every change rescans the affected agents' trust.
-  switch-trust.ts         Switch Trust: connection (encrypted key, connectSwitch/disconnectSwitch), SwitchAgent scans
-                          (requestSwitchScans → Cloudhike job → advanceTrustScan: register, 1 evaluation, poll, save),
-                          getLatestTrustScans, agent endpoint credential. See docs/switch-trust.md.
-  switch-api.ts           Switch Trust REST client (identity, register agent, endpoint, assignment, trigger, run, summary).
-  switch-trust-config.ts  Pure: scan statuses, pickFastEvaluation, runPhase, buildSwitchReport, parseEvalMessages.
-  switch-eval.ts          answerEvaluation(): an agent answers one Switch test with its model + instructions (+ its
-                          always-loaded skills), cost logged.
   sandbox/                Agent sandboxes (docs/sandbox.md). config.ts: pure, client-safe (commands, detectCommands,
                           parseSandboxCommand, sandboxReport, outputTail, the install network's constants,
                           bridgeNetworkProblem). docker.ts: runInSandbox (prepare on the install network, command
@@ -232,7 +221,6 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           schemes, closestViewport). capture.ts: captureLink (a link reference: the same image with
                           internet through a checking proxy, on the techteam-capture network); capture-config.ts: pure
                           (parseCaptureUrl, parseCaptureOutput, formatCaptureOutline). Tested.
-  jobs.ts                 Cloudhike Jobs: enqueueJob, getJobRun, publicAppUrl (null for local addresses).
   cli-agents-config.ts    Agents on the owner's plans, pure and client-safe: CLI_KINDS / AGENT_ROUTES / CLI_META,
                           cliAgentsAllowed (local URL, no hosting marker, AGENTS_LOCAL_CLI kill switch), parseCliAuth,
                           accountMatches, planIncludesModel, resolveRoute, PLAN_LIMIT_POLICIES + planLimitAction,
@@ -328,7 +316,6 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           model turn; stages, rework rounds and merge.
   inngest/agent-pickup.ts agentAutoPickup: cron every 2 min, starts runs on never-run Todo cards (auto pickup on;
                           AGENTS_AUTO_PICKUP=false opts a computer out).
-  inngest/switch-weekly.ts switchWeeklyScans: Mondays 06:00 UTC, queues SwitchAgent scans (Scan every week on).
   inngest/preview-sweep.ts previewSweep: every 10 min, stops previews older than 2 h and removes leftovers.
   task-events.ts          People's card moves/edits/removals for Activity: taskSnapshots (before a change),
                           logCardEdited / logCardsMoved / logCardRemoved (never throw), describeCardChanges.
@@ -638,13 +625,6 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     saved config.
     **Scan again** scores the saved config (disabled while the dialog is dirty) and adds an AI review when a provider is configured.
   - **Run** refuses when the analyst is paused or over budget (`checkAgentCanRun`) and logs `task_assigned`.
-  - **SwitchAgent scans** (`lib/switch-trust.ts`, [`docs/switch-trust.md`](docs/switch-trust.md)): with a Switch account
-    connected (Settings → `#switch`), the score comes from Switch. Connecting (and saving a provider key) scans every
-    agent; **SwitchAgent Scan** in the dialog scans one, on demand. Always **one** evaluation per agent (the fastest
-    built-in, saved on the connection), never the catalog. Work runs on Cloudhike jobs, never in the user's request;
-    the page polls with `TrustScanWatcher` while a scan is pending. Weekly re-scans (`switch-weekly-scans`, toggle in
-    Settings) and the agent's budget as its Switch cost cap (set on register/scan and on budget change; best effort). Saving a config keeps a Switch report (flagged as
-    older than the change) instead of overwriting it with the rule scan. Never copy test conversations: they're
     attacker-written.
   - **Max turns** (`agents.max_turns`, null = role default from `AGENT_ROLES`) caps model turns per pipeline stage.
   - **Working** status = a `running` run is in that agent's phase and its stage hasn't ended this round
@@ -846,7 +826,7 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     default roles, `usage` note when upstream assumes a shell), run `npm run skills:sync`, review the diff. Never fetch
     skills at runtime, never hand-edit `agent-skills/<slug>/` or `catalog.json`. A unit test checks the catalog
     against the files with the app's own parser. The folder ships with the functions that import
-    `lib/builtin-skills.ts` (plus `outputFileTracingIncludes` for `/api/inngest` and `/api/switch-trust/**`).
+    `lib/builtin-skills.ts` (plus `outputFileTracingIncludes` for `/api/inngest`).
   - **Uploads**: zip ≤ 5 MB, text ≤ 3 MB, ≤ 300 files; SKILL.md at the root or one folder deep; no absolute paths,
     `..`, symlinks, ZIP64 or encryption; names lowercase/digits/hyphens ≤ 64, description ≤ 1024; an `always` body
     ≤ 8 KB. Inspect → confirm → install: rules first (critical blocks before any model call), then one AI review
@@ -920,9 +900,6 @@ See `.env.example` for the full list with comments. Feature-specific:
 | `TOKEN_ENCRYPTION_KEY` | Encrypting GitHub tokens and AI provider keys (`openssl rand -base64 32`). Rotating it forces every user to reconnect GitHub and re-enter their AI keys. |
 | `S3_*` | Workspace logo uploads. Without them the upload button is disabled; icons still work. |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` | Optional server-wide fallback when neither the owner's account (Settings → AI keys) nor the workspace has a key. |
-| `JOBS_API_URL`, `JOBS_API_KEY` | Cloudhike Jobs: runs SwitchAgent scans in the background. |
-| `PUBLIC_APP_URL` | The app's internet-reachable URL for callbacks (jobs, Switch evaluations); defaults to `NEXT_PUBLIC_APP_URL`. A tunnel in local dev. |
-| `SWITCH_AGENT_AI_API_KEY` | Optional server-wide Switch Trust key (Editor role) for workspaces that connect without their own. |
 | `SANDBOX_DOCKER_HOST`, `SANDBOX_IMAGE` | Agent sandboxes: the Docker host (`ssh://…` to a VPS set up with `deploy/setup.sh`, or the local socket on it). Unset: Settings → Sandbox can't be switched on. |
 | `SANDBOX_PREVIEW_DOMAIN`, `SANDBOX_BROWSER_IMAGE` | PR previews at `pr-<n>-<random>.<domain>` (wildcard DNS to the sandbox host) and the sandbox browser image (the Tester's browser, link captures). Unset domain: previews can't be switched on. |
 | `AGENTS_SIMULATED` | Local testing: `true` runs the pipeline with scripted agents (`lib/agent-simulated.ts`) — no model calls or spend, but real GitHub work (branch, `agent-simulations/<branch>.md`, PR). |
