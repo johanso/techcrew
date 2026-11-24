@@ -96,7 +96,7 @@ Each phase is a minor version. The order puts cheap wins on what exists first, t
 
 ### v0.7 — Card references and sandbox polish ✅
 The owner designs and specifies outside TechTeam (a design tool, a document); the agents build from it.
-- **References on cards**: images, Markdown, text and PDFs (files and PDF text in S3, removed with the card), and
+- **References on cards**: images, Markdown, text and PDFs (files and PDF text on local disk, removed with the card), and
   **links captured once** by the sandbox browser behind a checking proxy (desktop and mobile screenshots plus an
   outline). Agents read them with `list_references` / `read_reference`; Run refuses when a stage's model can't see them
   (live runs 52, AJU-22, AJU-23).
@@ -120,9 +120,13 @@ the official CLI installed there, next to API keys ([cli-agents.md](cli-agents.m
   switch company), two computers on one database (one run per card, `AGENTS_AUTO_PICKUP`), Windows in CI.
 - To do before release: the isolation check and one live run with the owner's OK (the Developer on a Claude model
   through the plan, the rest on OpenRouter; then on the Windows PC).
-- Next on the same rules: **Codex** for OpenAI models on a ChatGPT plan.
 
-### v0.9 — Brain
+### v0.9 — Local-first
+TechTeam runs on the owner's computer with nothing remote but GitHub and the model providers: GitHub sign-in, an
+embedded Postgres, local files, an optional pluggable sandbox, backup and restore to move to another computer, and a
+first-run wizard so anyone can clone it and start. Plan, phases and risks: [local-first-plan.md](local-first-plan.md).
+
+### v0.10 — Brain
 - A project memory every agent reads before working: repository conventions, decisions, what earlier cards learned.
   Markdown in the linked repository (`.techteam/memory/`), so both computers share it through GitHub; agents only
   propose changes in their card's PR (see cli-agents-plan.md §6).
@@ -131,8 +135,8 @@ the official CLI installed there, next to API keys ([cli-agents.md](cli-agents.m
 - **Deploy and hardening** (was v0.6; moved here 2026-11-20, agents on local plans first):
   Run TechTeam itself on the VPS, so nothing has to run on a laptop: open `https://app.<domain>` from any computer.
   - The app (Next.js standalone) and a self-hosted Inngest as services on the VPS behind the same Caddy, restarting on
-    boot; Postgres and auth stay on Cloudhike. A production GitHub OAuth App, `PUBLIC_APP_URL`, backups (`pg_dump`).
-  - Weekly Switch scans in production, without a tunnel; GitHub webhooks instead of the 60 s issue sync.
+    boot; Postgres and auth stay on Cloudhike. A production GitHub OAuth App, backups (`pg_dump`).
+  - GitHub webhooks instead of the 60 s issue sync.
   - The post-MVP rows of the [test plan](testing.md#test-plan-and-status): Anthropic live, mixed three-company run,
     blocked merge, auto pickup and auto merge, pause or budget mid-run, Draft with AI, automatic provider switch.
   - Skill uploads out of a Server Action, so `serverActions.bodySizeLimit` goes back to the 1 MB default.

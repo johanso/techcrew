@@ -40,7 +40,7 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
   query (`getOwnedWorkspace`, `getDashboardContext`); others get a 404.
 - Board actions authorize first, then scope every query to the workspace (`onBoard()`), and reject moves that
   include a card from another workspace.
-- The logo route streams an object from S3 only to the owner of the workspace that references it; object keys are
+- The logo route streams a file from local storage only to the owner of the workspace that references it; object keys are
   never accepted from the client.
 - Background jobs re-check that the card still exists in the workspace before acting.
 
@@ -59,7 +59,7 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 
 - Real values go only in `.env` (gitignored). `.env.example` holds placeholders.
 - Server-only modules (`import "server-only"`) can't be bundled into client code by mistake.
-- `AUTH_SECRET_KEY`, `GITHUB_CLIENT_SECRET`, `TOKEN_ENCRYPTION_KEY`, `S3_*` and `INNGEST_*` are never exposed to the
+- `AUTH_SECRET_KEY`, `GITHUB_CLIENT_SECRET`, `TOKEN_ENCRYPTION_KEY` and `INNGEST_*` are never exposed to the
   browser; only `NEXT_PUBLIC_APP_URL` is public by design.
 - ⚠️ An early version of `.env.example` (before the first commit) contained real-looking AWS keys. They were moved to
   `.env` and never committed, but **rotate that AWS access key** if it was ever shared.
@@ -86,17 +86,6 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
   `data_collection: "deny"` (only hosts that don't store or train on prompts, since prompts carry the repository's
   code), `require_parameters` (only hosts that support tools and structured output) and no 4-bit quantizations.
   Hosts don't all enforce strict schemas, so the finish call is checked again (`parseFinishArguments`).
-
-## Switch Trust
-
-- The Switch key is stored like the AI provider keys (encrypted, masked hint only, checked with Switch before saving).
-- Switch reaches each agent at a public endpoint (`/api/switch-trust/agents/<id>/…`) protected by a per-agent bearer
-  credential derived from `TOKEN_ENCRYPTION_KEY` (HMAC), compared in constant time. Only Switch receives it. The
-  endpoint answers with the agent's own instructions as the system prompt (tests can't replace it), no tools, capped
-  output, and refuses an agent over its monthly budget.
-- Cloudhike jobs call `/api/switch-trust/scans/<id>` with a random single-use token; only its sha256 is stored and it
-  is rotated per job and cleared when the scan ends.
-- Test conversations are attacker-written: they're never stored or shown, only counts and Switch's categories.
 
 ## Agents
 
@@ -148,7 +137,7 @@ The pipeline acts on the repository with the workspace owner's token, so its gua
   preview networks and keeps its admin API on its loopback.
 - **The Tester's browser** runs Chromium (its sandbox on) under gVisor on the preview's network only, with no secrets.
   Pages are untrusted: the agent log keeps only a first line built from our own data, the report frames the page's
-  content as data, and the protocol lists web pages as data. Screenshots are private on S3 and served to the workspace
+  content as data, and the protocol lists web pages as data. Screenshots are private local files and served to the workspace
   owner only, always as `image/png` with `nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`.
 
 ## Agents on your plan (local CLIs)
@@ -220,7 +209,7 @@ Files the owner attaches to a card for the agents ([features.md](features.md#car
   `card-references/<workspace>/<card>/<uuid>.<ext>`; the database keeps a small row (no content). The owner-checked
   route (`/api/workspaces/[id]/references/[referenceId]`) serves the stored type with `nosniff`, `Cache-Control:
   private` and `Content-Security-Policy: default-src 'none'; sandbox`; text as `text/plain`, PDFs only as a download.
-  Removing a card deletes its references (S3 deletes are best effort and logged).
+  Removing a card deletes its references (file deletes are best effort and logged).
 - **PDF parsing** runs once at upload with unpdf (PDF.js's serverless build: no worker, no canvas, XFA off), with page
   and character caps. Password-protected or broken PDFs are refused.
 - **What goes to the model providers.** Only when an agent calls `read_reference`: text as tool output, images as
@@ -229,7 +218,7 @@ Files the owner attaches to a card for the agents ([features.md](features.md#car
   data). Never a URL: the bucket stays private and no presigned link leaves the server. A model without vision gets a
   note instead of the image.
 - **Nothing stored twice.** The conversation (`agent_run_messages`, OpenAI's pending tool outputs in the Inngest step
-  state) holds a placeholder for each image; it's loaded from S3 for each request and becomes a note if the reference
+  state) holds a placeholder for each image; it's loaded from local storage for each request and becomes a note if the reference
   was removed. The agent log keeps the reference's name only, never its content.
 - **Prompt injection.** References are the owner's requirements, but the operating protocol lists them as data: they
   can't change the protocol, the agent's role or its tools, and read_reference frames their text as reference material.

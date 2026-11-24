@@ -28,7 +28,6 @@ import { REFERENCE_UPLOAD_MAX_BYTES, formatReferenceBytes, type ReferenceView } 
 import { addLinkReference, addTaskReference, listTaskReferences, removeTaskReference } from "@/lib/references";
 import { linkCaptureAvailable } from "@/lib/sandbox/capture";
 import { parseCaptureUrl } from "@/lib/sandbox/capture-config";
-import { isStorageConfigured } from "@/lib/storage";
 import { getOwnedWorkspace } from "@/lib/workspaces";
 
 /** A failed action may point somewhere to fix it (e.g. AI Team → Configure when a model can't see the card's images). */
@@ -313,7 +312,7 @@ export async function listCardReferencesAction(workspaceId: number, cardId: stri
 
 /**
  * Adds one reference to a card (the dialog sends several files one call at a time, so each fits the Server Action
- * body limit). The type is checked from the bytes; lib/references.ts stores the file in private S3.
+ * body limit). The type is checked from the bytes; lib/references.ts stores the file in local storage.
  */
 export async function uploadCardReferenceAction(
   workspaceId: number,
@@ -322,7 +321,6 @@ export async function uploadCardReferenceAction(
 ): Promise<{ ok: true; reference: ReferenceView } | { ok: false; error: string }> {
   const auth = await authorize(workspaceId);
   if (!auth) return { ok: false, error: "Workspace not found." };
-  if (!isStorageConfigured()) return { ok: false, error: "File storage isn't set up on this server, so references can't be added." };
   const taskId = await boardTaskId(auth, cardId);
   if (taskId === null) return { ok: false, error: "This card no longer exists." };
   const file = formData.get("file");
@@ -354,7 +352,6 @@ export async function addCardLinkAction(
 ): Promise<{ ok: true; reference: ReferenceView } | { ok: false; error: string }> {
   const auth = await authorize(workspaceId);
   if (!auth) return { ok: false, error: "Workspace not found." };
-  if (!isStorageConfigured()) return { ok: false, error: "File storage isn't set up on this server, so references can't be added." };
   if (!linkCaptureAvailable()) return { ok: false, error: "Links need a sandbox host to be captured, and this server has none." };
   const taskId = await boardTaskId(auth, cardId);
   if (taskId === null) return { ok: false, error: "This card no longer exists." };

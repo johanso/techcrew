@@ -28,7 +28,7 @@ import { BROWSE_ACTIONS, BROWSE_COLOR_SCHEMES, BROWSE_STEPS_MAX, PREVIEW_STAGES,
 import { addDependencyCommand, dependencyChange, dependencyPlan, dependencyReadFiles, dependencyReport, dependencySpec, parseDependencyArgs } from "@/lib/sandbox/dependency-config";
 import { SANDBOX_COMMAND_MAX, SANDBOX_STAGES, parseSandboxCommand, sandboxReport, type SandboxCommands } from "@/lib/sandbox/config";
 import { cleanRepoPath as cleanPath, pathWriteRefusal } from "@/lib/repo-paths";
-import { isStorageConfigured, uploadRunScreenshot } from "@/lib/storage";
+import { uploadRunScreenshot } from "@/lib/storage";
 
 /**
  * The tools an agent can call while it works a stage, backed by the GitHub API with the workspace owner's token.
@@ -485,9 +485,9 @@ function mergeContext(ctx: ToolContext): MergeContext {
   };
 }
 
-/** Stores a browse_preview screenshot for the agent log. Best effort: without storage, or on an error, the log has none. */
+/** Stores a browse_preview screenshot for the agent log. Best effort: on an error, the log has none. */
 async function saveScreenshot(preview: NonNullable<ToolContext["preview"]>, png: Buffer | null) {
-  if (!png || !isStorageConfigured()) return null;
+  if (!png) return null;
   return uploadRunScreenshot(preview.workspaceId, preview.runId, png).catch((error) => {
     console.error("[storage] screenshot upload failed", error);
     return null;

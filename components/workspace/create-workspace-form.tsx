@@ -30,14 +30,12 @@ export function CreateWorkspaceForm({
   githubConfigured,
   githubStatus,
   reposPromise,
-  uploadsEnabled,
   cancelHref,
 }: {
   github: GithubAccount | null;
   githubConfigured: boolean;
   githubStatus?: GithubStatus;
   reposPromise: Promise<RepoListResult> | null;
-  uploadsEnabled: boolean;
   cancelHref?: string;
 }) {
   const [state, dispatch, pending] = useActionState<WorkspaceFormState, FormData>(createWorkspace, {});
@@ -127,7 +125,6 @@ export function CreateWorkspaceForm({
           onIconChange={setIcon}
           logo={logo}
           onLogoChange={setLogo}
-          uploadsEnabled={uploadsEnabled}
           error={errorFor("logo") ?? errorFor("icon")}
         />
       </Step>

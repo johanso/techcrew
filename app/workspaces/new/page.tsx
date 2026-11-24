@@ -5,7 +5,6 @@ import { CreateWorkspaceForm } from "@/components/workspace/create-workspace-for
 import type { GithubStatus, RepoListResult } from "@/components/workspace/github-repo-picker";
 import { requireUser } from "@/lib/current-user";
 import { GithubError, getGithubAccount, getGithubToken, isGithubConfigured, listLinkableRepos } from "@/lib/github";
-import { isStorageConfigured } from "@/lib/storage";
 import { hasWorkspaces } from "@/lib/workspaces";
 
 export const metadata: Metadata = { title: "Create workspace" };
@@ -54,7 +53,6 @@ export default async function NewWorkspacePage({ searchParams }: PageProps<"/wor
             githubStatus={githubStatus}
             // Not awaited: the repo list streams in behind a skeleton.
             reposPromise={github ? loadRepos(user.id) : null}
-            uploadsEnabled={isStorageConfigured()}
             cancelHref={existing ? "/workspaces" : undefined}
           />
         </div>

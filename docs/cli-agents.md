@@ -77,7 +77,7 @@ runStageTurn ── route? ──▶ api: one model turn per Inngest step (as be
 - **Working folder**: an empty `os.tmpdir()/techteam/run-<id>/` (outside the project, which Turbopack watches), removed
   when the run finishes.
 - **Stop**: a running chunk checks the run every 10 s and ends the CLI when it was stopped.
-- **Images**: references and the Tester's screenshots come back as MCP image content (loaded from S3 per call, never
+- **Images**: references and the Tester's screenshots come back as MCP image content (loaded from local storage per call, never
   stored), so Claude models keep their vision.
 - **Results bigger than 50 K characters** would make Claude Code save them to a file the agent can't open (it has no
   file tools): every tool declares `_meta["anthropic/maxResultSizeChars"] = 100000`, above the tools' own clipping.

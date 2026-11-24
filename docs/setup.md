@@ -25,7 +25,6 @@ Everything you need to run TechTeam locally, and what each setting does.
 | PostgreSQL | 14+ | App database. Any reachable instance works (local, Docker, hosted). |
 | A CloudHike project | — | Hosted Better Auth service that handles sign-up, sign-in and social login. |
 | A GitHub OAuth App | — | Lets users connect GitHub so a workspace can link a repository and sync its issues. |
-| An S3-compatible bucket | optional | Stores uploaded workspace logos. Without it, logo upload is disabled (icons still work). |
 
 ## 1. Install
 
@@ -50,18 +49,11 @@ All variables live in `.env`. Restart `npm run dev` after changing them.
 | `GITHUB_CLIENT_ID` | for GitHub | `lib/github.ts` | Client ID of your GitHub OAuth App. |
 | `GITHUB_CLIENT_SECRET` | for GitHub | `lib/github.ts` | Client secret of your GitHub OAuth App. |
 | `TOKEN_ENCRYPTION_KEY` | for GitHub | `lib/crypto.ts` | 32 random bytes, base64. Encrypts GitHub access tokens and AI provider keys at rest. Generate with `openssl rand -base64 32`. **Changing it makes every stored token unreadable**: users must reconnect GitHub and re-enter AI keys. |
-| `S3_ENDPOINT` | for logos | `lib/storage.ts` | S3 API endpoint, e.g. `https://s3.us-east-1.amazonaws.com`. Any S3-compatible service works. |
-| `S3_REGION` | for logos | `lib/storage.ts` | Bucket region. |
-| `S3_BUCKET` | for logos | `lib/storage.ts` | Bucket name. Keep it **private**; logos are served through the app. |
-| `S3_ACCESS_KEY_ID` | for logos | `lib/storage.ts` | Access key with `s3:PutObject`, `s3:GetObject` and `s3:DeleteObject` on the bucket (logos, screenshots, card references). |
-| `S3_SECRET_ACCESS_KEY` | for logos | `lib/storage.ts` | Matching secret. |
+| `TECHTEAM_DATA_DIR` | optional | `lib/storage.ts` | Folder for local data. Files (workspace logos, the Tester's screenshots, card references) go in `<dir>/files`. Default `~/.techteam/data`. |
 | `OPENAI_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback; users normally save their own key once in Settings → Your account → AI keys. Agents on GPT models; **Draft with AI** and AI-assisted trust scans (on `gpt-6.1-sol`). Without any provider key the page works with default instructions and rule-based scans. Model cost is charged to the agent's monthly budget. |
 | `ANTHROPIC_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback, as above. Agents on Claude models (Opus / Sonnet / Haiku 5.5). Also drafting and trust scans (on `claude-sonnet-5-5`) when `OPENAI_API_KEY` isn't set. A Console API key (pay as you go); a Claude.ai subscription can't be used. |
 | `OPENROUTER_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback, as above. One key for the Google, DeepSeek, Z.ai, xAI and Moonshot models (needs OpenRouter credit). Drafting and trust scans run on it (`deepseek/deepseek-v4-pro-0813`) only when neither other key is set. |
 | `AGENTS_SIMULATED` | no | `lib/agent-simulated.ts` | Local testing. `true` runs the agent pipeline with scripted agents: no model calls and no spend, but real GitHub work on the linked repo (a branch, one note file `agent-simulations/<branch>.md`, a pull request). Each turn waits 4 s so you can watch the card move. Leave `false` in production. |
-| `JOBS_API_URL`, `JOBS_API_KEY` | for Switch scans | `lib/jobs.ts` | Cloudhike Jobs project (`https://cloudhike.dev/api/jobs-service/<project>`) and its server-only key. SwitchAgent scans run on it. |
-| `PUBLIC_APP_URL` | for Switch scans | `lib/jobs.ts` | The app's internet-reachable origin, called back by Cloudhike jobs and Switch evaluations. Defaults to `NEXT_PUBLIC_APP_URL`; a local address disables scans, so in dev use a tunnel (`ngrok http 3000`). |
-| `SWITCH_AGENT_AI_API_KEY` | optional | `lib/switch-trust.ts` | Server-wide Switch Trust key (Editor role) for workspaces that connect without their own. See [switch-trust.md](switch-trust.md). |
 | `SANDBOX_DOCKER_HOST` | for the sandbox | `lib/sandbox/docker.ts` | Docker host for agent sandboxes: `ssh://<user>@<ip>` (or an `~/.ssh/config` alias) for a VPS set up with `deploy/setup.sh`, `unix:///var/run/docker.sock` when the app runs on it. Unset: Settings → Sandbox can't be switched on. See [sandbox.md](sandbox.md). |
 | `SANDBOX_IMAGE` | no | `lib/sandbox/docker.ts` | Container image for sandboxes. Default `node:24-bookworm`. |
 | `INNGEST_EVENT_KEY` | production | `lib/inngest/client.ts` | Inngest Cloud event key. Not needed locally (the Dev Server is used). |
@@ -73,7 +65,6 @@ What happens when an optional group is missing:
 - **GitHub variables missing** → the "Connect GitHub" button on the create-workspace page is disabled and shows
   "GitHub integration isn't configured on this server yet." You can't create a workspace (a repository is required).
 - **`TOKEN_ENCRYPTION_KEY` missing or wrong length** → connecting GitHub fails with an error in the server log.
-- **S3 variables missing** → the "Upload custom logo" button is disabled with an explanation; icons still work.
 - **Inngest Dev Server not running (locally)** → the board's **Run** action fails with
   "Is the Inngest Dev Server running? Start the app with `npm run dev`." Nothing else is affected.
 
@@ -127,25 +118,17 @@ never touches it.
 The app requests the `repo` and `read:user` scopes. For organization repositories, an org owner may need to
 approve the OAuth App (GitHub → Organization settings → Third-party access) before its repos appear.
 
-### S3 bucket (optional)
+### Local files
 
-Create a private bucket (block all public access) and an access key limited to that bucket, with `s3:PutObject`,
-`s3:GetObject` and `s3:DeleteObject`. Logos are stored under `workspace-logos/<ownerId>/<uuid>.<ext>` and streamed to
-their owner by `/api/workspaces/[id]/logo`; card references under `card-references/<workspaceId>/<taskId>/<uuid>.<ext>`
-(served by `/api/workspaces/[id]/references/[referenceId]`, deleted with their card). Without a bucket, the card
-dialog says references can't be added.
+Logos are stored under `workspace-logos/<ownerId>/<uuid>.<ext>` in `<TECHTEAM_DATA_DIR>/files` and streamed to their owner
+by `/api/workspaces/[id]/logo`; card references under `card-references/<workspaceId>/<taskId>/<uuid>.<ext>` (served by
+`/api/workspaces/[id]/references/[referenceId]`, deleted with their card). Back up the folder with the database.
 
 ### Inngest
 
 Locally nothing to configure: `npm run dev` starts it next to the app (`npm run inngest:dev` alone starts only it). It runs the Inngest Dev Server (UI on
 <http://localhost:8288>) and points it at `http://localhost:3000/api/inngest`, where the app's functions are
 served. For production see [docs/background-jobs.md](background-jobs.md#production).
-
-### Switch Trust and Cloudhike Jobs (optional)
-
-For SwitchAgent scans: create a Jobs project on Cloudhike (`JOBS_API_URL`, `JOBS_API_KEY`), an API key with the
-Editor role in Switch Trust (Settings → API keys), and expose the app publicly (`PUBLIC_APP_URL`). Then Settings →
-Switch Trust → **Connect securely**. Details: [switch-trust.md](switch-trust.md).
 
 ### Agent sandbox (optional)
 
@@ -160,6 +143,13 @@ Nothing to set up: the built-ins are committed in `agent-skills/` and every work
 update one, change its `ref` in `agent-skills/sources.json` (or `npm run skills:sync -- --update <slug>` to take the
 upstream's latest commit), run `npm run skills:sync`, review the diff and open a pull request. The sync downloads
 public GitHub tarballs (no token) and writes text files only.
+
+## Moving your files from S3
+
+Files used to live in an S3 bucket. To copy them to this computer once, put the old `S3_ENDPOINT`, `S3_REGION`,
+`S3_BUCKET`, `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` back in `.env` and run `npm run storage:import-s3`. It copies
+every object under the same key into `<TECHTEAM_DATA_DIR>/files`, skips files already there, prints the counts and never
+deletes anything from S3. Safe to run again.
 
 ## 4. Create the database tables
 
@@ -246,7 +236,6 @@ first, or use `node --env-file=.env …`.
 | Board shows "Connect GitHub to bring … issues onto the board" | The workspace owner has no GitHub connection (or it was disconnected). Click **Connect GitHub**. |
 | Board shows "Your GitHub connection expired or was revoked" | The token was revoked on GitHub (or `TOKEN_ENCRYPTION_KEY` changed). Click **Reconnect GitHub**. |
 | **Run** fails with "Is the Inngest Dev Server running?" | Start the app with `npm run dev` (it starts Inngest too), or `npm run inngest:dev` if you ran `dev:app`. Without it, the SDK falls back to Inngest Cloud and the placeholder event key is rejected (401). |
-| Logo upload button is disabled | S3 variables are not set. |
 | Settings → Sandbox can't be switched on | `SANDBOX_DOCKER_HOST` isn't set (restart the dev server after setting it), or neither a test nor a build command is saved. |
 | **Test the sandbox** fails while preparing the checkout | The app can't reach Docker on the host: try `docker -H "$SANDBOX_DOCKER_HOST" info` from the same machine (SSH key, host key, user in the `docker` group). |
 | Each sandbox call takes 10 s or more before the command starts | SSH connection reuse is off for the host (see [sandbox.md](sandbox.md#setting-up-a-host)). |

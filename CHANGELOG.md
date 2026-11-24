@@ -8,11 +8,17 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+### Changed
+- **Files are stored on your computer**, not in an S3 bucket: workspace logos, the Tester's screenshots and card
+  references live in `~/.techteam/data/files` (`TECHTEAM_DATA_DIR` changes the folder). The `S3_*` variables are gone and
+  logo and reference uploads are always available.
+
 ### Added
 - **Embedded Postgres**: with `DATABASE_URL` unset, `npm run dev` starts its own Postgres (no Docker, no install; about
   110 MB downloaded with `npm install`), creates the database and applies the migrations. Data lives in
   `~/.techteam/data/postgres` (`TECHTEAM_DATA_DIR`), on `127.0.0.1:54329` (`TECHTEAM_PG_PORT`), with a generated password.
   Setting `DATABASE_URL` keeps the old behavior. `npm run db:local` runs it alone. Backups come in a later phase.
+- `npm run storage:import-s3` copies your existing files from the old bucket once, without deleting anything there.
 - **Agents on your Claude plan** (only when TechTeam runs on your computer): Settings → AI → *Plans on this computer*
   routes the agents on Claude models through **Claude Code** signed in with your own plan, instead of an Anthropic API
   key. Agents keep their model; the route is per computer. TechTeam uses its own Claude Code login
@@ -44,6 +50,10 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   terminal (`concurrently`; stopping one stops both). `npm run dev:app` starts only the app, `npm run inngest:dev`
   only Inngest. The app is pinned to port 3000 so a busy port fails loudly instead of leaving Inngest pointed at the
   wrong address.
+
+### Removed
+- **Switch Trust (SwitchAgent scans)**: the Settings card, scan buttons, weekly scans and the endpoints Switch called. The Trust Score keeps its rule-based scan and the optional AI review (**Scan again**).
+- **Cloudhike Jobs and `PUBLIC_APP_URL`**: nothing calls the app back from the internet any more, so no tunnel is needed. `JOBS_API_URL`, `JOBS_API_KEY`, `PUBLIC_APP_URL` and `SWITCH_AGENT_AI_API_KEY` can be deleted from `.env`. The Switch tables and columns stay in the database until a cleanup migration.
 
 ## [0.7.0] — 2026-11-20
 

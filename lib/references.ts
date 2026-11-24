@@ -26,7 +26,7 @@ import { deleteObject, readObject, uploadCardReference } from "@/lib/storage";
 /**
  * Card references: files the owner attaches to a card (images, Markdown or text, PDFs) and links captured once when
  * they're added (lib/sandbox/capture.ts), for the agents to build from. Files, a PDF's extracted text and a link's
- * screenshots and outline live in private S3 (lib/storage.ts); the task_references row keeps only what and where.
+ * screenshots and outline live in local files (lib/storage.ts); the task_references row keeps only what and where.
  * Every function takes ids the caller already scoped to the workspace (board actions, the owner-checked route, or the
  * pipeline's run context). Agents read them with list_references / read_reference (lib/agent-tools.ts).
  */
@@ -78,7 +78,7 @@ async function deleteObjects(keys: (string | null)[]) {
 export type AddReferenceResult = { ok: true; reference: ReferenceView } | { ok: false; error: string };
 
 /**
- * Validates an upload by its bytes (type, size, image dimensions), stores it (and a PDF's text) in S3, then saves its
+ * Validates an upload by its bytes (type, size, image dimensions), stores it (and a PDF's text) in local storage, then saves its
  * row. The count is checked again under a lock on the card, so two uploads at once can't pass the limit; objects of
  * an upload that loses that race are deleted.
  */
@@ -153,7 +153,7 @@ async function insertUnderLock(input: Scope & { userId: number }, values: NewRef
 
 /**
  * Adds a link: captures the page now (lib/sandbox/capture.ts: desktop and mobile screenshots, an outline), stores the
- * three objects in S3 and saves the row. A failed capture stores nothing and says why.
+ * three files and saves the row. A failed capture stores nothing and says why.
  */
 export async function addLinkReference(input: Scope & { userId: number; url: string }): Promise<AddReferenceResult> {
   const [{ n }] = await db.select({ n: count() }).from(taskReferences).where(scoped(input));

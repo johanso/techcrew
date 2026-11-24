@@ -21,7 +21,7 @@ export const CAPTURE_RUNNER_BUDGET_MS = 80_000;
 export const CAPTURE_MAX_HEIGHT = 2_400;
 export const CAPTURE_JPEG_QUALITY = 80;
 export const CAPTURE_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
-/** Characters of the page outline kept (S3) and given to agents. */
+/** Characters of the page outline kept (local file) and given to agents. */
 export const CAPTURE_OUTLINE_MAX = 8_000;
 export const CAPTURE_WIDTHS = { desktop: 1280, mobile: 375 } as const;
 

@@ -20,7 +20,7 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | GitHub and Google sign-in | ✅ Real | `app/api/auth/social`, `app/(auth)/auth/callback` |
 | Workspace picker and creation (name, icon/logo, GitHub repo) | ✅ Real | `app/workspaces` |
 | GitHub account connection (OAuth App, encrypted token) | ✅ Real | `app/api/github`, `lib/github.ts` |
-| Logo upload to S3 | ✅ Real (needs S3 config) | `lib/storage.ts` |
+| Logo upload to local disk | ✅ Real | `lib/storage.ts` |
 | Dashboard shell: sidebar, switcher, header, user menu | ✅ Real | `components/dashboard` |
 | Light / dark / system theme | ✅ Real | `app/layout.tsx`, `user-menu.tsx` |
 | Agents on the owner's Claude plan (local Claude Code, MCP endpoint, plan limits) | 🟡 Built and unit/integration-tested without spend; not run live yet | `lib/cli/`, `lib/cli-agents-config.ts`, `app/api/mcp`, [cli-agents.md](cli-agents.md) |
@@ -39,11 +39,10 @@ Where the project stands, what's not real yet, and what to tackle next. Last upd
 | Agent skills: built-ins vendored by `npm run skills:sync` (modern-web-guidance, chrome-extensions, interface-design), uploads with validation + security scan + AI review, per-agent switches, `search_skill` / `read_skill` in every stage, always-loaded playbooks in the prompt, findings in the trust score | ✅ Real (server verified against the dev database with one real AI review; UI rendered with real data but not clicked through; a simulated run with skills not run end to end) | `agent-skills/`, `lib/agent-skills.ts`, `lib/skill-*.ts`, `components/skills`, `/settings/skills` |
 | Live process (AI Team page): the six steps of each card in flight, live polling | ✅ Real | `components/ai-team/live-process.tsx`, `lib/live-process.ts` |
 | AI drafting of instructions + AI-assisted trust scans | ✅ Real, needs an OpenAI, Anthropic or OpenRouter key (in that order) | `lib/agent-ai.ts` |
-| Switch Trust: connect a Switch account, SwitchAgent scans (register agents, one evaluation each, health score + OWASP coverage) in the background via Cloudhike jobs | ✅ Live scan verified with Switch (2026-11-16, through ngrok); weekly scans and cost caps verified against local fakes | `lib/switch-trust.ts`, `docs/switch-trust.md` |
 | Pull Requests page (agent PRs, approval and test verdicts, risk, Merge) | ✅ Real | `components/pull-requests`, `lib/pull-requests.ts` |
 | Activity page (workspace timeline, incl. people's card moves, edits and removals) | ✅ Real | `lib/activity.ts`, `components/activity` |
 | Notifications (header bell): PR ready, merged, merge blocked, needs info, run stopped, out of credit, provider switched | ✅ Real (polled every 30 s) | `lib/notifications.ts`, `components/dashboard/notifications-menu.tsx` |
-| Settings page | ✅ Your account (profile, AI providers with account keys, spending across projects) and this workspace (automation, sandbox, Switch Trust, skills) editable; account and workspace details read-only | `app/dashboard/[workspaceId]/settings` |
+| Settings page | ✅ Your account (profile, AI providers with account keys, spending across projects) and this workspace (automation, sandbox, skills) editable; account and workspace details read-only | `app/dashboard/[workspaceId]/settings` |
 | AI keys on the account, company and model per agent | ✅ Real (one account key serves every project; agents can mix OpenAI, Anthropic and OpenRouter; mixed run 50 with OpenAI + OpenRouter, Anthropic not in a mix yet) | `lib/ai-keys.ts`, `components/ai-team/agent-config-dialog.tsx` |
 | OpenRouter (Google, DeepSeek, Z.ai, xAI, Moonshot models) | ✅ Real: all 10 models answer a strict tool call; live mixed run 50 (Developer DeepSeek V4 Pro, Tester DeepSeek V4.1 Flash, the rest OpenAI; $0.091, PR ready). Out of credit not tried live | `lib/openrouter.ts`, `lib/agent-loop.ts` |
 | Agent sandbox (run tests, build, commands) | ✅ Real, verified live (run 49 on techteam-sandbox-demo, $0.17) | `lib/sandbox/`, `deploy/setup.sh`, [sandbox.md](sandbox.md) |
@@ -79,8 +78,6 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 - **The agent pipeline locally requires the Inngest Dev Server** (`npm run dev` starts it with the app).
 - **Live runs so far are on OpenAI** (GPT-6.1 Sol / GPT-6 Luna); the Anthropic path is verified only against a local
   fake of its API. OpenRouter has one live run (DeepSeek for the Developer and the Tester). Simulated agents always take the happy path.
-- **Switch scans need a public URL** (not deployed yet: a tunnel such as ngrok), for both Switch's tests and the
-  Cloudhike jobs. Weekly scans fail while it's unreachable.
 - **Out of credit** stops the run with a notice and a one-click "switch and retry". The automatic switch is opt-in
   (Settings → AI providers), restarts the current stage once, and has only been verified by unit tests (detection),
   not against a real provider running dry.
