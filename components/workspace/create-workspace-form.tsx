@@ -14,7 +14,6 @@ import { AppearancePicker, useObjectUrl } from "@/components/workspace/appearanc
 import {
   GithubRepoPicker,
   type GithubAccount,
-  type GithubStatus,
   type RepoListResult,
 } from "@/components/workspace/github-repo-picker";
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar";
@@ -23,18 +22,14 @@ import { useFieldErrors } from "@/hooks/use-field-errors";
 import { DEFAULT_WORKSPACE_ICON, type WorkspaceIconKey } from "@/lib/workspace-icons";
 import { cn } from "@/lib/utils";
 
-const CONNECT_HREF = `/api/github/connect?next=${encodeURIComponent("/workspaces/new")}`;
+const CONNECT_HREF = `/sign-in?next=${encodeURIComponent("/workspaces/new")}`;
 
 export function CreateWorkspaceForm({
   github,
-  githubConfigured,
-  githubStatus,
   reposPromise,
   cancelHref,
 }: {
   github: GithubAccount | null;
-  githubConfigured: boolean;
-  githubStatus?: GithubStatus;
   reposPromise: Promise<RepoListResult> | null;
   cancelHref?: string;
 }) {
@@ -137,18 +132,16 @@ export function CreateWorkspaceForm({
         last
       >
         <GithubRepoPicker
-          configured={githubConfigured}
           account={github}
-          status={githubStatus}
           reposPromise={reposPromise}
           connectHref={CONNECT_HREF}
           selected={repo}
           onSelect={setRepo}
           onBeforeLeave={persistDraft}
           onDisconnect={() =>
-            // Same-page redirect: client state (name, icon, logo) survives, only the repo is reset.
+            // Signing out leaves the page: the draft (name, icon, logo) is kept so it is there after signing in again.
             startDisconnect(async () => {
-              setRepo(null);
+              await persistDraft();
               await disconnectGithub();
             })
           }

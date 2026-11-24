@@ -14,8 +14,8 @@ cards from analysis to a merged pull request.
 
 | Area | Status | Notes |
 | --- | --- | --- |
-| Sign up / sign in (email + password, GitHub, Google) | ✅ Real | Hosted Better Auth service (CloudHike). Sessions in an HTTP-only cookie. |
-| Workspace onboarding | ✅ Real | Name, icon or uploaded logo, GitHub connection, repository selection. |
+| Sign in with GitHub | ✅ Real | Device flow (or a personal access token): identity and repository access in one step. No password, no client secret. Signed session cookie on your computer. |
+| Workspace onboarding | ✅ Real | Name, icon or uploaded logo, repository selection. |
 | Dashboard shell | ✅ Real | Collapsible sidebar, workspace switcher, user menu, light/dark/system theme. |
 | Kanban board | ✅ Real | Six columns (Todo, Analysis, In Development, In Review, Testing, Done), drag and drop (mouse, touch, keyboard), search, type filters, create/edit dialog. Persisted in Postgres. |
 | GitHub issue sync | ✅ Real | Open issues of the linked repo appear on the board automatically; Refresh button; closing an issue moves its card to Done. |
@@ -41,12 +41,12 @@ Details: [docs/status.md](docs/status.md).
 
 ```bash
 npm install
-cp .env.example .env          # then fill in the values — see docs/setup.md
+cp .env.example .env          # optional: every value has a default — see docs/setup.md
 npm run db:migrate            # create the tables in your Postgres database
 npm run dev                   # http://localhost:3000 + the Inngest Dev Server (agent pipeline), in one terminal
 ```
 
-You need: Node.js 22+, a PostgreSQL database, a CloudHike auth project, a GitHub OAuth App, and (optionally) an
+You need: Node.js 22+, a GitHub account (you sign in with it; no OAuth App to create), and an
 OpenAI, Anthropic and/or OpenRouter API key for the agents, AI drafting and AI-assisted trust scans.
 Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 
@@ -98,5 +98,5 @@ Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 ## Tech stack (short)
 
 Next.js 16 (App Router, React 19) · TypeScript (strict) · Tailwind CSS v4 · shadcn/ui on Base UI · Drizzle ORM +
-PostgreSQL · hosted Better Auth (CloudHike) · GitHub OAuth App + REST API · local file storage · Inngest · dnd-kit · next-themes.
+PostgreSQL · GitHub device-flow sign-in · REST API · local file storage · Inngest · dnd-kit · next-themes.
 Full list and rationale in [docs/architecture.md](docs/architecture.md#stack).

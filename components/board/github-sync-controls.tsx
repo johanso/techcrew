@@ -58,7 +58,7 @@ export function GithubSyncButton({ state, onSync, repo }: { state: GithubSyncSta
 }
 
 const FAILURE_COPY = {
-  not_connected: (repo: string) => `Connect GitHub to bring ${repo}'s issues onto the board.`,
+  not_connected: (repo: string) => `Reconnect GitHub to bring ${repo}'s issues onto the board.`,
   reconnect: () => "Your GitHub connection expired or was revoked. Reconnect to keep issues in sync.",
   no_access: (repo: string) => `We can't read issues from ${repo}. Check that your GitHub account still has access to it.`,
   error: () => "We couldn't reach GitHub just now. We'll keep trying in the background.",
@@ -93,7 +93,7 @@ export function GithubSyncNotice({
       {needsConnect ? (
         <a href={connectHref} className={buttonVariants({ size: "sm", className: "h-8 px-3" })}>
           <GitHubIcon className="size-3.5" />
-          {state.failure === "reconnect" ? "Reconnect GitHub" : "Connect GitHub"}
+          Reconnect GitHub
         </a>
       ) : (
         <Button variant="ghost" size="sm" onClick={onRetry} className={cn(state.failure !== "no_access" && "text-destructive")}>

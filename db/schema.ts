@@ -13,8 +13,10 @@ import type { RunPreview, StoredSandboxCommands } from "@/lib/sandbox/config";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  // User id issued by the hosted auth service (Better Auth `user.id`).
+  // Legacy id from the old hosted auth service; new users get `github:<github id>`. Dropped in the final cleanup.
   authUserId: text("auth_user_id").notNull().unique(),
+  // The GitHub account that signs in as this user (lib/local-user.ts). Null until the owner's first GitHub sign-in.
+  githubUserId: bigint("github_user_id", { mode: "number" }).unique(),
   name: text("name"),
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").default(false).notNull(),
@@ -28,8 +30,8 @@ export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 
 /**
- * A user's linked GitHub account (OAuth App, `repo` scope). One per user.
- * Independent from social sign-in: the hosted auth service does not expose provider tokens.
+ * A user's GitHub token (OAuth App device flow or a personal access token, `repo` scope). One per user, saved at
+ * every sign-in.
  */
 export const githubConnections = pgTable("github_connections", {
   id: serial("id").primaryKey(),

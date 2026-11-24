@@ -2,19 +2,17 @@ import type { Metadata } from "next";
 
 import { AppHeader } from "@/components/app-header";
 import { CreateWorkspaceForm } from "@/components/workspace/create-workspace-form";
-import type { GithubStatus, RepoListResult } from "@/components/workspace/github-repo-picker";
+import type { RepoListResult } from "@/components/workspace/github-repo-picker";
 import { requireUser } from "@/lib/current-user";
-import { GithubError, getGithubAccount, getGithubToken, isGithubConfigured, listLinkableRepos } from "@/lib/github";
+import { GithubError, getGithubAccount, getGithubToken, listLinkableRepos } from "@/lib/github";
 import { hasWorkspaces } from "@/lib/workspaces";
 
 export const metadata: Metadata = { title: "Create workspace" };
 
-const GITHUB_STATUSES: GithubStatus[] = ["connected", "denied", "error", "not-configured"];
-
 async function loadRepos(userId: number): Promise<RepoListResult> {
   try {
     const token = await getGithubToken(userId);
-    if (!token) return { error: "Connect your GitHub account to see repositories.", reconnect: true };
+    if (!token) return { error: "Sign in with GitHub to see repositories.", reconnect: true };
     return { repos: await listLinkableRepos(token) };
   } catch (error) {
     if (error instanceof GithubError && error.status === 401) {
@@ -25,12 +23,10 @@ async function loadRepos(userId: number): Promise<RepoListResult> {
   }
 }
 
-export default async function NewWorkspacePage({ searchParams }: PageProps<"/workspaces/new">) {
+export default async function NewWorkspacePage() {
   const user = await requireUser("/workspaces/new");
-  const { github: githubParam } = await searchParams;
 
   const [github, existing] = await Promise.all([getGithubAccount(user.id), hasWorkspaces(user.id)]);
-  const githubStatus = GITHUB_STATUSES.find((status) => status === githubParam);
 
   return (
     <div className="min-h-svh bg-canvas">
@@ -49,8 +45,6 @@ export default async function NewWorkspacePage({ searchParams }: PageProps<"/wor
         <div className="surface p-6 sm:p-8">
           <CreateWorkspaceForm
             github={github}
-            githubConfigured={isGithubConfigured()}
-            githubStatus={githubStatus}
             // Not awaited: the repo list streams in behind a skeleton.
             reposPromise={github ? loadRepos(user.id) : null}
             cancelHref={existing ? "/workspaces" : undefined}

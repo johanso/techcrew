@@ -17,18 +17,9 @@ import { cn } from "@/lib/utils";
 
 export type GithubAccount = { login: string; avatarUrl: string | null };
 export type RepoListResult = { repos: GithubRepo[] } | { error: string; reconnect?: boolean };
-export type GithubStatus = "connected" | "denied" | "error" | "not-configured";
-
-const STATUS_MESSAGES: Partial<Record<GithubStatus, string>> = {
-  denied: "GitHub authorization was cancelled. Connect again whenever you're ready.",
-  error: "We couldn't connect to GitHub. Please try again.",
-  "not-configured": "GitHub integration isn't configured on this server yet.",
-};
 
 export function GithubRepoPicker({
-  configured,
   account,
-  status,
   reposPromise,
   connectHref,
   selected,
@@ -37,9 +28,7 @@ export function GithubRepoPicker({
   onDisconnect,
   error,
 }: {
-  configured: boolean;
   account: GithubAccount | null;
-  status?: GithubStatus;
   reposPromise: Promise<RepoListResult> | null;
   connectHref: string;
   selected: string | null;
@@ -49,23 +38,20 @@ export function GithubRepoPicker({
   onDisconnect: () => void;
   error?: string;
 }) {
-  const statusMessage = status && STATUS_MESSAGES[status];
-
   if (!account) {
     return (
       <div className="flex flex-col gap-3">
-        {statusMessage && <FormMessage message={statusMessage} />}
         <div className="flex flex-col items-start gap-4 rounded-xl border bg-muted/60 p-5 sm:flex-row sm:items-center">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-darkest text-lightest">
             <GitHubIcon className="size-5" />
           </span>
           <div className="flex flex-1 flex-col gap-0.5">
-            <p className="text-sm font-semibold">Connect your GitHub account</p>
+            <p className="text-sm font-semibold">Reconnect your GitHub account</p>
             <p className="text-sm text-muted-foreground">
-              We&apos;ll list the repositories you can push to so agents can work on one.
+              Your GitHub connection is missing. Signing in restores it and lists the repositories you can push to.
             </p>
           </div>
-          <ConnectButton href={connectHref} disabled={!configured} onBeforeLeave={onBeforeLeave} />
+          <ConnectButton href={connectHref} onBeforeLeave={onBeforeLeave} />
         </div>
         <FieldError>{error}</FieldError>
       </div>
@@ -106,12 +92,10 @@ export function GithubRepoPicker({
 
 function ConnectButton({
   href,
-  disabled,
   onBeforeLeave,
-  label = "Connect GitHub",
+  label = "Reconnect GitHub",
 }: {
   href: string;
-  disabled?: boolean;
   onBeforeLeave: () => Promise<void>;
   label?: string;
 }) {
@@ -127,18 +111,17 @@ function ConnectButton({
   return (
     <a
       href={href}
-      aria-disabled={disabled || pending}
+      aria-disabled={pending}
       onClick={async (event) => {
         event.preventDefault();
-        if (disabled || pending) return;
+        if (pending) return;
         setPending(true);
         await onBeforeLeave();
         window.location.assign(href);
       }}
       className={cn(
         buttonVariants(),
-        "h-9 bg-darkest text-lightest hover:bg-darkest/85",
-        disabled && "pointer-events-none opacity-50"
+        "h-9 bg-darkest text-lightest hover:bg-darkest/85"
       )}
     >
       {pending ? <Spinner /> : <GitHubIcon className="size-4" />}
@@ -169,7 +152,7 @@ function RepoList({
       <div className="flex flex-col items-start gap-3">
         <FormMessage message={result.error} />
         {result.reconnect && (
-          <ConnectButton href={connectHref} onBeforeLeave={onBeforeLeave} label="Reconnect GitHub" />
+          <ConnectButton href={connectHref} onBeforeLeave={onBeforeLeave} />
         )}
       </div>
     );
@@ -178,7 +161,7 @@ function RepoList({
   if (result.repos.length === 0) {
     return (
       <p className="rounded-xl border bg-muted/60 p-6 text-center text-sm text-muted-foreground">
-        This account has no repositories you can push to. Create one on GitHub, or connect a different account.
+        This account has no repositories you can push to. Create one on GitHub, or sign in with a different account.
       </p>
     );
   }

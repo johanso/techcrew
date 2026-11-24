@@ -170,7 +170,7 @@ export function KanbanBoard({
   const settle = () => {
     if (!dragging.current && pendingWrites.current === 0) github.flushDeferred();
   };
-  const connectHref = `/api/github/connect?next=${encodeURIComponent(`/dashboard/${workspaceId}/board`)}`;
+  const connectHref = `/sign-in?next=${encodeURIComponent(`/dashboard/${workspaceId}/board`)}`;
 
   // ←/→ jump to the top of the neighbouring column; ↑/↓ reorder within the column (dnd-kit default).
   // The default getter alone picks "the nearest droppable" leftwards, which can be the card above.

@@ -22,9 +22,8 @@ Everything you need to run TechTeam locally, and what each setting does.
 | --- | --- | --- |
 | Node.js | 22 or newer | Runs Next.js 16; scripts use `node --env-file`. |
 | npm | bundled with Node | Package manager (a `package-lock.json` is committed). |
-| PostgreSQL | 14+ | App database. Any reachable instance works (local, Docker, hosted). |
-| A CloudHike project | — | Hosted Better Auth service that handles sign-up, sign-in and social login. |
-| A GitHub OAuth App | — | Lets users connect GitHub so a workspace can link a repository and sync its issues. |
+| PostgreSQL | 14+ | App database. Optional: the embedded one starts with `npm run dev`. |
+| A GitHub account | — | Signing in with it is also what gives agents access to your repositories. |
 
 ## 1. Install
 
@@ -41,14 +40,10 @@ All variables live in `.env`. Restart `npm run dev` after changing them.
 
 | Variable | Required | Used by | Description |
 | --- | --- | --- | --- |
-| `NEXT_PUBLIC_APP_URL` | yes | OAuth redirects | Public origin of the app, e.g. `http://localhost:3000`. Used to build the GitHub and social-login callback URLs, so it must match what you register with those providers. |
+| `NEXT_PUBLIC_APP_URL` | yes | host guard, cookies, self calls | Origin of the app, e.g. `http://localhost:3000`. The app listens on `127.0.0.1` only; requests for another host name are refused unless it is this URL's host. `https` makes cookies `Secure`. |
 | `DATABASE_URL` | no (unset = embedded Postgres) | Drizzle (`db/index.ts`, `drizzle.config.ts`) | Postgres connection string. |
-| `AUTH_URL` | yes | `lib/auth.ts` | Base URL of your CloudHike auth project, e.g. `https://cloudhike.dev/api/auth-service/<project-slug>`. |
-| `AUTH_PUBLISHABLE_KEY` | yes | `lib/auth.ts` | Sent as `x-api-key` on every auth request. Starts with `pk_`. |
-| `AUTH_SECRET_KEY` | no | — | Server-only key of the auth project. Not used by the current flows. |
-| `GITHUB_CLIENT_ID` | for GitHub | `lib/github.ts` | Client ID of your GitHub OAuth App. |
-| `GITHUB_CLIENT_SECRET` | for GitHub | `lib/github.ts` | Client secret of your GitHub OAuth App. |
-| `TOKEN_ENCRYPTION_KEY` | for GitHub | `lib/crypto.ts` | 32 random bytes, base64. Encrypts GitHub access tokens and AI provider keys at rest. Generate with `openssl rand -base64 32`. **Changing it makes every stored token unreadable**: users must reconnect GitHub and re-enter AI keys. |
+| `GITHUB_CLIENT_ID` | no | `lib/github-client-id.ts` | Client id of the GitHub OAuth App used for sign-in. Default: the project's own app. Public; there is no client secret. Set it only for your own app (below). |
+| `TOKEN_ENCRYPTION_KEY` | no | `lib/secrets.ts` | 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts GitHub tokens and AI provider keys at rest. Unset, a key is generated in `<TECHTEAM_DATA_DIR>/encryption.key`. **Moving to another computer needs that file (or this value)**; without it, reconnect GitHub and enter the AI keys again. |
 | `TECHTEAM_DATA_DIR` | optional | `lib/storage.ts` | Folder for local data. Files (workspace logos, the Tester's screenshots, card references) go in `<dir>/files`. Default `~/.techteam/data`. |
 | `OPENAI_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback; users normally save their own key once in Settings → Your account → AI keys. Agents on GPT models; **Draft with AI** and AI-assisted trust scans (on `gpt-6.1-sol`). Without any provider key the page works with default instructions and rule-based scans. Model cost is charged to the agent's monthly budget. |
 | `ANTHROPIC_API_KEY` | optional | `lib/ai-keys.ts` | Server-wide fallback, as above. Agents on Claude models (Opus / Sonnet / Haiku 5.5). Also drafting and trust scans (on `claude-sonnet-5-5`) when `OPENAI_API_KEY` isn't set. A Console API key (pay as you go); a Claude.ai subscription can't be used. |
@@ -62,9 +57,8 @@ All variables live in `.env`. Restart `npm run dev` after changing them.
 
 What happens when an optional group is missing:
 
-- **GitHub variables missing** → the "Connect GitHub" button on the create-workspace page is disabled and shows
-  "GitHub integration isn't configured on this server yet." You can't create a workspace (a repository is required).
-- **`TOKEN_ENCRYPTION_KEY` missing or wrong length** → connecting GitHub fails with an error in the server log.
+- **No client id at all** (only if the shipped default is emptied) → `/sign-in` explains how to set `GITHUB_CLIENT_ID`; the personal-token form still works.
+- **`TOKEN_ENCRYPTION_KEY` set but not 32 bytes of base64** → signing in fails with an error in the server log. Unset it to use the generated key.
 - **Inngest Dev Server not running (locally)** → the board's **Run** action fails with
   "Is the Inngest Dev Server running? Start the app with `npm run dev`." Nothing else is affected.
 
@@ -90,33 +84,30 @@ docker run -d --name techteam-db -e POSTGRES_PASSWORD=postgres -p 5432:5432 post
 # DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
 ```
 
-The hosted auth service keeps its own data in an `auth` schema of the **same** database when you use CloudHike's
-managed database; `drizzle.config.ts` restricts Drizzle to the `public` schema (`schemaFilter: ['public']`) so it
-never touches it.
+`drizzle.config.ts` restricts Drizzle to the `public` schema (`schemaFilter: ['public']`); a database that still has the
+old hosted auth service's `auth` schema keeps it untouched.
 
-### CloudHike auth (hosted Better Auth)
+### Signing in with GitHub
 
-1. Create a project at [cloudhike.dev](https://cloudhike.dev) and copy its **auth URL** and **publishable key**
-   into `AUTH_URL` and `AUTH_PUBLISHABLE_KEY`.
-2. Enable the providers you want (email/password, GitHub, Google) in the project settings.
-3. Allow `<NEXT_PUBLIC_APP_URL>/auth/callback` as a redirect target for social sign-in.
-4. If "require email verification" is on, sign-up shows "Check your inbox" instead of signing the user in.
+Sign-in is GitHub's **device flow**, so there is no password, no sign-up, no callback URL and no client secret. One step
+identifies you and gives agents access to your repositories (scopes `repo read:user`).
 
-> Sign-in with GitHub (identity) and **Connect GitHub** (repository access) are separate. The hosted service never
-> exposes provider tokens, so repository access uses the project's own GitHub OAuth App (next section).
+The app uses the project's own GitHub OAuth App by default (its public client id is `DEFAULT_GITHUB_CLIENT_ID` in
+`lib/github-client-id.ts`): nothing to set up. A client id is public, not a secret.
 
-### GitHub OAuth App
+To use **your own** OAuth App (a fork, or you prefer it):
 
-1. Go to **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**
-   (<https://github.com/settings/developers>).
-2. **Homepage URL**: your `NEXT_PUBLIC_APP_URL`.
-3. **Authorization callback URL**: `<NEXT_PUBLIC_APP_URL>/api/github/callback`
-   (locally: `http://localhost:3000/api/github/callback`).
-4. Create it, then **Generate a new client secret**.
-5. Put the values in `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, and generate `TOKEN_ENCRYPTION_KEY`.
+1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App (<https://github.com/settings/developers>).
+   Homepage URL: your `NEXT_PUBLIC_APP_URL`. The callback URL is required by the form but unused: any URL works.
+2. Open the app and tick **Enable Device Flow**. Do not generate a client secret.
+3. Put the client id in `GITHUB_CLIENT_ID` in `.env` and restart.
 
-The app requests the `repo` and `read:user` scopes. For organization repositories, an org owner may need to
-approve the OAuth App (GitHub → Organization settings → Third-party access) before its repos appear.
+Alternatively paste a **personal access token** with the `repo` scope under "Use a personal access token instead".
+For organization repositories, an org owner may need to approve the OAuth App (GitHub → Organization settings →
+Third-party access).
+
+**Existing installation**: run `npm run db:migrate` (adds `users.github_user_id`). The first sign-in on a database with
+exactly one user asks whether to adopt that user's data with your GitHub account; answer **Adopt**.
 
 ### Local files
 
@@ -127,7 +118,7 @@ by `/api/workspaces/[id]/logo`; card references under `card-references/<workspac
 ### Inngest
 
 Locally nothing to configure: `npm run dev` starts it next to the app (`npm run inngest:dev` alone starts only it). It runs the Inngest Dev Server (UI on
-<http://localhost:8288>) and points it at `http://localhost:3000/api/inngest`, where the app's functions are
+<http://localhost:8288>) and points it at `http://127.0.0.1:3000/api/inngest` (the app listens on `127.0.0.1` only), where the app's functions are
 served. For production see [docs/background-jobs.md](background-jobs.md#production).
 
 ### Agent sandbox (optional)
@@ -173,10 +164,9 @@ npm run dev            # http://localhost:3000 + the Inngest Dev Server (needed 
 
 ## 6. First-run walkthrough
 
-1. Open <http://localhost:3000> (it redirects to sign-in) → **Sign up**. Create an account.
+1. Open <http://localhost:3000> (it redirects to sign-in) → **Continue with GitHub**. Type the code shown on the page at github.com and authorize.
 2. You land on `/workspaces`, which forwards you to **Create a new workspace** because you have none.
-3. Name it, pick an icon (or upload a logo), click **Connect GitHub**, authorize, and pick a repository you can
-   push to. Click **Next**.
+3. Name it, pick an icon (or upload a logo), and pick a repository you can push to. Click **Next**.
 4. You're on the workspace **Overview**. Open **Board** in the sidebar: it syncs the repository's open issues
    immediately ("Syncing with GitHub…").
 5. Create a card with **New**, drag cards between columns, click a card to edit it, or press ▶ to run it.
@@ -197,10 +187,10 @@ To turn the feature off on a computer, set `AGENTS_LOCAL_CLI=false` in its `.env
 
 ## A second computer (Windows)
 
-The database and auth live on Cloudhike, so a second checkout shares everything (workspaces, cards, agents).
+The database lives wherever `DATABASE_URL` points; a second checkout shares everything (workspaces, cards, agents) only if both use it.
 
 1. Install Node.js 22+ and Git, then clone the repository and `npm install`.
-2. Copy `.env` from your first computer (same `DATABASE_URL`, `TOKEN_ENCRYPTION_KEY`, auth and GitHub values). Don't run
+2. Copy `.env` from your first computer (same `DATABASE_URL`) and the data folder's `encryption.key` (or the same `TOKEN_ENCRYPTION_KEY`); sign in with the same GitHub account. Don't run
    `npm run db:migrate` there for a shared database: the first computer already did.
 3. `npm run dev` starts the app and Inngest, as on macOS.
 4. Auto pickup runs on every computer whose Inngest is up: keep it on one by setting `AGENTS_AUTO_PICKUP=false` in the
@@ -230,11 +220,11 @@ first, or use `node --env-file=.env …`.
 | --- | --- |
 | `relation "workspaces" does not exist` (or any table) | Tables weren't created. Run `npm run db:migrate`. |
 | `npm run db:migrate` fails with `relation "…" already exists` | The database was created with `db:push`. Run `npm run db:baseline` once, then migrate again. |
-| "Connect GitHub" is disabled | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` are not set. Restart the dev server after setting them. |
-| GitHub redirects back with "We couldn't connect to GitHub" | Callback URL mismatch (must be exactly `<NEXT_PUBLIC_APP_URL>/api/github/callback`), wrong client secret, or missing `TOKEN_ENCRYPTION_KEY`. Check the server log for `[github] connect failed`. |
+| Sign-in says Device Flow is switched off | Your own OAuth App needs **Enable Device Flow** ticked in its settings on GitHub. |
+| "Unknown host" (403) | You opened the app under a name that isn't `localhost`, `127.0.0.1` or `[::1]`. Use one of those, or set `NEXT_PUBLIC_APP_URL` to that host. |
 | A repository is missing from the picker | Only repositories you can **push** to and that aren't archived are listed (max 300). For org repos, the org may need to approve the OAuth App. |
-| Board shows "Connect GitHub to bring … issues onto the board" | The workspace owner has no GitHub connection (or it was disconnected). Click **Connect GitHub**. |
-| Board shows "Your GitHub connection expired or was revoked" | The token was revoked on GitHub (or `TOKEN_ENCRYPTION_KEY` changed). Click **Reconnect GitHub**. |
+| Board shows "Reconnect GitHub to bring … issues onto the board" | The workspace owner has no GitHub connection (it was disconnected). Click **Reconnect GitHub** (signs in again). |
+| Board shows "Your GitHub connection expired or was revoked" | The token was revoked on GitHub, or the encryption key changed or is missing. Click **Reconnect GitHub**. |
 | **Run** fails with "Is the Inngest Dev Server running?" | Start the app with `npm run dev` (it starts Inngest too), or `npm run inngest:dev` if you ran `dev:app`. Without it, the SDK falls back to Inngest Cloud and the placeholder event key is rejected (401). |
 | Settings → Sandbox can't be switched on | `SANDBOX_DOCKER_HOST` isn't set (restart the dev server after setting it), or neither a test nor a build command is saved. |
 | **Test the sandbox** fails while preparing the checkout | The app can't reach Docker on the host: try `docker -H "$SANDBOX_DOCKER_HOST" info` from the same machine (SSH key, host key, user in the `docker` group). |

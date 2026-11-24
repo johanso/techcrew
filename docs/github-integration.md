@@ -1,11 +1,10 @@
 # GitHub integration
 
-Everything that talks to GitHub: connecting an account, linking a repository, and syncing issues onto the board.
+Everything that talks to GitHub: signing in with GitHub, linking a repository, and syncing issues onto the board.
 Code: [`lib/github.ts`](../lib/github.ts), [`lib/github-issues.ts`](../lib/github-issues.ts),
-`app/api/github/*`, [`components/board/use-github-sync.ts`](../components/board/use-github-sync.ts).
+`lib/sign-in.ts`, [`components/board/use-github-sync.ts`](../components/board/use-github-sync.ts).
 
-- [Why a separate OAuth App](#why-a-separate-oauth-app)
-- [Connecting an account](#connecting-an-account)
+- [Signing in and connecting](#signing-in-and-connecting)
 - [Token storage](#token-storage)
 - [Linking a repository](#linking-a-repository)
 - [Issue sync](#issue-sync)
@@ -16,55 +15,48 @@ Code: [`lib/github.ts`](../lib/github.ts), [`lib/github-issues.ts`](../lib/githu
 
 ---
 
-## Why a separate OAuth App
+## Signing in and connecting
 
-"Sign in with GitHub" goes through the hosted auth service, which never hands provider access tokens to the app.
-Reading repositories and issues needs a token, so the app has its **own GitHub OAuth App** and its own "Connect
-GitHub" step. A user can sign in with email and still connect GitHub, or sign in with GitHub and connect a
-different GitHub account.
-
-## Connecting an account
+Signing in with GitHub **is** connecting it: the same OAuth device flow gives identity and a repository token, so there is
+no separate "Connect GitHub" step and no client secret. The OAuth App's client id is public (`GITHUB_CLIENT_ID`, default in
+`lib/github-client-id.ts`); the App needs **Enable Device Flow** ticked.
 
 ```mermaid
 sequenceDiagram
     participant B as Browser
-    participant C as /api/github/connect
+    participant S as TechTeam (server actions)
     participant G as github.com
-    participant CB as /api/github/callback
     participant DB as Postgres
 
-    B->>C: GET ?next=/workspaces/new
-    C->>C: random state + PKCE verifier/challenge (S256)
-    C-->>B: 302 to GitHub authorize + cookie github_oauth {state, verifier, next}
-    B->>G: authorize (scope "repo read:user")
-    G-->>B: 302 /api/github/callback?code=…&state=…
-    B->>CB: GET
-    CB->>CB: state must match cookie
-    CB->>G: POST /login/oauth/access_token (code + code_verifier)
-    CB->>G: GET /user
-    CB->>DB: upsert github_connections (token encrypted)
-    CB-->>B: 302 next?github=connected  (cookie cleared)
+    B->>S: Continue with GitHub
+    S->>G: POST /login/device/code (client_id, scope "repo read:user")
+    S-->>B: user_code + verification_uri; device_code in sealed cookie tt_login
+    B->>G: owner types the code and authorizes (new tab)
+    loop every interval (slow_down: +5 s)
+        B->>S: poll
+        S->>G: POST /login/oauth/access_token (device_code)
+    end
+    S->>G: GET /user
+    S->>DB: find/link/create user, upsert github_connections (token encrypted)
+    S-->>B: tt_session cookie, go to next
 ```
 
-- **Scopes**: `repo` (read and push to private repositories — agents will need to push) and `read:user`.
-- **CSRF**: a random `state` stored in the `github_oauth` cookie (HTTP-only, `SameSite=Lax`, path `/api/github`,
-  10 minutes) must match what GitHub returns.
-- **PKCE** (`S256`) protects the authorization code even if it leaks.
-- **`next`** must be a same-origin path (`isSafeRedirectPath`); otherwise it defaults to `/workspaces/new`.
-- **Outcome** is reported back as `?github=connected | denied | error | not-configured`, which the create-workspace
-  page turns into a message.
-- **Signed out** at any step → redirect to sign-in with `next` preserved.
-- **Disconnect** (`disconnectGithub`) deletes the connection row. It doesn't revoke the authorization on GitHub;
-  users can do that under GitHub → Settings → Applications.
+- **Scopes**: `repo` (read and push to private repositories: agents push) and `read:user`. A personal access token
+  pasted instead is verified with `GET /user` and a repository listing and stored with scope null.
+- **Who** the sign-in is: see [architecture.md](architecture.md#authentication-and-sessions) (`resolveUser`). The token is
+  saved for the resolved user at every sign-in, so it is refreshed.
+- **`next`** must be a same-origin path (`isSafeRedirectPath`); otherwise it defaults to `/workspaces`.
+- **Disconnect** (`disconnectGithub`) deletes the connection row and signs out. It doesn't revoke the authorization on
+  GitHub; users can do that under GitHub → Settings → Applications.
 
 ## Token storage
 
 Tokens are encrypted with **AES-256-GCM** before they touch the database (`lib/crypto.ts`):
 
-- Key: `TOKEN_ENCRYPTION_KEY` (32 bytes, base64). A fresh 12-byte IV per encryption.
+- Key: `TOKEN_ENCRYPTION_KEY` (32 bytes, base64), else `<data dir>/encryption.key`, generated on first use. A fresh 12-byte IV per encryption.
 - Stored format: `v1.<iv>.<authTag>.<ciphertext>` (base64url parts). Tampering fails decryption.
 - Only `getGithubToken(userId)` decrypts, and only on the server. Tokens are never sent to the browser or logged.
-- Rotating the key makes existing tokens unreadable → the app treats it as "reconnect".
+- Changing or losing the key makes existing tokens unreadable → the app treats it as "reconnect" (sign in again). Moving to another computer needs the key file (or the same env value).
 
 ## Linking a repository
 
@@ -155,8 +147,8 @@ Cards created in the app have no GitHub issue (`github: null`) and are **not** p
 
 | Situation | `reason` | Board shows |
 | --- | --- | --- |
-| Owner never connected GitHub, or disconnected | `not_connected` | "Connect GitHub to bring … issues onto the board." + **Connect GitHub** |
-| Token revoked/expired (401), or `TOKEN_ENCRYPTION_KEY` changed | `reconnect` | "Your GitHub connection expired or was revoked." + **Reconnect GitHub** |
+| Owner never connected GitHub, or disconnected | `not_connected` | "Reconnect GitHub to bring … issues onto the board." + **Reconnect GitHub** |
+| Token revoked/expired (401), or the encryption key changed | `reconnect` | "Your GitHub connection expired or was revoked." + **Reconnect GitHub** |
 | Repo deleted, renamed, or access lost (403/404) | `no_access` | "We can't read issues from …" + **Try again** |
 | Anything else (network, 5xx) | `error` | "We couldn't reach GitHub just now…" + **Try again** (auto-sync keeps retrying) |
 

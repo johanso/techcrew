@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { TerminalIcon } from "lucide-react";
 
-import { AuthDivider, AuthHeader } from "@/components/auth/form-parts";
-import { SignInForm } from "@/components/auth/sign-in-form";
-import { SocialButtons } from "@/components/auth/social-buttons";
-import { getSession, isSafeRedirectPath } from "@/lib/auth";
+import { AuthHeader } from "@/components/auth/form-parts";
+import { GithubSignIn, PersonalTokenForm } from "@/components/auth/github-sign-in";
+import { getCurrentUser } from "@/lib/current-user";
+import { githubClientId } from "@/lib/github";
+import { isSafeRedirectPath } from "@/lib/safe-redirect";
 
 export const metadata: Metadata = { title: "Sign in" };
 
@@ -13,27 +14,35 @@ export default async function SignInPage({ searchParams }: PageProps<"/sign-in">
   const { next } = await searchParams;
   const nextPath = isSafeRedirectPath(next) ? next : undefined;
 
-  if (await getSession().catch(() => null)) redirect(nextPath ?? "/workspaces");
+  if (await getCurrentUser().catch(() => null)) redirect(nextPath ?? "/workspaces");
 
   return (
     <div className="flex flex-col gap-8">
-      <AuthHeader title="Welcome back" description="Sign in to your account to continue." />
+      <AuthHeader
+        title="Sign in to TechTeam"
+        description="One step with GitHub identifies you and lets your agents work on your repositories. There is no password."
+      />
 
-      <div className="flex flex-col gap-6">
-        <SocialButtons next={nextPath} />
-        <AuthDivider />
-        <SignInForm next={nextPath} />
-      </div>
-
-      <p className="text-center text-sm text-muted-foreground">
-        Don&apos;t have an account?{" "}
-        <Link
-          href={nextPath ? `/sign-up?next=${encodeURIComponent(nextPath)}` : "/sign-up"}
-          className="font-medium text-foreground underline-offset-4 hover:underline"
-        >
-          Create one
-        </Link>
-      </p>
+      {githubClientId() ? (
+        <div className="flex flex-col gap-4">
+          <GithubSignIn next={nextPath} />
+          <PersonalTokenForm next={nextPath} />
+        </div>
+      ) : (
+        <div className="surface flex flex-col gap-3 p-5">
+          <span className="icon-tile text-brand-emphasis">
+            <TerminalIcon className="size-5" />
+          </span>
+          <p className="text-sm font-semibold">Set the GitHub client id first</p>
+          <p className="text-sm text-muted-foreground">
+            Sign-in uses a GitHub OAuth App with Device Flow enabled. Put its client id in{" "}
+            <code className="font-medium text-foreground">.env</code> as{" "}
+            <code className="font-medium text-foreground">GITHUB_CLIENT_ID</code>, restart TechTeam and reload this page. The steps are in
+            docs/setup.md.
+          </p>
+          <PersonalTokenForm next={nextPath} />
+        </div>
+      )}
     </div>
   );
 }

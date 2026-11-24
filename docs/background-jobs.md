@@ -148,7 +148,7 @@ for a blocked merge is picked up like any other and continues on that pull reque
 
 ```bash
 npm run dev            # app on :3000 + Inngest Dev Server, one terminal (concurrently)
-npm run inngest:dev    # only the Dev Server: npx inngest-cli@latest dev -u http://localhost:3000/api/inngest
+npm run inngest:dev    # only the Dev Server: npx inngest-cli@latest dev -u http://127.0.0.1:3000/api/inngest
 ```
 
 - Dev Server UI: <http://localhost:8288> — see events, runs, step output and logs; replay runs.

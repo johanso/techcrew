@@ -1,7 +1,7 @@
 # Data model
 
 All app data lives in PostgreSQL, in the `public` schema, defined in [`db/schema.ts`](../db/schema.ts) with Drizzle.
-The hosted auth service keeps identities elsewhere (its own `auth` schema); the app only mirrors what it needs.
+Identity is GitHub's: a `users` row is found by its GitHub id (`users.github_user_id`); there is no remote auth service.
 
 - [Diagram](#diagram)
 - [users](#users)
@@ -58,6 +58,7 @@ erDiagram
     users {
         serial id PK
         text auth_user_id UK
+        bigint github_user_id UK
         text email UK
         text name
         boolean email_verified
@@ -162,24 +163,25 @@ foreign keys to `agent_skills` / `agents`. `SET NULL`: `agent_skills.created_by_
 
 ## users
 
-Mirror of the hosted auth user. Created on first sign-in, refreshed on every sign-in (`lib/user-sync.ts`).
+The owner of everything. Created by the first GitHub sign-in (`lib/local-user.ts`), refreshed on every sign-in.
 
 | Column | Type | Null | Default | Notes |
 | --- | --- | --- | --- | --- |
 | `id` | serial | no | | Primary key. What every other table references. |
-| `auth_user_id` | text | no | | Better Auth `user.id`. **Unique.** Used to find the row from a session. |
-| `name` | text | yes | | Display name from the auth service. |
-| `email` | text | no | | **Unique.** |
+| `auth_user_id` | text | no | | Legacy id of the old hosted auth service; **unique**, never changed for existing users, `github:<github id>` for new ones. Dropped in the final cleanup. |
+| `github_user_id` | bigint | yes | | GitHub's numeric id of the account that signs in as this user. **Unique.** Null until the first GitHub sign-in (migration 0018 adds it); an existing user gets it by being adopted or by having a saved connection with that id. |
+| `name` | text | yes | | GitHub name (or login) for new users; never overwritten once set. |
+| `email` | text | no | | **Unique.** New users get `<id>+<login>@users.noreply.github.com`. |
 | `email_verified` | boolean | no | `false` | |
-| `image` | text | yes | | Avatar URL (e.g. from GitHub/Google). |
+| `image` | text | yes | | Avatar URL from GitHub. |
 | `created_at` | timestamp | no | `now()` | "Member since". |
 | `updated_at` | timestamp | no | `now()` | |
 | `last_sign_in_at` | timestamp | no | `now()` | Updated on each sign-in. |
 
 ## github_connections
 
-A user's linked GitHub account, used to read repositories and issues. **One per user** (`user_id` is unique).
-Independent from "Sign in with GitHub" — see [github-integration.md](github-integration.md#why-a-separate-oauth-app).
+A user's GitHub token, used to read repositories and issues and by agents. **One per user** (`user_id` is unique). Saved at
+every GitHub sign-in (device flow or personal access token): see [github-integration.md](github-integration.md#signing-in-and-connecting).
 
 | Column | Type | Null | Notes |
 | --- | --- | --- | --- |
@@ -190,9 +192,9 @@ Independent from "Sign in with GitHub" — see [github-integration.md](github-in
 | `avatar_url` | text | yes | |
 | `access_token` | text | no | **Encrypted** with AES-256-GCM (`lib/crypto.ts`), format `v1.<iv>.<tag>.<ciphertext>`. Only `getGithubToken()` decrypts it; never send it to the client. |
 | `scope` | text | yes | Scopes GitHub granted (expected `repo,read:user`). |
-| `created_at`, `updated_at` | timestamp | no | `updated_at` changes on reconnect. |
+| `created_at`, `updated_at` | timestamp | no | `updated_at` changes on every sign-in. |
 
-Reconnecting overwrites the row (upsert on `user_id`). "Disconnect" deletes it.
+Signing in overwrites the row (upsert on `user_id`). "Disconnect" deletes it and signs out.
 
 ## workspaces
 
@@ -638,7 +640,7 @@ Things to know:
 
 - `0000_baseline.sql` is the whole schema as of November 2026. Databases created earlier with `db:push` already have
   it: run `npm run db:baseline` once (scripts/db-baseline.mjs marks migrations as applied without running them).
-- Only the `public` schema is managed (`schemaFilter` in `drizzle.config.ts`); never the hosted auth service's `auth`
+- Only the `public` schema is managed (`schemaFilter` in `drizzle.config.ts`); never the old hosted auth service's `auth`
   schema. `pg_stat_*` tables are ignored.
 - Renames are ambiguous to drizzle-kit (rename vs. drop + add): `generate` asks in an interactive terminal. Answer
   carefully; a wrong "drop + add" loses the column's data.
