@@ -245,7 +245,7 @@ async function main() {
   stack = spawn(process.execPath, ["scripts/start-local.mjs", ...(options.reuseBuild ? [] : ["--rebuild"])], {
     cwd: root,
     env,
-    detached: !windows,
+    detached: true,
     windowsHide: true,
     stdio: ["ignore", logFd, logFd, "ipc"],
   });
