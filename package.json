@@ -11,6 +11,7 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
     "start:local": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/start-local.mjs",
+    "sandbox:setup": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/sandbox-setup.mjs",
     "doctor": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/doctor.mjs",
     "lint": "eslint .",
     "db:local": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/local-db.mjs",
