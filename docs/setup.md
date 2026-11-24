@@ -43,7 +43,7 @@ All variables live in `.env`. Restart `npm run dev` after changing them.
 | Variable | Required | Used by | Description |
 | --- | --- | --- | --- |
 | `NEXT_PUBLIC_APP_URL` | yes | OAuth redirects | Public origin of the app, e.g. `http://localhost:3000`. Used to build the GitHub and social-login callback URLs, so it must match what you register with those providers. |
-| `DATABASE_URL` | yes | Drizzle (`db/index.ts`, `drizzle.config.ts`) | Postgres connection string. |
+| `DATABASE_URL` | no (unset = embedded Postgres) | Drizzle (`db/index.ts`, `drizzle.config.ts`) | Postgres connection string. |
 | `AUTH_URL` | yes | `lib/auth.ts` | Base URL of your CloudHike auth project, e.g. `https://cloudhike.dev/api/auth-service/<project-slug>`. |
 | `AUTH_PUBLISHABLE_KEY` | yes | `lib/auth.ts` | Sent as `x-api-key` on every auth request. Starts with `pk_`. |
 | `AUTH_SECRET_KEY` | no | — | Server-only key of the auth project. Not used by the current flows. |
@@ -81,7 +81,17 @@ What happens when an optional group is missing:
 
 ### PostgreSQL
 
-Any Postgres you can reach. Examples:
+#### Database
+
+By default you need nothing: with `DATABASE_URL` unset, `npm run dev` (or `npm run db:local`) starts an embedded
+Postgres 18 (the `embedded-postgres` package, about 110 MB downloaded by `npm install`), creates the database on the
+first run and applies the pending migrations. It listens on `127.0.0.1` only, port 54329 (`TECHTEAM_PG_PORT`), with a
+password generated on first start and kept in `<data dir>/postgres.secret`. Data lives in `<data dir>/postgres`, where
+the data dir is `TECHTEAM_DATA_DIR` or `~/.techteam/data`. `npm run db:migrate` and `db:studio` work against it while
+it runs. To reset, stop TechTeam and delete the `postgres` folder and `postgres.secret`. There are no backups yet (no
+`pg_dump` is shipped; they come in a later phase). After a hard stop the next start removes the stale lock by itself.
+
+To use your own database, set `DATABASE_URL`; nothing embedded starts. Any Postgres you can reach works. Examples:
 
 ```bash
 # Docker
