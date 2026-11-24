@@ -102,7 +102,7 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 | Item | Notes |
 | --- | --- |
-| Unit tests only | 164 Vitest tests for pure logic (filters, model mapping, roles, trust scan, costs, credit detection, tools per stage, log steps, phases and working agents, risk floor and merge decision, CI gate, run metrics, live process, Switch mapping, card-change descriptions, skill frontmatter/zip/scan/search/prompt), run by CI on every push. No integration tests for the database, the sync or the pipeline yet. |
+| Unit tests only | 724 Vitest tests in 58 files for pure logic (board filters, model catalog and request knobs, roles, trust scan, costs, credit detection, tools per stage, log steps, phases, risk and merge decision, CI gate, metrics, live process, doctor checks, backup archive and registry, sign-in rules, session cookie, host guard, secrets, run recovery, fallback order, skills, merge planning), run by CI on every push, on Linux and Windows. No integration tests for the database, the sync or the pipeline yet. |
 | Two `cn` helpers | shadcn components import `cn` from the `cn` npm package; app code uses `cn` from `@/lib/utils` (`clsx` + `tailwind-merge`). Pick one. |
 | `server-only` isn't installed as a package | Next.js handles it internally (optional per the Next docs), but scripts run outside Next (e.g. with `tsx`) can't import `server-only` modules without a shim. |
 | Sequential updates in `reorderTasks` | One `UPDATE` per card in the moved columns. Fine at board sizes; batch it if columns grow large. |
