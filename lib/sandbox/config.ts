@@ -4,6 +4,7 @@
  */
 
 import type { AgentStage } from "@/lib/agent-run-config";
+import { FORWARDER_SUFFIX } from "@/lib/sandbox/docker-args";
 
 /** Stages that get the sandbox tools (with `tests.run`): the Developer's and the Tester's. */
 export const SANDBOX_STAGES: readonly AgentStage[] = ["development", "testing"];
@@ -16,7 +17,11 @@ export type SandboxCommandKind = (typeof SANDBOX_COMMAND_KINDS)[number];
  */
 export type SandboxCommands = Record<SandboxCommandKind, string | null>;
 /** What workspaces.sandbox_commands holds: rows saved before previews have no `preview`. */
-export type StoredSandboxCommands = Omit<SandboxCommands, "preview"> & { preview?: string | null };
+export type StoredSandboxCommands = Omit<SandboxCommands, "preview"> & {
+  preview?: string | null;
+  /** Local sandbox only: let installs run packages' install scripts (off when absent). See install-command.ts. */
+  allowInstallScripts?: boolean;
+};
 
 export const SANDBOX_COMMAND_LABEL: Record<SandboxCommandKind, string> = {
   install: "Install dependencies",
@@ -56,17 +61,17 @@ export const BRIDGE_INSPECT_FORMAT = `{{.Internal}} {{index .Options "com.docker
 
 /**
  * Whether an inspected network (BRIDGE_INSPECT_FORMAT) has the shape the host firewall expects: not internal (it
- * needs a route out), icc off and exactly `subnet` (the DOCKER-USER rules match it). Null when it does, else what
- * differs, for the server log.
+ * needs a route out), icc off and exactly `subnet` (the DOCKER-USER rules match it; null: any subnet, a local
+ * network has no such rules). Null when it does, else what differs, for the server log.
  */
-export function bridgeNetworkProblem(inspected: string, subnet: string): string | null {
+export function bridgeNetworkProblem(inspected: string, subnet: string | null): string | null {
   // A missing option prints as "<no value>" (two words): the subnet is the last field, icc whatever sits between.
   const fields = inspected.trim().split(/\s+/);
   const internal = fields[0] ?? "";
   const actual = fields.length > 2 ? fields[fields.length - 1] : "";
   const icc = fields.slice(1, fields.length > 2 ? -1 : undefined).join(" ");
-  if (internal === "false" && icc === "false" && actual === subnet) return null;
-  return `internal=${internal} icc=${icc} subnet=${actual}; expected internal=false icc=false subnet=${subnet}`;
+  if (internal === "false" && icc === "false" && (subnet === null || actual === subnet)) return null;
+  return `internal=${internal} icc=${icc} subnet=${actual}; expected internal=false icc=false subnet=${subnet ?? "any"}`;
 }
 
 const NO_COMMANDS: SandboxCommands = { install: null, test: null, build: null, preview: null };
@@ -132,6 +137,11 @@ export function sandboxCommandsOf(value: unknown): SandboxCommands | null {
   return commands;
 }
 
+/** Whether the owner allowed install scripts in the local sandbox (Settings → Sandbox). Absent means off. */
+export function allowInstallScriptsOf(value: unknown) {
+  return !!value && typeof value === "object" && (value as Record<string, unknown>).allowInstallScripts === true;
+}
+
 export function isSandboxCommands(value: unknown): value is SandboxCommands {
   return sandboxCommandsOf(value) !== null;
 }
@@ -161,11 +171,12 @@ export const PREVIEW_PORT = 4173;
 
 /**
  * Where a run's preview lives on the sandbox host. The container and its internal network share one name: the
- * browser joins that network and opens `internalUrl`; Caddy joins it too and serves the public host.
+ * browser joins that network and opens `internalUrl`; Caddy joins it too and serves the public host (a local sandbox
+ * has `forwarder` instead, the container that publishes the preview on 127.0.0.1).
  */
 export function previewTarget(runId: number) {
   const name = `techteam-preview-run-${runId}`;
-  return { container: name, network: name, internalUrl: `http://${name}:${PREVIEW_PORT}` };
+  return { container: name, network: name, forwarder: `${name}${FORWARDER_SUFFIX}`, internalUrl: `http://${name}:${PREVIEW_PORT}` };
 }
 
 /** A preview is stopped this long after it started (or restarted on a rework round). */
@@ -184,6 +195,8 @@ export type RunPreview = {
   status: PreviewStatus;
   /** The public host, `pr-<n>-<6 random [a-z0-9]>.<SANDBOX_PREVIEW_DOMAIN>`: unguessable, never reused by another run. */
   host: string;
+  /** Local sandbox: where it answers, `http://127.0.0.1:<port>` (set once it runs). A remote preview is https://<host>. */
+  url?: string | null;
   prNumber: number;
   /** The development round and the commit it serves. */
   round: number;
@@ -194,6 +207,9 @@ export type RunPreview = {
   /** Why it failed or stopped, in the app's words (never the repository's output). */
   reason: string | null;
 };
+
+/** The identity host of a local preview (never resolved: its address is `url`). Satisfies isPreviewDomain. */
+export const LOCAL_PREVIEW_DOMAIN = "preview.localhost";
 
 const PREVIEW_SLUG = /^[a-z0-9]{6}$/;
 const DOMAIN = /^(?=.{1,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
@@ -210,7 +226,10 @@ export function previewHost(prNumber: number, slug: string, domain: string) {
   return `pr-${prNumber}-${slug}.${domain}`;
 }
 
-export const previewUrl = (preview: Pick<RunPreview, "host">) => `https://${preview.host}`;
+export const previewUrl = (preview: Pick<RunPreview, "host" | "url">) => preview.url ?? `https://${preview.host}`;
+
+/** A local preview's address from the port `docker port` reported: loopback only, http. */
+export const localPreviewUrl = (port: number) => `http://127.0.0.1:${port}`;
 
 /** A preview the app still holds resources for (container, network, volume). */
 export const isPreviewLive = (preview: Pick<RunPreview, "status">) => preview.status === "starting" || preview.status === "running";
@@ -230,6 +249,7 @@ export function parseRunPreview(value: unknown): RunPreview | null {
     typeof p.round === "number" &&
     typeof p.sha === "string" &&
     typeof p.startedAt === "string" &&
+    (p.url === undefined || optionalText(p.url)) &&
     optionalText(p.readyAt) &&
     optionalText(p.endedAt) &&
     optionalText(p.reason)

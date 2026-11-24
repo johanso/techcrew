@@ -24,12 +24,6 @@ import { formatDuration } from "@/lib/sandbox/config";
 /** Stages that get browse_preview (with `tests.run` and the workspace's previews on). Add "review" for a Designer. */
 export const PREVIEW_STAGES: readonly AgentStage[] = ["testing"];
 
-/**
- * The image built from deploy/browser (deploy/browser/Dockerfile): Playwright's version, then the scripts' revision
- * (2: link capture, tablet, color scheme; 3: fonts with real bold weights). Override with SANDBOX_BROWSER_IMAGE.
- */
-export const BROWSER_IMAGE = "techteam-browser:1.64.1-3";
-
 /** One browse_preview call: starting the container, Chromium, the page, the steps, the outline and the screenshot. */
 export const BROWSE_TIMEOUT_SECONDS = 60;
 /** What the runner may spend on the page and the steps; the rest is for starting up and the screenshot. */

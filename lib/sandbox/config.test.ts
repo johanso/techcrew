@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import { CAPTURE_SUBNET } from "@/lib/sandbox/capture-config";
 import {
+  LOCAL_PREVIEW_DOMAIN,
   PREVIEW_MAX_AGE_MS,
   SANDBOX_SUBNET,
+  allowInstallScriptsOf,
   bridgeNetworkProblem,
   detectCommands,
   isPreviewExpired,
   isSandboxCommands,
+  localPreviewUrl,
   outputTail,
   parseRunPreview,
   parseSandboxCommand,
@@ -116,8 +119,18 @@ describe("previews", () => {
     expect(previewTarget(7)).toEqual({
       container: "techteam-preview-run-7",
       network: "techteam-preview-run-7",
+      forwarder: "techteam-preview-run-7-fwd",
       internalUrl: "http://techteam-preview-run-7:4173",
     });
+  });
+
+  it("a local preview answers at the loopback address Docker published, a remote one at https", () => {
+    expect(previewUrl(preview({ url: localPreviewUrl(49153) }))).toBe("http://127.0.0.1:49153");
+    expect(previewUrl(preview({ url: null }))).toBe("https://pr-12-k3x9ab.preview.example.com");
+    expect(previewHost(12, "k3x9ab", LOCAL_PREVIEW_DOMAIN)).toBe("pr-12-k3x9ab.preview.localhost");
+    expect(previewLogSummary(preview({ url: localPreviewUrl(49153) }))).toContain("Running at http://127.0.0.1:49153");
+    expect(parseRunPreview(preview({ url: localPreviewUrl(49153) }))?.url).toBe("http://127.0.0.1:49153");
+    expect(parseRunPreview({ ...preview(), url: 5 })).toBeNull();
   });
 
   it("expires live previews after two hours only", () => {
@@ -220,5 +233,25 @@ describe("sandboxResolvConf", () => {
     expect(conf.match(/^nameserver /gm)).toHaveLength(3);
     expect(conf).not.toContain("127.0.0.11");
     expect(conf.endsWith("\n")).toBe(true);
+  });
+});
+
+describe("a local network has no subnet rules to match", () => {
+  it("accepts any subnet when none is expected, but still wants icc off and a route out", () => {
+    expect(bridgeNetworkProblem("false false 172.20.0.0/16\n", null)).toBeNull();
+    expect(bridgeNetworkProblem("false false 172.20.0.0/16\n", SANDBOX_SUBNET)).not.toBeNull();
+    expect(bridgeNetworkProblem("false true 172.20.0.0/16\n", null)).not.toBeNull();
+    expect(bridgeNetworkProblem("true false 172.20.0.0/16\n", null)).not.toBeNull();
+  });
+});
+
+describe("allowInstallScriptsOf", () => {
+  it("is on only when the saved commands say true", () => {
+    const commands = { install: "npm ci", test: null, build: null, preview: null };
+    expect(allowInstallScriptsOf({ ...commands, allowInstallScripts: true })).toBe(true);
+    expect(allowInstallScriptsOf(commands)).toBe(false);
+    expect(allowInstallScriptsOf({ ...commands, allowInstallScripts: "yes" })).toBe(false);
+    expect(allowInstallScriptsOf(null)).toBe(false);
+    expect(sandboxCommandsOf({ ...commands, allowInstallScripts: true })).toEqual(commands);
   });
 });
