@@ -135,9 +135,10 @@ The pipeline acts on the repository with the workspace owner's token, so its gua
 - **Merging** is never an agent tool: it happens only through `mergeAgentPullRequest` (manual button or the workspace's
   auto-merge setting), and only when GitHub reports the PR mergeable with every check green.
 - **Spend** is bounded per stage by max turns and per month by each agent's budget, both re-checked every turn.
-- **Running code** happens only in the sandbox ([sandbox.md](sandbox.md)): throwaway gVisor containers on a separate
-  Docker host, never in the app. The repository goes in as a tarball (the GitHub token stays in the app, the `docker`
-  CLI gets only `PATH`, `HOME` and `DOCKER_HOST`), tests and builds run with `--network=none`, as user `node`, without
+- **Running code** happens only in the sandbox ([sandbox.md](sandbox.md)): throwaway containers, either under gVisor on
+  a separate Docker host or (local mode, below) on your own computer's Docker, never in the app. The repository goes in
+  as a tarball (the GitHub token stays in the app, the `docker` CLI gets only a small environment: `PATH`, `HOME` and
+  `DOCKER_HOST` for a remote host, what Docker Desktop's CLI needs locally, never a secret), tests and builds run with `--network=none`, as user `node`, without
   capabilities, on a read-only root filesystem, with CPU, memory, process and time limits. Only the Developer and the
   Tester get the tools (`tests.run`, Settings → Sandbox on); the agent log keeps the command and its outcome line,
   never the output. The host itself is set up by `deploy/setup.sh`: firewall (SSH, 80, 443), keys-only SSH without
@@ -147,8 +148,22 @@ The pipeline acts on the repository with the workspace owner's token, so its gua
   to private, loopback, link-local (cloud metadata), CGNAT, multicast and reserved ranges is refused by the same
   DOCKER-USER rules as link captures (below), with public resolvers in a read-only `resolv.conf`: a dependency's install
   script reaches package registries and the internet, never the provider's private network or the metadata service.
+- **The sandbox on your own Docker (local mode)** has a different threat model, because gVisor and host firewall rules
+  don't exist on Docker Desktop for Windows: the repository's code and its dependencies are treated as untrusted, and the
+  compensations are all in `lib/sandbox/docker-args.ts` and tested over every argument list: never `--privileged`, the
+  Docker socket, a host-path mount, `--network=host`, an added capability or device, or a user other than the
+  unprivileged one; every hardening flag of remote mode stays (`--cap-drop=ALL`, `no-new-privileges`, read-only root,
+  CPU, memory, process limits, tmpfs); the command step keeps `--network=none`; **install scripts are off**
+  (`--ignore-scripts` plus `npm_config_ignore_scripts` and `YARN_IGNORE_SCRIPTS` in the container's environment, so it
+  holds whatever shape the install command has; the one thing the install network can't be firewalled against) unless the owner ticks Allow
+  install scripts; `host.docker.internal` and `gateway.docker.internal` resolve to `127.0.0.1` inside containers; the
+  only published port is a preview forwarder's, on `127.0.0.1`. Link captures stay remote-only. On Docker Desktop the
+  containers run inside its Linux VM, so an escape lands in that VM, not on the host; with Docker Engine on Linux the
+  kernel is shared. What it does not do: an install step that runs scripts can reach your home network and the internet,
+  and a kernel exploit isn't stopped by a second kernel. Use a remote host for repositories you don't trust.
 - **Previews** run like sandbox commands, on an `--internal` network with no route out, and are public only at a
-  random host (`pr-<n>-<6 random>.<domain>`) while running (2 h at most). Anyone with the link can open it: fine for
+  random host (`pr-<n>-<6 random>.<domain>`) while running (2 h at most); on your own Docker they answer only on
+  `http://127.0.0.1:<random port>`, so only this computer reaches them. Anyone with the link can open it: fine for
   test repositories; a login in front of previews is a follow-up for private apps. Caddy listens on nothing inside
   preview networks and keeps its admin API on its loopback.
 - **The Tester's browser** runs Chromium (its sandbox on) under gVisor on the preview's network only, with no secrets.
@@ -300,7 +315,8 @@ The source URL is the owner's own; the dialog opens it with `rel="noopener noref
 | Workspaces have no members or roles. | Not a risk today, but anything shared later needs an access model. | Add memberships before any sharing feature. |
 | Disconnecting GitHub doesn't revoke the token on GitHub. | The (encrypted, deleted) token stays valid on GitHub's side until the user revokes it. | Call GitHub's "delete an app token" endpoint on disconnect. |
 | Caddy mounts the Docker socket (caddy-docker-proxy reads container labels). | A compromised Caddy, which faces the internet, could control Docker on the sandbox host (root-equivalent there, not in the app). | A Docker socket proxy that only allows reading containers and networks. |
-| The sandbox's install step has network, and packages' install scripts run there. | A malicious dependency can reach the internet during install. It still runs under gVisor and the limits, with no secrets inside, on a network kept off private ranges (`techteam-sandbox`), and the command step has no network. | Allow-list registries through a proxy; per-volume disk quotas. |
+| In local mode the install network has no firewall rules, so an allowed install script can reach the home network. | Scripts are off by default (`--ignore-scripts`); with **Allow install scripts** a malicious dependency can scan or call LAN devices and the internet during install. | Use a remote host for untrusted repositories; run Docker Desktop's VM on an isolated network. |
+| The sandbox's install step has network, and packages' install scripts run there (remote host). | A malicious dependency can reach the internet during install. It still runs under gVisor and the limits, with no secrets inside, on a network kept off private ranges (`techteam-sandbox`), and the command step has no network. | Allow-list registries through a proxy; per-volume disk quotas. |
 | Content Security Policy is not configured. | Defense-in-depth only. | Add CSP headers in `next.config.ts` or `proxy.ts`. |
 | The repository a workspace links to is fixed at creation. | If access is lost, the board can't sync (it says so). | Add a "change repository" setting with the same re-check as creation. |
 

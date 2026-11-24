@@ -29,7 +29,7 @@ As of 2026-11-24, on `main`:
 | 5 Backup and restore | Done | `npm run backup` / `npm run restore`, no secrets in the archive. |
 | 6 First run and easy operation | Done, with changes | `npm run doctor`, `npm run start:local` (stable mode), a **Get started** checklist on the Overview instead of a wizard, and a sweeper that ends runs left behind when TechTeam stopped. The README quickstart was run on a clean clone. |
 | 7 Model routes | Done | `workspaces.ai_fallback_order`; the credit failover, the board's switch and retry and the plan-limit "Switch company" policy follow it. |
-| 8 Pluggable sandbox | **Not started** | The sandbox still needs a Docker host (`deploy/setup.sh`). WSL2 + bubblewrap and previews on `localhost` are planned. |
+| 8 Pluggable sandbox | Done (Docker local), verified on Docker Desktop for Windows | The sandbox runs on this computer's Docker (`npm run sandbox:setup`), previews on `127.0.0.1`. WSL2 + bubblewrap dropped from this phase. |
 | Final cleanup | **Pending** | One migration dropping the unused tables and columns listed in [data-model.md](data-model.md#unused-tables-and-columns), and the stack rows that still mention them. |
 
 ## Decisions
@@ -120,12 +120,17 @@ in the changelog, and AGENTS.md and `docs/` are updated. Read `node_modules/next
   credit failover, the board's switch and retry and the plan-limit "Switch company" policy. The log and the bell name
   the company moved to.
 
-### Phase 8 — Pluggable sandbox (not started)
-- 8a: an interface with three modes (off, Docker, bubblewrap); previews on `localhost` instead of a domain and Caddy;
-  `deploy/` becomes optional.
-- 8b: WSL2 with bubblewrap; the preview's server and the Tester's browser run in one sandbox with no outside network.
-  Install runs with `--ignore-scripts` unless a package needs its script.
-- Done when the Tester takes screenshots of a preview without Docker.
+### Phase 8 — Pluggable sandbox
+- Done (v0.10): the mode is decided from the environment (`lib/sandbox/mode.ts`): `remote` when `SANDBOX_DOCKER_HOST` is
+  set (unchanged), else `local` on this computer's Docker, else unavailable with a reason (Docker missing or stopped,
+  Windows containers, images missing). Previews on `http://127.0.0.1:<port>` through a forwarder container, no Caddy, no
+  domain; the Tester's browser works in both; `deploy/` is optional. Install runs with `--ignore-scripts` locally
+  unless the owner allows scripts. Link captures stay remote-only. Details: [sandbox.md](sandbox.md#local-mode).
+- Dropped from this phase: **WSL2 with bubblewrap.** The owner chose "local Docker first". Docker Desktop is the common
+  tool, and bubblewrap would be a second isolation layer to build, test and keep honest on a platform where the
+  compensations already differ (no network namespaces for the preview's browser without more plumbing). It can come back
+  as its own phase once local Docker is proven.
+- Done when the Tester takes screenshots of a preview without a VPS.
 
 ### Final cleanup (pending)
 - A migration dropping the unused Switch and auth tables and columns; update the roadmap and the stack table in AGENTS.md.

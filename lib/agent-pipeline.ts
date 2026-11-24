@@ -132,7 +132,7 @@ import { interruptedNotice } from "@/lib/run-recovery-config";
 import { isOpenAIOutOfCredit } from "@/lib/openai";
 import { isOpenRouterOutOfCredit } from "@/lib/openrouter";
 import { sandboxAvailable } from "@/lib/sandbox";
-import { previewLogSummary, sandboxCommandsOf, type RunPreview } from "@/lib/sandbox/config";
+import { allowInstallScriptsOf, previewLogSummary, sandboxCommandsOf, type RunPreview } from "@/lib/sandbox/config";
 import { pollRunPreview, previewsAvailable, startRunPreview } from "@/lib/sandbox/preview";
 import { LINK_FRAME, REFERENCE_KIND_META, VISUAL_REFERENCE_KINDS, referenceHost, referenceVisionProblem, referenceVisionStages } from "@/lib/reference-config";
 import { claudeEffort, modelKnobs } from "@/lib/agent-request-params";
@@ -965,7 +965,7 @@ export async function referenceModelProblem(workspaceId: number, taskId: number,
     .select({ sandboxEnabled: workspaces.sandboxEnabled, sandboxPreview: workspaces.sandboxPreview })
     .from(workspaces)
     .where(eq(workspaces.id, workspaceId));
-  const previews = Boolean(workspace?.sandboxEnabled && workspace.sandboxPreview && previewsAvailable());
+  const previews = Boolean(workspace?.sandboxEnabled && workspace.sandboxPreview && (await previewsAvailable()));
   const providers = keyStatus(await getAIKeys(workspaceId));
   const catalog = await getModelCatalog();
   const agents = await Promise.all(
@@ -1041,10 +1041,10 @@ async function stageSetup(ctx: RunContext, row: AgentRow, stage: AgentStage, run
     permissions,
     skills,
     // Read every turn too: switching the sandbox off in Settings applies from the next turn.
-    sandbox: sandboxFor(ctx, runId),
+    sandbox: await sandboxFor(ctx, runId),
     // browse_preview: offered with previews on; when none is running for this run, the tool says so.
     preview:
-      ctx.workspace.sandboxEnabled && ctx.workspace.sandboxPreview && previewsAvailable()
+      ctx.workspace.sandboxEnabled && ctx.workspace.sandboxPreview && (await previewsAvailable())
         ? { workspaceId: ctx.workspace.id, runId, vision }
         : null,
     // Images go only to a model that can see them; the others get a note (read_reference).
@@ -2057,9 +2057,10 @@ export async function recordTestReport(runId: number, report: TestReport, work: 
   return final;
 }
 
-function sandboxFor(ctx: RunContext, runId: number): ToolContext["sandbox"] {
+async function sandboxFor(ctx: RunContext, runId: number): Promise<ToolContext["sandbox"]> {
   const commands = sandboxCommandsOf(ctx.workspace.sandboxCommands);
-  return ctx.workspace.sandboxEnabled && commands && sandboxAvailable() ? { runId, commands } : null;
+  if (!ctx.workspace.sandboxEnabled || !commands || !(await sandboxAvailable())) return null;
+  return { runId, commands, allowScripts: allowInstallScriptsOf(ctx.workspace.sandboxCommands) };
 }
 
 // ── Preview ────────────────────────────────────────────────────────────────────

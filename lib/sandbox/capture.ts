@@ -3,7 +3,7 @@ import "server-only";
 import { lookup } from "node:dns/promises";
 import { randomBytes } from "node:crypto";
 
-import { BROWSER_LIMITS, browserImage, dockerCli } from "@/lib/sandbox/browser";
+import { browserImage, dockerCli, sandboxHost } from "@/lib/sandbox/cli";
 import {
   CAPTURE_NETWORK,
   CAPTURE_SUBNET,
@@ -14,7 +14,9 @@ import {
   parseCaptureUrl,
   type CaptureResult,
 } from "@/lib/sandbox/capture-config";
-import { ensureBridgeNetwork, sandboxHost } from "@/lib/sandbox/docker";
+import { browserLimits, captureRunArgs } from "@/lib/sandbox/docker-args";
+import { ensureBridgeNetwork } from "@/lib/sandbox/docker";
+import { LINK_CAPTURE_LOCAL_REASON } from "@/lib/sandbox/mode";
 
 /**
  * Link references: captures a public page once, when the owner adds it, in a throwaway browser container on the
@@ -26,9 +28,17 @@ import { ensureBridgeNetwork, sandboxHost } from "@/lib/sandbox/docker";
  * network; ensureBridgeNetwork creates either on first use). Same limits as the Tester's browser.
  */
 
-/** The server can capture links: it has a sandbox host (SANDBOX_DOCKER_HOST). */
+/**
+ * The server can capture links: it has a sandbox host (SANDBOX_DOCKER_HOST). Remote only: the capture's safety rests
+ * on the host firewall rules deploy/setup.sh installs, which Docker on an owner's computer doesn't have.
+ */
 export function linkCaptureAvailable() {
   return sandboxHost() !== null;
+}
+
+/** Why links can't be captured on this server, for the owner (null when they can). */
+export function linkCaptureProblem() {
+  return linkCaptureAvailable() ? null : LINK_CAPTURE_LOCAL_REASON;
 }
 
 /**
@@ -49,7 +59,7 @@ async function precheckHost(hostname: string): Promise<string | null> {
 
 // Captures get two cores (the sandbox host needs at least two): a heavy page loaded twice on one core under gVisor
 // takes about 45 s. They run one at a time, so it's never more than that.
-const CAPTURE_LIMITS = BROWSER_LIMITS.map((flag) => (flag.startsWith("--cpus=") ? "--cpus=2" : flag));
+const CAPTURE_LIMITS = browserLimits("remote").map((flag) => (flag.startsWith("--cpus=") ? "--cpus=2" : flag));
 
 // One capture at a time per app process: Chromium is the heaviest thing on the sandbox host.
 let queue: Promise<unknown> = Promise.resolve();
@@ -69,7 +79,8 @@ export function captureLink(rawUrl: string): Promise<CaptureOutcome> {
 async function capture(rawUrl: string): Promise<CaptureOutcome> {
   const parsed = parseCaptureUrl(rawUrl);
   if (!parsed.ok) return parsed;
-  if (!linkCaptureAvailable()) return { ok: false, error: "Links need a sandbox host (SANDBOX_DOCKER_HOST) to be captured." };
+  const problem = linkCaptureProblem();
+  if (problem) return { ok: false, error: problem };
   const refused = await precheckHost(parsed.hostname);
   if (refused) return { ok: false, error: refused };
   const networkProblem = await ensureBridgeNetwork({ name: CAPTURE_NETWORK, subnet: CAPTURE_SUBNET, label: "techteam.capture=1", what: "capture network" });
@@ -78,7 +89,7 @@ async function capture(rawUrl: string): Promise<CaptureOutcome> {
   const name = `techteam-capture-${randomBytes(4).toString("hex")}`;
   const started = Date.now();
   const run = await dockerCli(
-    ["run", "--rm", "-i", `--name=${name}`, ...CAPTURE_LIMITS, "--label=techteam.capture=1", `--network=${CAPTURE_NETWORK}`, browserImage()],
+    captureRunArgs({ name, network: CAPTURE_NETWORK, image: browserImage(), limits: CAPTURE_LIMITS }),
     { input: JSON.stringify(captureInput(parsed.url)), timeoutMs: CAPTURE_TIMEOUT_SECONDS * 1000, name }
   );
   if (run.timedOut) return { ok: false, error: "The page took too long to capture. Try again, or a lighter page." };

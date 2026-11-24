@@ -12,6 +12,7 @@ import {
   checkClaude,
   checkDataDir,
   checkDatabase,
+  checkDocker,
   checkEnvFile,
   checkExtras,
   checkGithub,
@@ -336,6 +337,70 @@ describe("checkExtras", () => {
     expect(linux.map((entry) => [entry.id, entry.status])).toEqual([["docker", "info"]]);
     const windows = await checkExtras({ ...missing, platform: "win32" });
     expect(windows.map((entry) => [entry.id, entry.status])).toEqual([["docker", "info"], ["wsl", "info"]]);
+  });
+});
+
+describe("checkDocker", () => {
+  type Reply = { code: number | null; stdout: string; stderr: string };
+  /** A fake docker CLI: `--version`, `info` and `image inspect` each answer as given. */
+  const docker = (replies: { version?: Reply; info?: Reply; images?: (image: string) => boolean }) =>
+    probes({
+      run: async (_command: string, args: string[]) => {
+        if (args[0] === "--version") return replies.version ?? { code: null, stdout: "", stderr: "" };
+        if (args[0] === "info") return replies.info ?? { code: 1, stdout: "", stderr: "" };
+        if (args[0] === "image") return { code: replies.images?.(args[args.length - 1]!) ? 0 : 1, stdout: "", stderr: "" };
+        return { code: 1, stdout: "", stderr: "" };
+      },
+    });
+  const installed = { code: 0, stdout: "Docker version 27.3.1, build ce12230\n", stderr: "" };
+
+  it("says when Docker isn't installed", async () => {
+    const rows = await checkDocker(docker({}));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: "docker", status: "info", detail: expect.stringContaining("not found") });
+    expect(rows[0]?.hint).toMatch(/Install Docker/);
+  });
+
+  it("says when the engine is stopped", async () => {
+    const rows = await checkDocker(docker({ version: installed, info: { code: 1, stdout: "", stderr: "cannot connect" } }));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: "info", detail: expect.stringContaining("27.3.1") });
+    expect(rows[0]?.detail).toMatch(/isn't running/);
+    expect(rows[0]?.hint).toMatch(/Start Docker Desktop/);
+  });
+
+  it("says when Docker is in Windows-containers mode", async () => {
+    const rows = await checkDocker(docker({ version: installed, info: { code: 0, stdout: "windows|26.0.0\n", stderr: "" } }));
+    expect(rows[0]?.detail).toMatch(/Windows-containers/);
+    expect(rows[0]?.hint).toMatch(/Linux containers/);
+  });
+
+  it("points to npm run sandbox:setup while an image is missing, and is quiet once both are there", async () => {
+    const info = { code: 0, stdout: "linux|27.3.1\n", stderr: "" };
+    const none = await checkDocker(docker({ version: installed, info, images: () => false }));
+    expect(none.map((row) => [row.id, row.status])).toEqual([["docker", "info"], ["sandbox-images", "info"]]);
+    expect(none[0]?.detail).toMatch(/ready/);
+    expect(none[1]?.detail).toContain("2 of 2");
+    expect(none[1]?.hint).toContain("npm run sandbox:setup");
+    const onlyBrowserMissing = await checkDocker(docker({ version: installed, info, images: (image) => image.startsWith("node:") }));
+    expect(onlyBrowserMissing[1]?.detail).toContain("1 of 2");
+    const all = await checkDocker(docker({ version: installed, info, images: () => true }));
+    expect(all[1]).toMatchObject({ status: "info", detail: "installed" });
+    expect(all[1]?.hint).toBeUndefined();
+  });
+
+  it("doesn't probe this computer's Docker when the sandbox runs on a remote host", async () => {
+    let ran = false;
+    const rows = await checkDocker(probes({ env: { SANDBOX_DOCKER_HOST: "ssh://u@h" }, run: async () => ((ran = true), { code: 0, stdout: "", stderr: "" }) }));
+    expect(ran).toBe(false);
+    expect(rows[0]?.detail).toMatch(/remote host/);
+  });
+
+  it("never reports more than info", async () => {
+    const info = { code: 0, stdout: "linux|27.3.1\n", stderr: "" };
+    for (const probe of [docker({}), docker({ version: installed }), docker({ version: installed, info, images: () => false })]) {
+      for (const row of await checkDocker(probe)) expect(row.status).toBe("info");
+    }
   });
 });
 

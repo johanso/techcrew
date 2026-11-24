@@ -6,10 +6,12 @@ import { and, eq, ne, sql } from "drizzle-orm";
 import { agentRuns, db, pullRequests, workspaces } from "@/db";
 import { getBranchSha, getGithubToken, getRepoTarball } from "@/lib/github";
 import {
+  LOCAL_PREVIEW_DOMAIN,
   PREVIEW_MAX_AGE_MS,
   PREVIEW_PORT,
   PREVIEW_READY_TIMEOUT_MS,
   SANDBOX_TIMEOUT_SECONDS,
+  allowInstallScriptsOf,
   isPreviewDomain,
   isPreviewExpired,
   parseRunPreview,
@@ -19,12 +21,15 @@ import {
   sandboxCommandsOf,
   type RunPreview,
 } from "@/lib/sandbox/config";
-import { launchPreview, listPreviewNetworks, previewAddress, probePreview, removePreview, sandboxHost } from "@/lib/sandbox/docker";
+import { launchPreview, listPreviewNetworks, localPreviewAddress, previewAddress, probePreview, removePreview } from "@/lib/sandbox/docker";
+import { dockerMode } from "@/lib/sandbox/cli";
+import { getSandboxStatus, previewsSupported } from "@/lib/sandbox/status";
 
 /**
- * Live previews of agent pull requests (Settings → Sandbox → Previews), served at https://pr-<n>-<random>.<domain>
- * from the sandbox host. One per run, in agent_runs.preview; lib/sandbox/docker.ts runs the containers. Nothing here
- * throws into the pipeline: a preview that fails is reported, and the run goes on.
+ * Live previews of agent pull requests (Settings → Sandbox → Previews): on a remote sandbox host at
+ * https://pr-<n>-<random>.<domain>, on this computer's own Docker at http://127.0.0.1:<port> (loopback only). One per
+ * run, in agent_runs.preview; lib/sandbox/docker.ts runs the containers. Nothing here throws into the pipeline: a
+ * preview that fails is reported, and the run goes on.
  */
 
 /** SANDBOX_PREVIEW_DOMAIN: previews are served at its subdomains (a wildcard DNS record to the sandbox host). */
@@ -33,9 +38,9 @@ export function previewDomain() {
   return domain && isPreviewDomain(domain) ? domain : null;
 }
 
-/** The server can serve previews: a sandbox host and a preview domain. Without both, the switch stays off. */
+/** The server can serve previews: a ready sandbox, and on a remote host a preview domain too. Otherwise the switch stays off. */
 export function previewsAvailable() {
-  return sandboxHost() !== null && previewDomain() !== null;
+  return previewsSupported(previewDomain());
 }
 
 const SLUG_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -88,7 +93,8 @@ export async function startRunPreview(runId: number): Promise<PreviewStart> {
   const commands = sandboxCommandsOf(workspace.sandboxCommands);
   const domain = previewDomain();
   if (!workspace.sandboxPreview || !workspace.sandboxEnabled) return { kind: "skipped", why: "Previews are off." };
-  if (!domain || !sandboxHost()) return { kind: "skipped", why: "This server can't serve previews." };
+  if (!(await previewsAvailable())) return { kind: "skipped", why: "This server can't serve previews." };
+  const local = dockerMode() === "local";
   if (!commands?.preview) return { kind: "skipped", why: "No preview command is saved." };
   if (run.status !== "running") return { kind: "skipped", why: "The run isn't running." };
   if (!pr || pr.state !== "open" || !run.branch) return { kind: "skipped", why: "There's no open pull request." };
@@ -103,7 +109,7 @@ export async function startRunPreview(runId: number): Promise<PreviewStart> {
   const earlier = parseRunPreview(run.preview);
   const preview: RunPreview = {
     status: "starting",
-    host: earlier?.prNumber === pr.number ? earlier.host : previewHost(pr.number, randomSlug(), domain),
+    host: earlier?.prNumber === pr.number ? earlier.host : previewHost(pr.number, randomSlug(), local ? LOCAL_PREVIEW_DOMAIN : domain!),
     prNumber: pr.number,
     round: run.reworkRounds,
     sha,
@@ -121,6 +127,7 @@ export async function startRunPreview(runId: number): Promise<PreviewStart> {
       host: preview.host,
       source: () => getRepoTarball(token, workspace.githubRepoFullName, sha),
       install: commands.install,
+      allowScripts: allowInstallScriptsOf(workspace.sandboxCommands),
       command: commands.preview,
       timeoutMs: SANDBOX_TIMEOUT_SECONDS * 1000,
     });
@@ -158,8 +165,11 @@ export async function pollRunPreview(runId: number): Promise<{ done: boolean; pr
     console.warn("[preview] probe failed", error);
     probe = { state: "waiting" as const };
   }
-  if (probe.state === "ready") {
-    const running = await patchPreview(runId, preview.host, ["starting"], { status: "running", readyAt: new Date().toISOString() });
+  // A local preview answers at http://127.0.0.1:<port>: ready only once Docker says which port.
+  const local = dockerMode() === "local";
+  const url = probe.state === "ready" && local ? await localPreviewAddress(runId).catch(() => null) : null;
+  if (probe.state === "ready" && (!local || url)) {
+    const running = await patchPreview(runId, preview.host, ["starting"], { status: "running", readyAt: new Date().toISOString(), ...(url ? { url } : {}) });
     return { done: true, preview: running };
   }
   const reason =
@@ -233,7 +243,7 @@ export async function sweepPreviews() {
       expired++;
     }
   }
-  if (!sandboxHost()) return { expired, orphans: 0 };
+  if ((await getSandboxStatus()).state !== "ready") return { expired, orphans: 0 };
   const stillLive = new Set(live.map((run) => run.id));
   const orphans = (await listPreviewNetworks()).filter(
     ({ runId, createdAt }) => !stillLive.has(runId) && Date.now() - createdAt.getTime() > ORPHAN_GRACE_MS
@@ -243,7 +253,7 @@ export async function sweepPreviews() {
 }
 
 export type PreviewEndpoint = {
-  /** https://pr-<n>-<random>.<domain> */
+  /** https://pr-<n>-<random>.<domain>, or http://127.0.0.1:<port> on this computer's own Docker. */
   publicUrl: string;
   /** previewTarget(runId): the container and its internal network share the name. */
   container: string;

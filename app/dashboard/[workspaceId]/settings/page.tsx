@@ -15,7 +15,8 @@ import { ClaudePlanSettings } from "@/components/settings/cli-plan-settings";
 import { FallbackOrder } from "@/components/settings/fallback-order";
 import { ModelCatalogStatus } from "@/components/settings/model-catalog-status";
 import { ProviderKeyForm } from "@/components/settings/provider-key-form";
-import { SandboxFormSkeleton, SandboxSettings } from "@/components/settings/sandbox-form";
+import { SandboxFormSkeleton } from "@/components/settings/sandbox-form";
+import { SandboxSection } from "@/components/settings/sandbox-section";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { WorkspaceAvatar, workspaceLogoSrc } from "@/components/workspace/workspace-avatar";
@@ -27,8 +28,6 @@ import { getProviderKeyViews } from "@/lib/ai-keys";
 import { getClaudePlanView } from "@/lib/cli/plan-view";
 import { getGithubAccount } from "@/lib/github";
 import { getModelCatalog, refreshModelCatalogIfStale } from "@/lib/model-catalog";
-import { detectRepoCommands, sandboxAvailable } from "@/lib/sandbox";
-import { previewsAvailable } from "@/lib/sandbox/preview";
 import { cn, initials } from "@/lib/utils";
 import { getDashboardContext, listWorkspaces } from "@/lib/workspaces";
 
@@ -53,9 +52,6 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
   // Configured providers first; the others wait under "Add another provider".
   const configured = PROVIDER_IDS.filter((provider) => keys[provider].account !== null);
   const others = PROVIDER_IDS.filter((provider) => keys[provider].account === null);
-  // Reads package.json on GitHub: streamed in so the rest of the page doesn't wait for it. Null (and never read)
-  // without a sandbox host: the section is then one line.
-  const detectedCommands = sandboxAvailable() ? detectRepoCommands(workspace).catch(() => null) : null;
   const avatar = github?.avatarUrl ?? user.image;
 
   return (
@@ -225,22 +221,10 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
           description="Agents with “Run tests in a sandbox” install, test and build your repository in an isolated container before review."
           actions={<span className="eyebrow text-muted-foreground">Execution</span>}
         />
-        {detectedCommands ? (
-          <Suspense fallback={<SandboxFormSkeleton />}>
-            <SandboxSettings
-              workspaceId={workspace.id}
-              enabled={workspace.sandboxEnabled}
-              saved={workspace.sandboxCommands}
-              previewsAvailable={previewsAvailable()}
-              previewEnabled={workspace.sandboxPreview}
-              detected={detectedCommands}
-            />
-          </Suspense>
-        ) : (
-          <p className="px-6 py-4 text-sm text-muted-foreground">
-            Not set up on this computer. Agents check their changes with your repository&apos;s CI. See docs/setup.md to connect a Docker host.
-          </p>
-        )}
+        {/* Asks Docker whether the sandbox can run (a call that may take seconds): streamed, the page never waits for it. */}
+        <Suspense fallback={<SandboxFormSkeleton />}>
+          <SandboxSection workspace={workspace} />
+        </Suspense>
       </section>
 
       {/* The library has its own page (it can grow to many skills); #skills stays as an anchor for old links. */}

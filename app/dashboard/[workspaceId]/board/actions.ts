@@ -26,7 +26,7 @@ import { logCardEdited, logCardRemoved, logCardsMoved, taskSnapshots } from "@/l
 import { createCardRun, getTaskOpenPullRequest, mergeManually, refreshOpenPullRequests } from "@/lib/pull-requests";
 import { REFERENCE_UPLOAD_MAX_BYTES, formatReferenceBytes, type ReferenceView } from "@/lib/reference-config";
 import { addLinkReference, addTaskReference, listTaskReferences, removeTaskReference } from "@/lib/references";
-import { linkCaptureAvailable } from "@/lib/sandbox/capture";
+import { linkCaptureProblem } from "@/lib/sandbox/capture";
 import { parseCaptureUrl } from "@/lib/sandbox/capture-config";
 import { getOwnedWorkspace } from "@/lib/workspaces";
 
@@ -352,7 +352,8 @@ export async function addCardLinkAction(
 ): Promise<{ ok: true; reference: ReferenceView } | { ok: false; error: string }> {
   const auth = await authorize(workspaceId);
   if (!auth) return { ok: false, error: "Workspace not found." };
-  if (!linkCaptureAvailable()) return { ok: false, error: "Links need a sandbox host to be captured, and this server has none." };
+  const linkProblem = linkCaptureProblem();
+  if (linkProblem) return { ok: false, error: linkProblem };
   const taskId = await boardTaskId(auth, cardId);
   if (taskId === null) return { ok: false, error: "This card no longer exists." };
   const url = parseCaptureUrl(rawUrl);

@@ -89,7 +89,7 @@ describe("browse_preview", () => {
 });
 
 describe("sandbox tools", () => {
-  const sandbox = { runId: 1, commands: { install: "npm ci", test: "npm test", build: null, preview: null } };
+  const sandbox = { runId: 1, allowScripts: false, commands: { install: "npm ci", test: "npm test", build: null, preview: null } };
   const names = (stage: Parameters<typeof toolsFor>[0]["stage"], permissions: Parameters<typeof toolsFor>[0]["permissions"], sb: typeof sandbox | null = sandbox) =>
     toolsFor({ stage, permissions, branch: "agent/acm-1-x", sandbox: sb }).map((tool) => tool.name);
 

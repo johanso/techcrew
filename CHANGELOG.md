@@ -8,6 +8,34 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+### Added
+- **The agent sandbox on your own Docker.** With no `SANDBOX_DOCKER_HOST`, the sandbox (the Developer's and the
+  Tester's `run_tests` / `run_build` / `run_command`, PR previews, the Tester's browser) runs on the Docker of this
+  computer: Docker Desktop on Windows or macOS, Docker Engine on Linux. No VPS, Caddy or domain. `npm run sandbox:setup`
+  downloads the sandbox image and builds the browser image once (`-- --check` only reports; refuses a remote host
+  unless `-- --remote`). Previews are served at `http://127.0.0.1:<port>` (loopback only) through a small forwarder
+  container next to the `--internal` preview network. A remote host keeps working exactly as before.
+- **Settings → Sandbox says why it can't run**: Docker not installed, Docker Desktop not running, Docker in
+  Windows-containers mode, or the images missing, each with the fix. The card streams in, so Settings never waits for
+  Docker; the answer is cached for 15 s. `TECHTEAM_SANDBOX=off` switches the sandbox off on a computer.
+- **Allow install scripts (some packages need them)** in Settings → Sandbox (local mode, off by default; stored in the
+  existing `sandbox_commands` JSON, no migration). Without it, local installs run with `--ignore-scripts`.
+- `npm run doctor` reports the Docker engine (not installed, stopped, Windows containers, ready) and whether the sandbox
+  images are installed, as information only.
+
+### Changed
+- Every `docker` argument list is built in `lib/sandbox/docker-args.ts` and one test checks them all in both modes: no
+  `--privileged`, Docker socket, host-path mount, host network, added capability, device or user but the unprivileged
+  one, and no secret in a container. Local containers drop gVisor (the default runtime applies; on Docker Desktop they
+  live in its Linux VM), pin `host.docker.internal` and `gateway.docker.internal` to `127.0.0.1`, and never pull images.
+- The `docker` CLI is spawned with a tiny environment (`lib/sandbox/docker-env.ts`): on Windows what Docker Desktop's
+  CLI needs, never `DOCKER_HOST` locally and never the app's secrets.
+- `sandboxAvailable()` and `previewsAvailable()` are async. Link captures stay remote-only (their safety rests on the
+  host firewall rules), with the reason shown where links are added.
+- The sandbox browser image is now `techteam-browser:1.64.1-4`: in local mode Chromium's own sandbox is off (the default
+  runtime can't run it with capabilities dropped; the container is the boundary). Run `npm run sandbox:setup` again.
+- Phase 8 of the local-first plan is done with Docker; WSL2 + bubblewrap is dropped from it.
+
 ## [0.9.0] — 2026-11-24
 
 TechTeam now runs on your own computer, for one user. The remote services of the hosted design (sign-in service, S3,

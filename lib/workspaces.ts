@@ -8,7 +8,7 @@ import { db, workspaces, type NewWorkspace } from "@/db";
 import type { AgentProvider } from "@/lib/agent-config";
 import type { MergeMode } from "@/lib/agent-run-config";
 import { requireUser } from "@/lib/current-user";
-import type { SandboxCommands } from "@/lib/sandbox/config";
+import type { StoredSandboxCommands } from "@/lib/sandbox/config";
 
 export function listWorkspaces(ownerId: number) {
   return db.select().from(workspaces).where(eq(workspaces.ownerId, ownerId)).orderBy(desc(workspaces.createdAt));
@@ -50,7 +50,7 @@ export async function updateFallbackOrder(workspaceId: number, order: AgentProvi
 /** Settings → Sandbox: the switch and the commands, saved together so a run never guesses them. */
 export async function updateSandbox(
   workspaceId: number,
-  values: { sandboxEnabled: boolean; sandboxCommands: SandboxCommands; sandboxPreview: boolean }
+  values: { sandboxEnabled: boolean; sandboxCommands: StoredSandboxCommands; sandboxPreview: boolean }
 ) {
   await db
     .update(workspaces)

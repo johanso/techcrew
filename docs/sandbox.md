@@ -2,25 +2,71 @@
 
 Agents with the **Run tests in a sandbox** permission (`tests.run`; on for the Developer and the Tester by default) can
 run the repository's code: install its dependencies, run its tests and build, or one command. They run in throwaway
-Docker containers under [gVisor](https://gvisor.dev) on a Docker host, a VPS in practice. Introduced in v0.5,
+Docker containers, either on **this computer's own Docker** (local mode, v0.10) or on a prepared **remote host** under
+[gVisor](https://gvisor.dev) (remote mode, a VPS in practice). Introduced in v0.5,
 with previews of each pull request and a browser for the Tester. References on cards (images, documents, URLs) and the loose ends are v0.7; see
 the [roadmap](roadmap.md#v07--card-references-and-sandbox-polish-).
 
-**The sandbox is optional, and today it needs a Docker host.** TechTeam itself runs on your computer without Docker, and
-without a sandbox the agents still work: they edit through the GitHub API and rely on your repository's CI for tests and
-builds, and the Tester has no preview or browser. To switch the sandbox on, set `SANDBOX_DOCKER_HOST` to a Docker host
-that `deploy/setup.sh` prepared (a VPS over SSH, or the local socket of a Linux machine set up the same way). gVisor and
-the firewall rules are Linux, so Docker Desktop on Windows or macOS is not a supported host. Modes that need no Docker
-host (WSL2 with bubblewrap, previews on `localhost` instead of a domain) are planned as phase 8 of the
-[local-first plan](local-first-plan.md#phase-8--pluggable-sandbox-not-started) and are **not built yet**.
+**The sandbox is optional.** TechTeam itself runs on your computer without Docker, and without a sandbox the agents
+still work: they edit through the GitHub API and rely on your repository's CI for tests and builds, and the Tester has
+no preview or browser. The mode follows from the environment (`lib/sandbox/mode.ts`):
+
+| Mode | When | Runs on |
+| --- | --- | --- |
+| `remote` | `SANDBOX_DOCKER_HOST` is set | A Docker host that `deploy/setup.sh` prepared (a VPS over SSH, or the local socket of a Linux machine set up the same way): gVisor, firewall rules, Caddy for previews. Unchanged since v0.5. |
+| `local` | no host, and Docker answers on this computer with the two images installed | The Docker of your own computer: Docker Desktop on Windows or macOS, Docker Engine on Linux. No VPS, no Caddy, no domain. |
+| unavailable | none of the above | Settings → Sandbox says why and how to fix it: Docker isn't installed, Docker Desktop isn't running, Docker is in Windows-containers mode, or the images are missing (`npm run sandbox:setup`). |
+
+`TECHTEAM_SANDBOX=off` switches the sandbox off on a computer in either mode. The per-workspace switch (Settings →
+Sandbox) stays opt-in. Not planned any more: a bubblewrap/WSL mode (see the [plan](local-first-plan.md#phase-8--pluggable-sandbox)).
+
+## Local mode
+
+What changes on your own Docker, and what it does **not** protect (read this before switching it on):
+
+| | Remote host | Local Docker |
+| --- | --- | --- |
+| Runtime | gVisor (`runsc`): a user-space kernel between the code and the host | The default runtime. On Docker Desktop the containers live **inside its Linux VM**, so an escape lands in that VM, not on your computer; on Linux Docker Engine the host kernel is shared. |
+| Install step's network | `techteam-sandbox` on a subnet that DOCKER-USER rules keep off private ranges | `techteam-sandbox` too (icc off, a subnet Docker picks), **without firewall rules**: nothing can keep a container away from your home network. |
+| Install scripts | Run (with the network rules above) | **Off:** installs run with `--ignore-scripts` (`localInstallCommand`: `npm ci`, `npm install`, `pnpm install`, `yarn install`, also in chains with `&&` and after `npx` / env prefixes). Settings → Sandbox has **Allow install scripts (some packages need them)**, stored in `sandbox_commands` (`allowInstallScripts`, no migration; absent = off). Turn it on only for repositories you trust. The protection doesn't depend on the command's shape: the prepare container also gets `npm_config_ignore_scripts=true` and `YARN_IGNORE_SCRIPTS=true`, so a quoted `sh -c "npm ci"` or a wrapper stays script-free too. |
+| Command step | `--network=none` | `--network=none`, the same |
+| Previews | Caddy, HTTPS, `pr-<n>-<random>.<domain>` | `http://127.0.0.1:<port>`, loopback only (below) |
+| The host's names | | `host.docker.internal` and `gateway.docker.internal` are pinned to `127.0.0.1` and `::1` inside every container, so the usual names for your computer don't lead to it |
+| Link captures | Yes | **No**: their safety rests on the host firewall (`linkCaptureAvailable()` is false; the link field says why) |
+
+Always, in both modes (every argument list is built in `lib/sandbox/docker-args.ts` and one test checks them all): no
+`--privileged`, no Docker socket, no bind mount of a host path (named volumes only), no `--network=host`, no added
+capability, no device, no user but the unprivileged `node` (`pwuser` for the browser), no secret in a container's
+environment or arguments, `--cap-drop=ALL`, `no-new-privileges`, a read-only root, CPU, memory, process and time limits.
+
+What local mode does **not** give you: gVisor's second kernel, or a firewall for your home network. A package's install
+script (when you allow scripts) and anything a preview's server does can talk to your LAN through the install network
+(scripts) or nothing at all (previews are `--internal`). The default (scripts off) closes the first gap; for repositories
+you don't trust, use a remote host.
+
+**Setting up this computer:** install Docker (Docker Desktop with Linux containers, or Docker Engine), start it, then
+`npm run sandbox:setup` once. It downloads the sandbox image (`node:24-bookworm`, `SANDBOX_IMAGE`) when it's missing and
+builds the browser image from `deploy/browser` with the tag the app expects (`techteam-browser:1.64.1-4`,
+`SANDBOX_BROWSER_IMAGE`); it prints the sizes, is safe to run again, never removes anything, and with
+`-- --check` only reports. It refuses when `SANDBOX_DOCKER_HOST` is set (remote hosts are prepared by `deploy/setup.sh`)
+unless you pass `-- --remote`. Then Settings → Sandbox → save the commands → **Test the sandbox**. `npm run doctor`
+reports the same state.
+
+**The status** (`lib/sandbox/status.ts`): `docker info --format "{{.OSType}}|{{.ServerVersion}}"` with a 5 s limit, then
+`docker image inspect` for the two images; cached for 15 s and shared by every caller, so Settings, the pipeline and the
+sweeps never ask Docker more often than that. Settings streams the Sandbox card inside a `Suspense` boundary, so the rest
+of the page never waits for Docker, and a stopped engine answers in a moment (the CLI fails at once) with the card showing
+the reason. The Docker CLI gets a tiny environment (`lib/sandbox/docker-env.ts`): `PATH`, `HOME` and, on Windows, what
+Docker Desktop's CLI needs (`SystemRoot`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `TEMP`, `TMP`, `PATHEXT` …), plus
+`DOCKER_CONFIG` and `DOCKER_CONTEXT` when set. Never `DOCKER_HOST` and never the app's secrets.
 
 ## How a call runs
 
 ```
 Agent turn ─▶ run_tests / run_build / run_command          (lib/agent-tools.ts)
                └─ app: latest commit of the working branch, tarball from GitHub (the token stays in the app)
-                    └─ docker CLI at SANDBOX_DOCKER_HOST     (lib/sandbox/docker.ts)
-                         1. prepare (network techteam-sandbox: internet, no private ranges):
+                    └─ docker CLI, at SANDBOX_DOCKER_HOST or on this computer (lib/sandbox/docker.ts)
+                         1. prepare (network techteam-sandbox: internet; remote: no private ranges; local: --ignore-scripts):
                             unpack over the last checkout, install if package.json, the lockfile or the install
                             command changed
                          2. command (network off): the test, build or command
@@ -31,7 +77,8 @@ Agent turn ─▶ run_tests / run_build / run_command          (lib/agent-tools.
   calls only unpack the new commit. It's removed when the run ends (`finishRun`); a sweep (at most once an hour, started
   by a sandbox call) removes volumes older than 12 hours that no container uses. Settings → **Test the sandbox** uses `techteam-check-<workspace id>`.
 - **No secrets inside.** The repository goes in as a tarball piped through the CLI. The GitHub token, the AI keys and
-  the app's environment never reach a container (the CLI itself gets only `PATH`, `HOME` and `DOCKER_HOST`).
+  the app's environment never reach a container (the CLI itself gets only `PATH`, `HOME` and `DOCKER_HOST` on a remote host,
+  see above for local).
 - **No network for the code.** Only the install step has network (package registries). Tests, builds and commands run
   with `--network=none`, so the repository's code can't call out.
 - **The install step's network** is `techteam-sandbox` (`SANDBOX_NETWORK`): a bridge on `172.31.252.0/24` with no
@@ -44,7 +91,7 @@ Agent turn ─▶ run_tests / run_build / run_command          (lib/agent-tools.
   which doesn't answer under gVisor, and `--dns` only changes that resolver's upstreams. So the app keeps a
   `resolv.conf` with public resolvers (1.1.1.1, 8.8.8.8, 9.9.9.9) in a small volume (`techteam-sandbox-dns`, written
   once per app process) and mounts it read-only over `/etc/resolv.conf` (`volume-subpath`, Docker 26 or later).
-- **Limits** per container: gVisor (`--runtime=runsc`), 2 CPUs, 3 GB of memory and no swap, 512 processes, no
+- **Limits** per container: gVisor (`--runtime=runsc`, remote only), 2 CPUs, 3 GB of memory and no swap, 512 processes, no
   capabilities, `no-new-privileges`, read-only root filesystem with a 1 GB `/tmp`, user `node`. A call has 5 minutes in
   all (`SANDBOX_TIMEOUT_SECONDS`); on timeout the container is killed by name.
 - **One call at a time per volume** in the app process, so two calls never unpack over each other.
@@ -107,8 +154,9 @@ add_dependency { name: "@fontsource/inter", version: null, dev: false }
 ## Settings → Sandbox
 
 `#sandbox` on the Settings page:
-- **Let agents run code in the sandbox** (off by default). Can't be switched on when the server has no
-  `SANDBOX_DOCKER_HOST`, or with neither a test nor a build command.
+- **Let agents run code in the sandbox** (off by default). Can't be switched on while the sandbox is unavailable
+  (the card shows the reason instead of the form), or with neither a test nor a build command.
+- **Allow install scripts (some packages need them)**: local mode only, off by default (see [Local mode](#local-mode)).
 - **Install / test / build commands**, prefilled from the default branch's `package.json` and root lockfiles
   (`detectCommands`: `npm ci` with a package-lock, pnpm or yarn through `npx`, `npm test` unless it's npm's placeholder,
   `npm run build`). Saved with the switch, so a run never guesses them. One line each.
@@ -118,8 +166,17 @@ add_dependency { name: "@fontsource/inter", version: null, dev: false }
 ## Previews
 
 With **Settings → Sandbox → Previews of pull requests** on (`workspaces.sandbox_preview`; needs the sandbox on, a
-preview command, `SANDBOX_DOCKER_HOST` and `SANDBOX_PREVIEW_DOMAIN`), each agent pull request gets a live preview once
-the CI gate passes: `https://pr-<n>-<6 random [a-z0-9]>.<SANDBOX_PREVIEW_DOMAIN>`, so the address can't be guessed.
+preview command and, on a remote host, `SANDBOX_DOCKER_HOST` and `SANDBOX_PREVIEW_DOMAIN`), each agent pull request gets a
+live preview once the CI gate passes: `https://pr-<n>-<6 random [a-z0-9]>.<SANDBOX_PREVIEW_DOMAIN>`, so the address can't
+be guessed. **Locally** there is no Caddy, no domain and no HTTPS: the preview is `http://127.0.0.1:<port>`, a random
+port bound to loopback, so only this computer reaches it. It stays on its `--internal` network exactly as on a remote
+host; because Docker can't publish the ports of a container on an internal network, a small **forwarder** container
+(`techteam-preview-run-<id>-fwd`, the sandbox image running 20 lines of our own `node` that pipe TCP to the preview's
+address) is created on the default bridge with `--publish 127.0.0.1::4173`, joined to the preview's network and started;
+the port is read back with `docker port`. The forwarder and the preview carry the preview labels and go together when the
+preview stops (`removePreview`), and the sweeps only ever touch objects with the `techteam` labels. The preview's own
+`host` identity is `pr-<n>-<random>.preview.localhost` (never resolved); its address is `RunPreview.url`. Vite's host
+check allows `localhost` and `127.0.0.1` there.
 
 ```
 CI gate passed ─▶ preview-<round>-start (Inngest step, beside the reviews)   lib/sandbox/preview.ts startRunPreview
@@ -162,7 +219,7 @@ CI gate passed ─▶ preview-<round>-start (Inngest step, beside the reviews)  
 - **Agent log**: one `preview` row per round, after the development stage: the host and "Running at … (ready in
   23.0 s, commit abc1234)" or why it failed. Never the output.
 - **Links**: "View preview" in the card's ⋯ menu and on the Pull Requests row while the preview is running.
-- **For a browser on the host** (`getRunPreviewEndpoint(runId)`): join `previewTarget(runId).network` and open
+- **For a browser on the sandbox host** (`getRunPreviewEndpoint(runId)`): join `previewTarget(runId).network` and open
   `internalUrl`. Docker's embedded DNS doesn't answer inside gVisor containers, so a browser under `runsc` needs
   `--add-host=<container>:<address>` (the endpoint's `address`).
 
@@ -174,7 +231,7 @@ parts in `browser-config.ts`). One call = one throwaway browser container:
 ```
 browse_preview { path, viewport: desktop | tablet | mobile, color_scheme: light | dark, steps: [click | fill | press | wait_for | goto …] }
   └─ docker network inspect techteam-preview-run-<id>: internal, preview container attached? else "No preview is running"
-  └─ techteam-browser:1.64.1-3 (Playwright + Chromium), on that network only, --add-host=<container>:<its address>
+  └─ techteam-browser:1.64.1-4 (Playwright + Chromium), on that network only, --add-host=<container>:<its address>
        opens internalUrl + path, runs the steps in order, returns status, console and page errors, failed requests,
        an outline of the page (≤ 6,000 characters) and a PNG screenshot
 ```
@@ -206,8 +263,15 @@ browse_preview { path, viewport: desktop | tablet | mobile, color_scheme: light 
   each changed page at the viewport closest to the reference's width (`closestViewport`; `list_references` names it),
   light and dark, and compare; a clear mismatch with what the brief says to follow is a test fail with the specific
   differences, which goes back to the Developer like any test fail.
-- **The image** is built on the sandbox host from `deploy/browser/` (`SANDBOX_BROWSER_IMAGE` overrides the tag):
-  `docker --context <host> build --pull -t techteam-browser:1.64.1-3 deploy/browser` from a checkout of this repo.
+- **The image** is built from `deploy/browser/` (`SANDBOX_BROWSER_IMAGE` overrides the tag): `npm run sandbox:setup` does
+  it for this computer's Docker; for a remote host,
+  `docker --context <host> build --pull -t techteam-browser:1.64.1-4 deploy/browser` from a checkout of this repo.
+  Local mode runs Chromium with its own sandbox off (`TECHTEAM_CHROMIUM_NO_SANDBOX=1`, image revision `-4`): under the
+  default runtime Docker's seccomp profile refuses the namespaces it needs once capabilities are dropped, and loosening
+  seccomp would be worse. The container is the boundary there (no capabilities, `no-new-privileges`, read-only root,
+  an internal network with only the preview, no secrets); a remote host keeps Chromium's sandbox on under gVisor.
+  The browser works the same in local mode: the default runtime, the same image, the preview's internal network and the
+  preview's address by `--add-host`; its screenshots go to local storage as always.
   The tag is Playwright's version plus a revision of the folder (`-2`: link captures, tablet, color scheme; `-3`:
   fonts with real bold weights); bump the revision whenever anything in `deploy/browser/` changes (and list a new file
   in its `.dockerignore`).
@@ -228,7 +292,7 @@ A link reference on a card (References → **Add a link**) is captured once, whe
 addCardLinkAction ─▶ parseCaptureUrl (net-guard.mjs: http/https, no credentials, ports 80/443/8080/8443,
                      no private address literal or internal name) ─▶ the app resolves the name: every address public?
                   ─▶ network techteam-capture (bridge, 172.31.253.0/24, icc off; created on first use)
-                  ─▶ techteam-browser:1.64.1-3, the Tester's browser limits with 2 CPUs, on that network
+                  ─▶ techteam-browser:1.64.1-4, the Tester's browser limits with 2 CPUs, on that network
                        Chromium ─▶ proxy in the container ─▶ resolves with public resolvers, checks every address,
                                                               connects to the address it checked
                        desktop 1280 px and mobile 375 px, full page up to 2,400 px, JPEG; outline of the page
@@ -242,9 +306,10 @@ addCardLinkAction ─▶ parseCaptureUrl (net-guard.mjs: http/https, no credenti
   least two), 20 s per page load, 60 MB downloaded and 400 connections per capture, screenshots ≤ 4 MB each, outline
   ≤ 8,000 characters. One capture at a time per app process.
 - **What the page can reach**: see [security.md](security.md#link-captures).
-- Without a sandbox host (`SANDBOX_DOCKER_HOST` unset) the link input is disabled with the reason.
+- **Remote only.** Without a sandbox host (`SANDBOX_DOCKER_HOST` unset), including a computer that runs the sandbox on
+  its own Docker, the link input is disabled with the reason: the safety of a capture rests on the host firewall rules.
 
-## Setting up a host
+## Setting up a remote host
 
 1. A fresh Ubuntu 24.04 VPS, then as root: `bash deploy/setup.sh` (firewall, swap, Docker with ports on localhost by
    default, gVisor, a `techteam` user, the `node:24-bookworm` image, Caddy on 80/443 for previews). Once you can log
@@ -259,7 +324,7 @@ addCardLinkAction ─▶ parseCaptureUrl (net-guard.mjs: http/https, no credenti
    domain>`. To try certificates without Let's Encrypt's rate limits first, run the script once with
    `CADDY_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory`, then again without it (Caddy is recreated
    when its CA changes and rejoins the running previews' networks).
-5. The sandbox browser (the Tester's browser and link captures): build `techteam-browser:1.64.1-3` on the host from
+5. The sandbox browser (the Tester's browser and link captures): build `techteam-browser:1.64.1-4` on the host from
    `deploy/browser/` (see above). `deploy/setup.sh` also creates the capture and install networks and their
    private-range firewall rules.
 
@@ -267,9 +332,10 @@ addCardLinkAction ─▶ parseCaptureUrl (net-guard.mjs: http/https, no credenti
 
 - **Node repositories only.** Detection reads `package.json`; other stacks can type their own commands, but the image
   is `node:24-bookworm`.
-- **Install scripts run with network.** Packages' `postinstall` scripts run during install (`npm ci` before tests,
-  builds and previews), as on any machine; the limits and gVisor still apply, nothing secret is inside, and the install
-  network keeps them off private ranges. `add_dependency` itself runs no scripts.
+- **Install scripts run with network on a remote host.** Packages' `postinstall` scripts run during install (`npm ci`
+  before tests, builds and previews), as on any machine; the limits and gVisor still apply, nothing secret is inside, and
+  the install network keeps them off private ranges. `add_dependency` itself runs no scripts. In local mode they are off
+  unless you allow them.
 - **No disk quota per volume** yet; the sweep and the per-run removal keep the host clean.
 - **The browser sees only the preview**: no real devices, email or payments; the Tester names those as manual checks.
 - **Captures see the page as a first-time visitor**: no login, cookie banners included, no video; pages taller than

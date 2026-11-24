@@ -57,7 +57,7 @@ export type ToolContext = {
   /** Skills switched on for the agent (lib/agent-skills.ts); search_skill and read_skill only reach these. */
   skills: AgentSkill[];
   /** The workspace's sandbox when it's switched on and the server has a host (Settings → Sandbox), else null. */
-  sandbox: { runId: number; commands: SandboxCommands } | null;
+  sandbox: { runId: number; commands: SandboxCommands; /** Local sandbox: install scripts allowed (Settings → Sandbox). */ allowScripts: boolean } | null;
   /**
    * The run's preview when the sandbox and previews are on (Settings → Sandbox), else null: browse_preview. `vision`:
    * the stage's model sees images, so each screenshot is also attached for it (as a placeholder, lib/reference-images.ts).
@@ -383,7 +383,7 @@ async function run(ctx: ToolContext, name: string, args: Record<string, unknown>
       // The latest commit, not the branch name: the report then matches exactly what the agent pushed.
       const sha = await getBranchSha(ctx.token, ctx.repo, ctx.branch);
       if (!sha) return `Error: branch ${ctx.branch} not found.`;
-      const run = await runRepoCommand({ token: ctx.token, repo: ctx.repo, ref: sha, runId: ctx.sandbox.runId, install: ctx.sandbox.commands.install, command });
+      const run = await runRepoCommand({ token: ctx.token, repo: ctx.repo, ref: sha, runId: ctx.sandbox.runId, install: ctx.sandbox.commands.install, allowScripts: ctx.sandbox.allowScripts, command });
       return sandboxReport(run);
     }
     case "add_dependency":

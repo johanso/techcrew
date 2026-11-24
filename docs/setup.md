@@ -30,7 +30,7 @@ GitHub and the AI companies you choose.
 | Internet | | github.com, the AI companies, and the first run downloads the Inngest Dev Server (`npx`, pinned to 1.53.0). |
 
 Optional: **Claude Code** with a Claude plan (agents work on your subscription), **API keys** for OpenAI, Anthropic or
-OpenRouter, and a **Docker host** for the agent sandbox. You need at least one of the first two for agents to work.
+OpenRouter, and **Docker** (on your computer, or a remote host) for the agent sandbox. You need at least one of the first two for agents to work.
 
 ## Install and first run
 
@@ -66,6 +66,7 @@ the whole pipeline with scripted agents (no model, no spend, but real GitHub wor
 | --- | --- |
 | `npm run dev` | Development: the embedded database (unless `DATABASE_URL` is set), the app on <http://127.0.0.1:3000> and the Inngest Dev Server on <http://127.0.0.1:8288>, one terminal; stopping one stops all. `dev:app` = only the app. |
 | `npm run start:local` | Stable mode for leaving agents working for hours: builds first when the code changed (or `-- --rebuild`), then runs the production build, the database and the Inngest Dev Server; Ctrl+C stops all three. |
+| `npm run sandbox:setup` | Gets the two sandbox images onto this computer's Docker: downloads the sandbox image, builds the browser image from `deploy/browser`. Safe to run again, never removes anything. `-- --check` only reports; `-- --remote` prepares a remote host's images instead of refusing. [Sandbox](#agent-sandbox-optional). |
 | `npm run doctor` | Checks Node, npm, git, tar, the data folder and disk, ports, database and migrations, app address, secrets, GitHub, Claude Code, Docker/WSL and obsolete `.env` settings; prints a fix for each problem. `-- --json` for scripts. Never prints a secret or a value from `.env`. Exits 1 only on a failure. |
 | `npm run backup` / `npm run restore -- <file>` | One `.tar.gz` of your data, and its restore. [Moving to another computer](#moving-to-another-computer). |
 | `npm run db:local` | Only the embedded database. `npm run dev` already starts it. |
@@ -114,8 +115,9 @@ are no secrets to put there: you sign in from the app, and your AI keys are save
 | `AGENTS_LOCAL_CLI` | on | `false` turns agents-on-your-plan off on this computer. |
 | `TECHTEAM_CLI_HOME`, `CLAUDE_CLI_PATH` | `~/.techteam/cli`, found automatically | Where TechTeam keeps Claude Code's login, and Claude Code's binary when it isn't in a known place. |
 | `AGENTS_AUTO_PICKUP` | on | `false` keeps the auto-pickup cron off on this computer (only matters when computers share a database). |
-| `SANDBOX_DOCKER_HOST`, `SANDBOX_IMAGE` | unset, `node:24-bookworm` | The agent sandbox's Docker host and image. [Sandbox](#agent-sandbox-optional), [sandbox.md](sandbox.md). |
-| `SANDBOX_PREVIEW_DOMAIN`, `SANDBOX_BROWSER_IMAGE` | unset | PR previews and the Tester's browser (need the sandbox host). |
+| `SANDBOX_DOCKER_HOST`, `SANDBOX_IMAGE` | unset, `node:24-bookworm` | A remote Docker host for the agent sandbox (unset: this computer's Docker) and the sandbox image. [Sandbox](#agent-sandbox-optional), [sandbox.md](sandbox.md). |
+| `SANDBOX_PREVIEW_DOMAIN`, `SANDBOX_BROWSER_IMAGE` | unset, `techteam-browser:1.64.1-4` | Remote hosts only: the wildcard domain for PR previews. The browser image's tag (`npm run sandbox:setup` builds it). |
+| `TECHTEAM_SANDBOX` | on | `off` switches the agent sandbox off on this computer, local or remote. Not in `.env.example`. |
 
 `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` still switch the Inngest client to Cloud Mode, but a hosted setup isn't
 supported; `doctor` lists them as obsolete. What happens when a setting is wrong or missing: `npm run doctor`.
@@ -154,11 +156,19 @@ Settings → **AI**. Each agent picks its company and model on the AI Team page;
 
 Without a sandbox, agents edit through the GitHub API and rely on your repository's CI for tests and builds. With one,
 the Developer and the Tester run tests, the build and commands in throwaway containers, and the Tester can open a
-preview of the pull request in a browser. It needs a **Docker host** today: a fresh Ubuntu 24.04 server prepared with
-`bash deploy/setup.sh` as root (then `--lock-ssh` once you can log in as `techteam` with a key). Set
-`SANDBOX_DOCKER_HOST` (for example `ssh://techteam@<ip>`), turn on SSH connection reuse for that host, restart, then
-Settings → Sandbox → save the commands → **Test the sandbox**. Details: [sandbox.md](sandbox.md#setting-up-a-host).
-A local mode without Docker is planned (phase 8 of [local-first-plan.md](local-first-plan.md)), not built.
+preview of the pull request in a browser. Two ways to get one:
+
+- **On this computer** (no `SANDBOX_DOCKER_HOST`): install Docker (Docker Desktop on Windows or macOS with **Linux
+  containers**, or Docker Engine on Linux), start it, run `npm run sandbox:setup` once (downloads the sandbox image and
+  builds the browser image; a few minutes and about 2 GB), then Settings → Sandbox → save the commands → **Test the
+  sandbox**. Previews are served at `http://127.0.0.1:<port>`. Installs run without install scripts unless you tick
+  **Allow install scripts**; there is no gVisor and no home-network firewall, so use a remote host for repositories you
+  don't trust. What it protects and what not: [sandbox.md](sandbox.md#local-mode). `TECHTEAM_SANDBOX=off` switches it off.
+- **On a remote Docker host**: a fresh Ubuntu 24.04 server prepared with `bash deploy/setup.sh` as root (then
+  `--lock-ssh` once you can log in as `techteam` with a key). Set `SANDBOX_DOCKER_HOST` (for example
+  `ssh://techteam@<ip>`), turn on SSH connection reuse for that host, restart, then the same Settings steps. gVisor,
+  firewall rules and HTTPS previews on your own domain; link captures work only here. Details:
+  [sandbox.md](sandbox.md#setting-up-a-remote-host).
 
 ## Moving to another computer
 
@@ -247,8 +257,9 @@ Start with `npm run doctor`: it names the problem and the fix.
 | **Run** fails with "Is the Inngest Dev Server running?" | Start with `npm run dev` or `npm run start:local` (both start Inngest), or `npm run inngest:dev` if you ran `dev:app`. The first start downloads the pinned Dev Server with `npx`: it needs internet. |
 | A run stays "running" after TechTeam stopped | Within about 35 minutes the sweeper ends it as "Interrupted when TechTeam stopped" and the bell says to press Run again, which continues the same branch. |
 | No "Plans on this computer" in Settings | `NEXT_PUBLIC_APP_URL` isn't a local address (copy `.env.example` to `.env`), or `AGENTS_LOCAL_CLI=false`. |
-| Settings → Sandbox is one line | `SANDBOX_DOCKER_HOST` isn't set (restart after setting it). |
-| **Test the sandbox** fails while preparing the checkout | The app can't reach Docker on the host: try `docker -H "$SANDBOX_DOCKER_HOST" info` from the same computer (SSH key, host key, user in the `docker` group). |
-| Each sandbox call takes 10 s or more before the command starts | SSH connection reuse is off for the host ([sandbox.md](sandbox.md#setting-up-a-host)). |
+| Settings → Sandbox is one line | It says why: Docker isn't installed, Docker Desktop isn't running (start it and reload), Docker is in Windows-containers mode (switch to Linux containers), or the images are missing (`npm run sandbox:setup`). `npm run doctor` shows the same. The answer is cached for 15 s. |
+| **Test the sandbox** fails while preparing the checkout | Local: `docker info` in a terminal must work as the same user. Remote: try `docker -H "$SANDBOX_DOCKER_HOST" info` from the same computer (SSH key, host key, user in the `docker` group). |
+| A package needs its install script and the sandbox's install passed without it | Local mode installs with `--ignore-scripts`. Tick **Allow install scripts** in Settings → Sandbox if you trust the repository ([sandbox.md](sandbox.md#local-mode)). |
+| Each sandbox call takes 10 s or more before the command starts | SSH connection reuse is off for the remote host ([sandbox.md](sandbox.md#setting-up-a-remote-host)). |
 | `npm run db:generate` asks questions ("Interactive prompts require a TTY") | drizzle-kit can't tell a rename from a drop + add. Run it in a regular terminal and answer. |
 | `npm install` fails with "Cannot read properties of null (reading 'edgesOut')" | An npm 10 bug while resolving peer dependencies. Add `--legacy-peer-deps` to that install. |

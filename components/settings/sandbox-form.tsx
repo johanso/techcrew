@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, use, useActionState, useState, useTransition } from "react";
-import { AppWindowIcon, CheckIcon, CircleCheckIcon, CircleXIcon, PlayIcon, ServerOffIcon, TerminalIcon } from "lucide-react";
+import { AppWindowIcon, CheckIcon, CircleCheckIcon, CircleXIcon, PlayIcon, ServerOffIcon, ShieldAlertIcon, TerminalIcon } from "lucide-react";
 
 import {
   checkSandboxAction,
@@ -17,7 +17,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { useFieldErrors } from "@/hooks/use-field-errors";
+import { cn } from "@/lib/utils";
 import {
+  PREVIEW_MAX_AGE_MS,
   PREVIEW_PORT,
   SANDBOX_COMMAND_KINDS,
   SANDBOX_COMMAND_LABEL,
@@ -25,6 +27,7 @@ import {
   type SandboxCommands,
   type StoredSandboxCommands,
 } from "@/lib/sandbox/config";
+import type { SandboxMode } from "@/lib/sandbox/mode";
 
 type Values = Record<SandboxCommandKind, string>;
 
@@ -44,9 +47,13 @@ type SandboxFormProps = {
   workspaceId: number;
   enabled: boolean;
   saved: StoredSandboxCommands | null;
-  /** This computer can serve previews (a sandbox host and SANDBOX_PREVIEW_DOMAIN). */
+  /** `local`: this computer's own Docker; `remote`: a sandbox host prepared with deploy/setup.sh. */
+  mode: SandboxMode;
+  /** This computer can serve previews (local: always; remote: SANDBOX_PREVIEW_DOMAIN is set). */
   previewsAvailable: boolean;
   previewEnabled: boolean;
+  /** Local only: installs may run packages' install scripts. */
+  allowScripts: boolean;
 };
 
 /** Settings → Sandbox, once the commands detected from package.json have loaded (null: package.json couldn't be read). */
@@ -83,13 +90,16 @@ function SandboxForm({
   enabled,
   saved,
   detected,
+  mode,
   previewsAvailable,
   previewEnabled,
+  allowScripts,
 }: SandboxFormProps & { detected: SandboxCommands | null }) {
   const [state, formAction, pending] = useActionState<SandboxFormState, FormData>(saveSandboxAction.bind(null, workspaceId), {});
   const { errorFor, onChange } = useFieldErrors(state);
   const [on, setOn] = useState(enabled);
   const [previewOn, setPreviewOn] = useState(previewEnabled);
+  const [scriptsOn, setScriptsOn] = useState(allowScripts);
   const [values, setValues] = useState<Values>(() => toValues(saved, detected));
   const [checking, startCheck] = useTransition();
   const [check, setCheck] = useState<SandboxCheckResult | null>(null);
@@ -99,7 +109,7 @@ function SandboxForm({
   // Compared with what the server rendered, so "Saved" shows only until the next edit. Nothing saved yet: always savable.
   const savedValues = toValues(saved);
   const dirty =
-    !saved || on !== enabled || previews !== previewEnabled || SANDBOX_COMMAND_KINDS.some((kind) => values[kind].trim() !== savedValues[kind]);
+    !saved || on !== enabled || previews !== previewEnabled || (mode === "local" && scriptsOn !== allowScripts) || SANDBOX_COMMAND_KINDS.some((kind) => values[kind].trim() !== savedValues[kind]);
 
   const commandField = (kind: SandboxCommandKind, hint?: React.ReactNode) => {
     const error = errorFor(kind);
@@ -149,6 +159,7 @@ function SandboxForm({
         const data = new FormData(event.currentTarget);
         data.set("enabled", on ? "on" : "off");
         data.set("preview_enabled", previews ? "on" : "off");
+        if (mode === "local") data.set("allow_scripts", scriptsOn ? "on" : "off");
         startTransition(() => formAction(data));
       }}
       onChange={onChange}
@@ -170,6 +181,33 @@ function SandboxForm({
 
       <div className="flex flex-col gap-4">{AGENT_COMMAND_KINDS.map((kind) => commandField(kind))}</div>
 
+      {mode === "local" && (
+        <label
+          className={cn(
+            "flex cursor-pointer items-start gap-3 rounded-lg border bg-card p-3 transition-colors hover:bg-accent has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50",
+            scriptsOn && "border-warning/40"
+          )}
+        >
+          <input type="checkbox" className="peer sr-only" checked={scriptsOn} onChange={(event) => setScriptsOn(event.target.checked)} disabled={pending} />
+          <span
+            aria-hidden
+            className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border border-input bg-card transition-colors peer-checked:border-primary peer-checked:bg-primary peer-checked:text-primary-foreground [&_svg]:hidden peer-checked:[&_svg]:block"
+          >
+            <CheckIcon className="size-3" strokeWidth={3} />
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="flex items-center gap-1.5 text-sm font-semibold">
+              <ShieldAlertIcon className="size-4 shrink-0 text-warning" />
+              Allow install scripts (some packages need them)
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Off by default: this computer&apos;s Docker can&apos;t keep a package&apos;s install script away from your home network, so installs run
+              with <code className="font-mono">--ignore-scripts</code>. Turn it on only for repositories you trust.
+            </span>
+          </span>
+        </label>
+      )}
+
       <div className="flex flex-col gap-4 border-t border-border/70 pt-6">
         <label className="flex cursor-pointer items-start gap-3">
           <span className="icon-tile size-9 text-brand-emphasis [&_svg]:size-4">
@@ -178,9 +216,16 @@ function SandboxForm({
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="text-sm font-semibold">Previews of pull requests</span>
             <span className="text-xs text-muted-foreground">
-              Once CI passes, each agent pull request gets a live preview at a private https address for two hours, so
-              the Tester and you can try the change. The preview has no network access and stops when the pull request
-              is merged or closed.
+              {mode === "local" ? (
+                <>
+                  Once CI passes, each agent pull request is served on this computer at{" "}
+                  <code className="font-mono">http://127.0.0.1:&lt;port&gt;</code>, where only you can open it, so the Tester and you can try the change.
+                  The preview has no network access and stops when the pull request is merged or closed, or after{" "}
+                  {PREVIEW_MAX_AGE_MS / 60_000} minutes.
+                </>
+              ) : (
+                "Once CI passes, each agent pull request gets a live preview at a private https address for two hours, so the Tester and you can try the change. The preview has no network access and stops when the pull request is merged or closed."
+              )}
             </span>
           </span>
           <Switch

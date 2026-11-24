@@ -50,7 +50,7 @@ sign in with GitHub ─▶ /workspaces ──(no workspaces)──▶ /workspace
 | File storage | Local disk (`TECHTEAM_DATA_DIR`, default `~/.techteam/data/files`) | Never public; served through ownership-checked routes. |
 | Jobs | Inngest, always the local Dev Server (pinned `inngest-cli@1.53.0`, bound to `127.0.0.1`) | `lib/inngest/*`, `app/api/inngest`: `agent-task-run`, `agent-auto-pickup`, `run-sweep`, `preview-sweep`. No Inngest Cloud. |
 | Operation | `npm run doctor`, `npm run start:local`, `npm run backup` / `restore` | `scripts/` + `lib/doctor`, `lib/backup` (plain `.mjs`, tested). Backups hold no secrets. |
-| Sandbox (optional) | Docker + gVisor on a Docker host | Needs `SANDBOX_DOCKER_HOST` (`deploy/setup.sh`); a Docker-free local mode is phase 8 of `docs/local-first-plan.md`, not built. |
+| Sandbox (optional) | Docker: this computer's own (local mode) or a prepared host with gVisor (remote mode, `SANDBOX_DOCKER_HOST`, `deploy/setup.sh`) | `lib/sandbox/mode.ts` picks the mode; local needs `npm run sandbox:setup` once. docs/sandbox.md. |
 | AI | OpenAI (`openai` SDK, Responses API), Anthropic (`@anthropic-ai/sdk`, Messages API) and OpenRouter (`openai` SDK, Chat Completions: Google, DeepSeek, Z.ai, xAI, Moonshot models); locally, Claude models can run on the owner's plan through Claude Code (`lib/cli/`, docs/cli-agents.md) | `lib/openai.ts`, `lib/anthropic.ts`, `lib/openrouter.ts`; each agent's model picks the provider, the computer picks the route (plan or key). Optional — features degrade without keys. |
 | Quality | ESLint 9 (flat config, `eslint-config-next`) + Vitest 4 | `npm run check` = typegen + tsc + lint + unit tests. CI: `.github/workflows/ci.yml`. |
 
@@ -74,6 +74,7 @@ npm run start:local  # stable mode: production build (rebuilds when the code cha
 npm run doctor       # checks Node, git, ports, database, secrets, GitHub, Claude Code and .env; `--json`; exit 1 only on a ✗
 npx next typegen     # regenerate PageProps / RouteContext types after adding routes
 npx shadcn add <c>   # add a shadcn component into components/ui
+npm run sandbox:setup  # local sandbox: download the sandbox image, build the browser image (-- --check only reports)
 npm run skills:sync  # re-vendor the built-in agent skills at their pinned refs (-- --update <slug> to bump); commit the diff
 ```
 
@@ -114,7 +115,7 @@ app/
                           project, then Models (updated when, Refresh models), then "This workspace only": automatic
                           switch + fallback order), API spending
                           and plan usage this month across projects (#usage). This workspace: workspace (#workspace), agent automation (#agents), Sandbox
-                          (#sandbox; one line when the computer has no sandbox host) and an Agent skills card (#skills) linking to
+                          (#sandbox; one line with the reason and the fix when the sandbox can't run) and an Agent skills card (#skills) linking to
                           skills/page.tsx (the library on its own page). actions.ts: automation, saveSandboxAction /
                           checkSandboxAction (Test the sandbox),
                           auto failover toggle, saveFallbackOrderAction (the order companies are tried in), save/remove provider key, refreshModelsAction,
@@ -144,7 +145,9 @@ components/
                           provider-key-form
                           (account or workspace scope; masked key + show/hide), model-catalog-status (Models updated ·
                           Refresh models), account-spend (spending across projects),
-                          sandbox-form (Settings → Sandbox: switch, commands, Test the sandbox),
+                          sandbox-section (the Sandbox card: asks the status, streamed; one line with the reason when
+                          unavailable), sandbox-form (Settings → Sandbox: switch, commands, install scripts (local),
+                          previews, Test the sandbox),
                           option-cards (radio
                           cards shared by the settings forms).
   ai-team/                AI Team: ai-team-view (page markup), agent-roster (cards + open overlay state), agent-card
@@ -225,9 +228,15 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           setSkillAssignments, deleteUploadedSkill; every change rescans the affected agents' trust.
   sandbox/                Agent sandboxes (docs/sandbox.md). config.ts: pure, client-safe (commands, detectCommands,
                           parseSandboxCommand, sandboxReport, outputTail, the install network's constants,
-                          bridgeNetworkProblem). docker.ts: runInSandbox (prepare on the install network, command
-                          without network, gVisor + limits), ensureBridgeNetwork (install and capture networks),
-                          addPackageInSandbox, removeSandbox, hourly sweep. index.ts: sandboxAvailable,
+                          bridgeNetworkProblem). mode.ts: pure, client-safe (SandboxMode remote/local, resolveSandboxStatus,
+                          parseDockerInfo, unavailableMessage). docker-args.ts: pure, EVERY docker argument list in both
+                          modes (tested for the forbidden flags and mounts); docker-env.ts: the CLI's environment;
+                          install-command.ts: localInstallCommand (--ignore-scripts); engine.mjs, setup-config.mjs
+                          (plain node: doctor and `npm run sandbox:setup`). cli.ts: sandboxHost, dockerMode, dockerCli.
+                          status.ts: getSandboxStatus (docker info + images, cached 15 s). docker.ts: runInSandbox
+                          (prepare on the install network, command without network, gVisor on a remote host + limits),
+                          ensureBridgeNetwork (install and capture networks), local preview forwarder,
+                          addPackageInSandbox, removeSandbox, hourly sweep. index.ts: sandboxAvailable (async),
                           detectRepoCommands, runRepoCommand (one volume per run), addRepoDependency, removeRunSandbox,
                           checkSandbox. dependency-config.ts: pure (add_dependency: parseDependencyArgs, dependencyPlan,
                           addDependencyCommand, dependencyChange, dependencyReport).
@@ -372,7 +381,8 @@ agent-skills/             Built-in agent skills, vendored: sources.json (repo, p
                           usage note), catalog.json (generated: metadata + per-file title/summary for search), <slug>/
                           (files exactly as published + SOURCE.md + upstream LICENSE). Never hand-edit; run skills:sync.
 public/                   agents/<key>.webp: one face per agent role (256×256, round with transparent corners).
-scripts/                  doctor.mjs (`npm run doctor`; checks in lib/doctor/*.mjs behind injectable probes, never prints a value
+scripts/                  sandbox-setup.mjs (`npm run sandbox:setup`: sandbox image + browser image on this computer's
+                          Docker; decisions in lib/sandbox/setup-config.mjs), doctor.mjs (`npm run doctor`; checks in lib/doctor/*.mjs behind injectable probes, never prints a value
                           from .env), start-local.mjs (`npm run start:local`; ports and build decision in lib/local-stack-config.mjs),
                           local-db.mjs (`db:local`: the embedded Postgres when DATABASE_URL is unset; settings in
                           lib/local-db-config.mjs, shared with db/index.ts and drizzle.config.ts),
@@ -745,7 +755,13 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     `finishRun`. The install step (and a preview's) runs on `techteam-sandbox` (`SANDBOX_NETWORK`, icc off, a fixed
     subnet that `deploy/setup.sh` keeps off private ranges in DOCKER-USER) with public resolvers mounted over
     `/etc/resolv.conf` (Docker's DNS doesn't answer under gVisor and `--dns` doesn't change that). Never add a container
-    with network outside a network those rules cover. Log the command and the outcome line only (`toolStep`), never the output. The stage protocol says
+    with network outside a network those rules cover. **Two modes** (`lib/sandbox/mode.ts`, docs/sandbox.md#local-mode):
+    `remote` (`SANDBOX_DOCKER_HOST`) is as above; `local` is the owner's own Docker: no gVisor, no firewall, so installs run
+    with `--ignore-scripts` (`localInstallCommand`; `sandbox_commands.allowInstallScripts` opts in), the host's names pin to
+    127.0.0.1, previews are `http://127.0.0.1:<port>` through a forwarder container, link captures stay remote-only. Every
+    argument list lives in `lib/sandbox/docker-args.ts`: a new flag goes there, with the test that forbids privileged,
+    the socket, host mounts, host network, added capabilities and devices. The sandbox's availability is async
+    (`getSandboxStatus`): never assume it. Log the command and the outcome line only (`toolStep`), never the output. The stage protocol says
     "you can't run code" only to agents without the tools.
   - **Adding a package** (`add_dependency`, [`docs/sandbox.md`](docs/sandbox.md#adding-a-package)): development stage,
     `code.write` + `deps.manage`, sandbox on (not `tests.run`: it runs no code). Validated name/version
@@ -754,7 +770,7 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     `commitFiles` (Git Data API, fast-forward only). Never let an agent edit a lockfile by hand to add a package. The
     protocol (`DEPENDENCY_GUIDANCE`) is shown only to a Developer with the tool: fonts the card names go in as bundled
     packages (`@fontsource/…`), never a font host `<link>`; agents don't pick fonts.
-  - **Previews** (Settings → Sandbox → Previews, `SANDBOX_PREVIEW_DOMAIN`): after the CI gate passes, a
+  - **Previews** (Settings → Sandbox → Previews, `SANDBOX_PREVIEW_DOMAIN` on a remote host; local: `127.0.0.1`): after the CI gate passes, a
     `preview-<round>-start` step and `-poll-<n>` steps run beside the reviews (the Lead waits for them, up to 8 min).
     A preview never fails the run; it logs one `preview` row. Stopped on merge/close (`completeMerge`,
     `closeWithoutMerge`), cancel or replace, and after 2 h (`preview-sweep`). Container, network and volume are all
@@ -963,7 +979,7 @@ generated in the data folder). A new variable goes in `docs/setup.md`, `.env.exa
 | `TOKEN_ENCRYPTION_KEY` | Optional. Encrypts GitHub tokens and AI provider keys (`openssl rand -base64 32`); unset, a key is generated in `<TECHTEAM_DATA_DIR>/encryption.key`. Moving to another computer needs that file (or this value), otherwise reconnect GitHub and re-enter the AI keys. |
 | `TECHTEAM_DATA_DIR` | Where files (logos, screenshots, references) are kept: `<dir>/files`. Default `~/.techteam/data`. |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` | Optional fallback for a company the owner saved no account key for (Settings → AI). |
-| `SANDBOX_DOCKER_HOST`, `SANDBOX_IMAGE` | Agent sandboxes: the Docker host (`ssh://…` to a VPS set up with `deploy/setup.sh`, or the local socket on it). Unset: Settings → Sandbox can't be switched on. |
+| `SANDBOX_DOCKER_HOST`, `SANDBOX_IMAGE` | Agent sandboxes: a remote Docker host (`ssh://…` to a VPS set up with `deploy/setup.sh`, or the local socket on it). Unset: this computer's Docker (after `npm run sandbox:setup`), else Settings → Sandbox can't be switched on. `TECHTEAM_SANDBOX=off` switches the sandbox off (not in `.env.example`). |
 | `SANDBOX_PREVIEW_DOMAIN`, `SANDBOX_BROWSER_IMAGE` | PR previews at `pr-<n>-<random>.<domain>` (wildcard DNS to the sandbox host) and the sandbox browser image (the Tester's browser, link captures). Unset domain: previews can't be switched on. |
 | `AGENTS_SIMULATED` | Local testing: `true` runs the pipeline with scripted agents (`lib/agent-simulated.ts`) — no model calls or spend, but real GitHub work (branch, `agent-simulations/<branch>.md`, PR). |
 | `AGENTS_LOCAL_CLI`, `TECHTEAM_CLI_HOME`, `CLAUDE_CLI_PATH` | Agents on the owner's plan (local only, nothing to switch on): `AGENTS_LOCAL_CLI=false` turns it off on this computer; TechTeam's CLI home (default `~/.techteam/cli`); Claude Code's binary when it isn't in a known place. |

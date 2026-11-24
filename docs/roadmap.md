@@ -129,8 +129,9 @@ TechTeam runs on the owner's computer with nothing remote but GitHub and the mod
   for runs left behind when TechTeam stopped, a configurable fallback order across companies.
 
 ### v0.10 — A local sandbox, and cleanup
-- Phase 8: a sandbox without a Docker host (WSL2 + bubblewrap, previews on `localhost`), so the Tester's browser and the
-  Developer's tests work on a plain computer.
+- Phase 8: the sandbox on your own computer's Docker (no VPS, previews on `127.0.0.1`, install scripts off by default),
+  so the Tester's browser and the Developer's tests work on a plain computer with Docker. Bubblewrap/WSL2 is not part of
+  it.
 - Phase 0: a smoke test of one simulated card against a throwaway repository.
 - The final cleanup migration (drops the unused Switch, auth-id and workspace-key schema), and trying it on Linux and
   macOS by hand.
