@@ -183,7 +183,7 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           disabled). No client secret. sign-in.ts: the server side of sign-in (login cookie, completeSignIn,
                           personal token, adoption answer).
   user-identity.ts        Pure: resolveUser (which user a GitHub id is: by id, by saved connection, adopt the only user,
-                          create), noreplyEmail, authUserIdFor. local-user.ts: the database side under an advisory lock.
+                          create), noreplyEmail. local-user.ts: the database side under an advisory lock.
   host-guard.ts           Pure: isAllowedHost (localhost / 127.0.0.1 / [::1] / NEXT_PUBLIC_APP_URL's host); proxy.ts uses it.
   safe-redirect.ts        isSafeRedirectPath.
   github-client-id.ts     DEFAULT_GITHUB_CLIENT_ID + resolveGithubClientId (GITHUB_CLIENT_ID wins).
@@ -460,8 +460,8 @@ Where new code goes:
 **Database**
 - Change `db/schema.ts`, then `npm run db:generate`, read the SQL, `npm run db:migrate`, and commit schema + migration +
   code together. `db:push` is for throwaway local databases only. Never touch an `auth` schema (left by the removed
-  hosted auth service; drizzle is limited to `public`). Tables and columns the code no longer reads stay until the final
-  cleanup migration ([`docs/data-model.md`](docs/data-model.md#unused-tables-and-columns)): don't build on them.
+  hosted auth service; drizzle is limited to `public`). A table dropped from the schema goes into `RETIRED_TABLES` in
+  `lib/backup/registry.mjs` so older backups still restore ([`docs/data-model.md`](docs/data-model.md#retired-schema)).
 - Tables are `snake_case` plural; columns `snake_case` in SQL, `camelCase` in TS. Foreign keys to `users.id` use `onDelete: "cascade"`.
 
 **Tests & lint**
@@ -814,8 +814,7 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
   - **Each agent picks its company and model** (AI Team → Configure: a Company select, then that company's current
     catalog models via `pickerModels`; changing company picks the closest tier, `agentModelFor`). `agents.model` is the
     model's route id and its company follows from it (`modelProvider`); read it with `activeAgentModel(row)`. Every
-    company with a key is available (Settings → `#ai` has no team-wide switch; `workspaces.ai_provider` is no longer
-    read). `saveAgentAction` refuses a new model the catalog doesn't offer now, or whose company has no key (and no plan
+    company with a key is available (Settings → `#ai` has no team-wide switch). `saveAgentAction` refuses a new model the catalog doesn't offer now, or whose company has no key (and no plan
     route). New agents start on `defaultProvider(keys)` (OpenAI, Anthropic, then OpenRouter). Role defaults are a
     **tier** (`defaults.tier`: balanced, the Tester fast), resolved per company by `roleDefaultModel` (`pickInTier`: the
     tier's cheapest current model; on OpenRouter DeepSeek's first). `agents.provider_models`

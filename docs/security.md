@@ -89,7 +89,7 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 ## AI provider keys
 
 - Saved on the user's account (`user_ai_keys`, used by every workspace they own), in its own table so a workspace row
-  never carries a secret. Workspace-level keys (`ai_provider_keys`) are no longer read or written. Encrypted like GitHub tokens
+  never carries a secret. There are no workspace-level keys any more (the table was dropped in migration 0020). Encrypted like GitHub tokens
   (`lib/crypto.ts`; key from `TOKEN_ENCRYPTION_KEY` or `<data dir>/encryption.key`). A workspace's agents use its **owner's** keys, like its GitHub token.
   A saved secret that can't be decrypted (the key changed) is read with `tryDecrypt` and treated as not set, never an error; a wrong `TOKEN_ENCRYPTION_KEY` value still fails loudly.
 - Checked with the provider before saving (a free model listing), so a wrong key fails at once.
