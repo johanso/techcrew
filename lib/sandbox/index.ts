@@ -19,7 +19,8 @@ export function sandboxAvailable() {
 type RepoRef = Pick<Workspace, "ownerId" | "githubRepoFullName" | "githubDefaultBranch">;
 
 async function ownerToken(workspace: Pick<Workspace, "ownerId">) {
-  const token = await getGithubToken(workspace.ownerId);
+  // An unreadable saved token counts as no connection.
+  const token = await getGithubToken(workspace.ownerId).catch(() => null);
   if (!token) throw new Error("GitHub isn't connected. Reconnect it and try again.");
   return token;
 }

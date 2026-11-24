@@ -6,7 +6,7 @@ import { and, eq } from "drizzle-orm";
 
 import { aiProviderKeys, db, userAiKeys, workspaces } from "@/db";
 import { PROVIDER_IDS, PROVIDERS, type AgentProvider, type ProviderStatus } from "@/lib/agent-config";
-import { decrypt, encrypt } from "@/lib/crypto";
+import { encrypt, tryDecrypt, warnUnreadable } from "@/lib/crypto";
 import { checkOpenRouterKey } from "@/lib/openrouter";
 
 /**
@@ -21,7 +21,8 @@ export type AIKeys = Record<AgentProvider, string | null>;
 export type KeySource = "account" | "workspace" | "environment";
 
 /** A saved key as the UI sees it: masked. */
-export type SavedKeyView = { hint: string; updatedAt: string };
+/** `unreadable`: it can't be decrypted (the encryption key changed), so it counts as not set until entered again. */
+export type SavedKeyView = { hint: string; updatedAt: string; unreadable: boolean };
 
 export type ProviderKeyView = {
   account: SavedKeyView | null;
@@ -58,18 +59,33 @@ async function keyRows(userId: number, workspaceId: number | null) {
   return { account, workspace };
 }
 
+type SavedScope = "account" | "workspace";
+
+/** A saved key's plain text, or null when there is none or it can't be read (warned once per provider and scope). */
+export function readSavedKey(row: Pick<KeyRow, "apiKey"> | undefined, provider: AgentProvider, scope: SavedScope): string | null {
+  if (!row) return null;
+  const key = tryDecrypt(row.apiKey);
+  if (key === null) warnUnreadable(`${scope === "account" ? "user_ai_keys" : "ai_provider_keys"} ${provider}`);
+  return key;
+}
+
+/** The key a provider uses, from its saved rows and the server's key; an unreadable saved key counts as missing. */
+export function resolveKey(rows: { account: KeyRow[]; workspace: KeyRow[] }, provider: AgentProvider, environment: string | null): string | null {
+  const find = (list: KeyRow[]) => list.find((r) => r.provider === provider);
+  const used = keyInUse({
+    account: readSavedKey(find(rows.account), provider, "account"),
+    workspace: readSavedKey(find(rows.workspace), provider, "workspace"),
+    environment,
+  });
+  return used?.key ?? null;
+}
+
 /** The keys agents and AI helpers of this workspace use (its owner's account keys first). */
 export async function getAIKeys(workspaceId: number): Promise<AIKeys> {
   const [owner] = await db.select({ id: workspaces.ownerId }).from(workspaces).where(eq(workspaces.id, workspaceId));
   if (!owner) return perProvider(envKey);
   const rows = await keyRows(owner.id, workspaceId);
-  const key = (provider: AgentProvider) => {
-    const find = (list: KeyRow[]) => list.find((r) => r.provider === provider)?.apiKey ?? null;
-    const used = keyInUse({ account: find(rows.account), workspace: find(rows.workspace), environment: envKey(provider) });
-    if (!used) return null;
-    return used.source === "environment" ? used.key : decrypt(used.key);
-  };
-  return perProvider(key);
+  return perProvider((provider) => resolveKey(rows, provider, envKey(provider)));
 }
 
 export function keyStatus(keys: AIKeys): ProviderStatus {
@@ -79,15 +95,22 @@ export function keyStatus(keys: AIKeys): ProviderStatus {
 /** What Settings shows per provider: which keys are saved (masked) and which one is used, never a key. */
 export async function getProviderKeyViews(userId: number, workspaceId: number | null = null): Promise<Record<AgentProvider, ProviderKeyView>> {
   const rows = await keyRows(userId, workspaceId);
-  const saved = (list: KeyRow[], provider: AgentProvider): SavedKeyView | null => {
+  const saved = (list: KeyRow[], provider: AgentProvider, scope: SavedScope): SavedKeyView | null => {
     const row = list.find((r) => r.provider === provider);
-    return row ? { hint: row.hint, updatedAt: row.updatedAt.toISOString() } : null;
+    if (!row) return null;
+    return { hint: row.hint, updatedAt: row.updatedAt.toISOString(), unreadable: readSavedKey(row, provider, scope) === null };
   };
   const view = (provider: AgentProvider): ProviderKeyView => {
-    const account = saved(rows.account, provider);
-    const workspace = saved(rows.workspace, provider);
+    const account = saved(rows.account, provider, "account");
+    const workspace = saved(rows.workspace, provider, "workspace");
     const environment = envKey(provider) !== null;
-    return { account, workspace, environment, inUse: keyInUse<unknown>({ account, workspace, environment: environment || null })?.source ?? null };
+    const readable = (key: SavedKeyView | null) => (key && !key.unreadable ? key : null);
+    return {
+      account,
+      workspace,
+      environment,
+      inUse: keyInUse<unknown>({ account: readable(account), workspace: readable(workspace), environment: environment || null })?.source ?? null,
+    };
   };
   return perProvider(view);
 }

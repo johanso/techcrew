@@ -35,7 +35,11 @@ export async function createWorkspace(_prev: WorkspaceFormState, formData: FormD
   if (!REPO_FULL_NAME.test(repoFullName)) errors.repo = "Select the repository this workspace will work on.";
   if (Object.keys(errors).length) return { errors };
 
-  const token = await getGithubToken(user.id);
+  // An unreadable saved token throws a 401 GithubError: the same as no connection, sign in again.
+  const token = await getGithubToken(user.id).catch((error) => {
+    if (error instanceof GithubError && error.status === 401) return null;
+    throw error;
+  });
   if (!token) return { errors: { repo: "Sign in with GitHub to select a repository." } };
 
   let workspaceId: number;
