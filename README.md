@@ -27,7 +27,7 @@ with [Claude Code](https://claude.com/claude-code) installed, or an API key for 
 Docker is optional (agent sandbox, [docs/sandbox.md](docs/sandbox.md)).
 
 ```bash
-git clone <this repository's URL> techteam
+git clone https://github.com/johanso/techcrew.git techteam
 cd techteam
 npm install            # also downloads an embedded Postgres 18 for your system (~110 MB)
 cp .env.example .env   # optional; sets the app's address, which agents on your Claude plan need
