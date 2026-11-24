@@ -241,6 +241,16 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           reader, classifyClaudeChunk (tested). claude-run.ts: runClaudeChunk, MCP bearer. stage-mcp.ts:
                           the stage's tools as an MCP registry. plan-view.ts: Settings' view.
   mcp-protocol.ts         Pure: a minimal stateless MCP server (initialize, ping, tools/list, tools/call), mcpToolsFrom.
+  backup/                 Backup and restore, plain .mjs (run by node in scripts/, imported by Vitest; they import
+                          db/schema.ts, which Node 22.18+ type-strips). registry.mjs: EXCLUDED_TABLES, SECRET_COLUMNS,
+                          REVIEWED_SAFE_COLUMNS, the schema walk (exportTables). **Data rule: a new table or column that
+                          holds a token, key or secret goes in those registries (registry.test.ts fails otherwise), and a
+                          new column type needs a `columnKind`.** order.mjs (restore order by foreign keys, cycles
+                          broken at nullable columns), rows.mjs (select/insert SQL, value checks), manifest.mjs,
+                          archive-paths.mjs + tar.mjs (system `tar`, archive is untrusted), export.mjs (read-only
+                          snapshot, cursor), import.mjs (one transaction, never into a non-empty database), adoption.mjs
+                          (github_user_id for sign-in), connection.mjs. s3-source.mjs and storage-key.mjs are shared with
+                          import-s3 and lib/storage.ts.
   db-errors.ts            Pure: isUniqueViolation (createRun's one-run-per-card guard).
   agent-ai.ts             Config AI (OpenAI if configured, else Anthropic, else OpenRouter): generateAgentConfig() (repo-aware, sandbox-aware instructions),
                           scanAgentWithAI(), reviewSkillWithAI() (upload review + type/load/roles), isConfigAIAvailable().
@@ -344,6 +354,8 @@ agent-skills/             Built-in agent skills, vendored: sources.json (repo, p
 public/                   agents/<key>.webp: one face per agent role (256×256, round with transparent corners).
 scripts/                  local-db.mjs (`db:local`: the embedded Postgres when DATABASE_URL is unset; settings in
                           lib/local-db-config.mjs, shared with db/index.ts and drizzle.config.ts),
+                          backup.mjs / restore.mjs (`npm run backup` / `restore`, docs/setup.md#moving-to-another-computer…;
+                          the logic is in lib/backup/), import-s3.mjs (storage:import-s3),
                           db-baseline.mjs (mark migrations applied on a pushed DB), sync-agent-skills.mjs (skills:sync),
                           cli-isolation-check.mts (agents on the plan: isolation check; spends plan usage, ask first).
 deploy/                   setup.sh: prepares a fresh Ubuntu 24.04 VPS (firewall, swap, Docker, gVisor for agent sandboxes,

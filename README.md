@@ -67,6 +67,7 @@ Step-by-step instructions: **[docs/setup.md](docs/setup.md)**.
 | `npm run dev` | The app on port 3000 **and** the Inngest Dev Server, together in one terminal (stopping one stops both). |
 | `npm run dev:app` | Only the app (`next dev --port 3000`). |
 | `npm run inngest:dev` | Only the local Inngest Dev Server, pointed at `/api/inngest`. Required for the agent pipeline (**Run**, auto pickup, auto-merge); `npm run dev` already starts it. |
+| `npm run backup` / `npm run restore -- <file>` | One archive of your database and files (no secrets), and its restore into an empty database. [Moving to another computer](docs/setup.md#moving-to-another-computer--bringing-your-data-from-the-old-setup). |
 | `npm run lint` | ESLint (flat config: Next.js core web vitals + TypeScript). |
 | `npm test` | Unit tests (Vitest). `npm run test:watch` while working. |
 | `npm run check` | Route types (`next typegen`) + type check + lint + tests: run before every commit. CI runs it plus `npm run build` on every push and PR. |

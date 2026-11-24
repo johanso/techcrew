@@ -142,6 +142,50 @@ Files used to live in an S3 bucket. To copy them to this computer once, put the 
 every object under the same key into `<TECHTEAM_DATA_DIR>/files`, skips files already there, prints the counts and never
 deletes anything from S3. Safe to run again.
 
+## Moving to another computer / bringing your data from the old setup
+
+`npm run backup` writes **one** `.tar.gz` (every table as JSON lines, the stored files, a manifest) and
+`npm run restore` puts it into an **empty** database. Both need the system `tar` (Windows 10+, macOS and Linux have it).
+The database is only read; the archive never holds secrets (GitHub tokens, AI keys, Switch and CLI settings, the model
+cache): after restoring, **sign in with GitHub and enter your AI keys again**. The user you restore is recognized by the
+GitHub account of their old saved connection (`users.github_user_id` is filled in the archive, never in the source).
+
+**Your data is still in the old remote database and S3 bucket.** On a computer that can reach them (this repository
+installed, `npm ci` done), set the old `DATABASE_URL` and `S3_*` variables for this one run only, and keep them out of
+the new setup's `.env`:
+
+```bash
+# bash; PowerShell: $env:DATABASE_URL="..." etc. Needs S3_BUCKET, S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY (+ S3_ENDPOINT)
+DATABASE_URL=postgresql://... S3_BUCKET=... npm run backup -- --with-s3
+```
+
+`--with-s3` copies every object of the bucket (read only, nothing is deleted there) next to the local files. Copy the
+`techteam-backup-<date>.tar.gz` it prints to the new computer, then there:
+
+```bash
+npm run dev                      # or npm run db:local: the embedded database must be running (and without DATABASE_URL set)
+npm run restore -- techteam-backup-<date>.tar.gz    # in a second terminal
+```
+
+Then open the app, **Continue with GitHub** and enter your AI keys (Settings → AI).
+
+**Between computers** it is the same: `npm run backup` on the old one (it reads the embedded database, which must be
+running), `npm run restore -- <file>` on the new one. Keep `<TECHTEAM_DATA_DIR>/encryption.key` out of it: nothing
+encrypted travels.
+
+Rules and limits:
+- Restore **never overwrites**: it refuses a database that has a user or a workspace. With `DATABASE_URL`, run
+  `npm run db:migrate` first (the embedded database migrates itself on start). An archive from a **newer** TechTeam is
+  refused (update first); an older one restores, new columns take their defaults.
+- All rows go in one transaction and the counts are checked against the manifest: any problem restores nothing. Files are
+  copied first (existing identical files are skipped, different ones are kept and reported), so running it again is safe.
+- Agent runs that were queued or running when you backed up **will not continue** on the new computer. The backup warns
+  (and needs `--yes` when it isn't run in a terminal); after restoring, use **Stop agents** on those cards, then Run them again.
+- The archive is treated as untrusted: only `manifest.json`, `tables/*.jsonl` and `files/**` are accepted, links and odd
+  names are refused, and it is unpacked into a temporary folder in the data folder, never straight into place.
+- Chat history of agent runs (`agent_run_messages`) can be large; it is streamed, never loaded whole, but the archive and
+  its temporary copy need free disk space.
+
 ## 4. Create the database tables
 
 ```bash
