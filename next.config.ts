@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // `next dev` and `next build` share `.next`. `npm run smoke` builds into its own folder (TECHTEAM_DIST_DIR) so it
+  // never disturbs a TechTeam that is running from this project.
+  distDir: process.env.TECHTEAM_DIST_DIR?.trim() || ".next",
   // Built-in agent skills are read from disk (lib/builtin-skills.ts) by the agent pipeline (Inngest); the
   // file tracer can't see dynamic paths, so ship the folder with that route.
   // Card references: PDF text extraction (lib/reference-pdf.ts) loads PDF.js's serverless build at runtime; load it

@@ -67,11 +67,12 @@ A new user needs Node, git and a GitHub account. Optional: Claude Code, WSL2 (sa
 Each phase is a branch and a pull request: `npm run check` and `npm run build` pass, the change is under **Unreleased**
 in the changelog, and AGENTS.md and `docs/` are updated. Read `node_modules/next/dist/docs/` before Next.js-specific code.
 
-### Phase 0 — Safety net (not done)
-- Validate v0.8 live: the isolation check and one real Developer run on the plan (spends plan usage: ask first).
-- `npm run smoke`: one card through the whole pipeline in simulated mode against a test repository. Not part of
-  `check` (it touches GitHub).
-- Done when the smoke passes and v0.8 is validated.
+### Phase 0 — Safety net (partly done)
+- `npm run smoke` exists: one card through the whole pipeline in simulated mode against a throwaway repository, on its
+  own stack, with cleanup (docs/testing.md#smoke-test). It runs by hand, not in `check` (it touches GitHub).
+- v0.8 live validation: the owner used agents on the plan in real use. The isolation check
+  (`scripts/cli-isolation-check.mts`, spends plan usage) has still not been run.
+- Done when the isolation check has run as well.
 
 ### Phase 1 — Remove remote services (done)
 - Delete `switch-*`, `jobs.ts`, `app/api/switch-trust`, `inngest/switch-weekly`, the Switch settings form,

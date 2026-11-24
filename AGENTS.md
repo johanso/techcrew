@@ -71,6 +71,7 @@ npm run backup       # one .tar.gz of the database and files, no secrets (-- --o
 npm run storage:import-s3  # one time: copy files from the old S3 bucket (needs the old S3_* variables)
 npm run inngest:dev  # only the Inngest Dev Server (pinned version; npm run dev already starts it) — needed by Run, auto pickup, auto-merge
 npm run start:local  # stable mode: production build (rebuilds when the code changed) + database + pinned Inngest, one terminal
+npm run smoke -- --repo <owner/name>  # one simulated card through the whole pipeline on a throwaway repo, own stack and ports; touches GitHub, not part of check (docs/testing.md#smoke-test)
 npm run doctor       # checks Node, git, ports, database, secrets, GitHub, Claude Code and .env; `--json`; exit 1 only on a ✗
 npx next typegen     # regenerate PageProps / RouteContext types after adding routes
 npx shadcn add <c>   # add a shadcn component into components/ui

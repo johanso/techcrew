@@ -14,7 +14,7 @@ export default defineConfig({
     environment: "node",
     include: ["**/*.test.ts"],
     // .claude/worktrees: Claude Code agent worktrees, other checkouts of this repository.
-    exclude: ["node_modules/**", ".next/**", ".claude/worktrees/**"],
+    exclude: ["node_modules/**", ".next/**", ".next-smoke/**", ".claude/worktrees/**"],
     // Modules that open a database client read DATABASE_URL lazily; tests never query.
     env: { DATABASE_URL: "postgresql://test:test@localhost:5432/test", TOKEN_ENCRYPTION_KEY: "dGVzdC1rZXktdGVzdC1rZXktdGVzdC1rZXktMTIzNA==" },
   },

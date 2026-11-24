@@ -2,7 +2,9 @@
 // the Inngest Dev Server (pinned version) and, unless DATABASE_URL is set, the embedded database. Builds first when
 // the code changed since the last build. Ctrl+C (or any one of them dying) stops all of them.
 //   --rebuild   build even when the build is up to date
-// TECHTEAM_PORT / TECHTEAM_INNGEST_PORT / TECHTEAM_PG_PORT move the three ports (docs/setup.md).
+// TECHTEAM_PORT / TECHTEAM_INNGEST_PORT / TECHTEAM_PG_PORT move the three ports (docs/setup.md). TECHTEAM_DIST_DIR moves
+// the build folder (next.config.ts); `npm run smoke` uses it to run a second stack beside a running TechTeam, and
+// asks this one to stop through its IPC channel ("stop"), the way it asks the database launcher.
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -16,8 +18,9 @@ import { INNGEST_CLI_VERSION, buildDecision, inngestPortFlags, resolveAppPort, r
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const windows = process.platform === "win32";
 const nextBin = createRequire(import.meta.url).resolve("next/dist/bin/next");
-const buildIdFile = path.join(root, ".next", "BUILD_ID");
-const revFile = path.join(root, ".next", ".techteam-build-rev");
+const distDir = process.env.TECHTEAM_DIST_DIR?.trim() || ".next";
+const buildIdFile = path.join(root, distDir, "BUILD_ID");
+const revFile = path.join(root, distDir, ".techteam-build-rev");
 const log = (message) => console.log(`[start] ${message}`);
 
 if (process.argv.slice(2).some((arg) => arg !== "--rebuild")) {
@@ -139,6 +142,11 @@ function start(name, command, args, { shell = false, ipc = false, env = process.
 }
 
 for (const signal of ["SIGINT", "SIGTERM", "SIGBREAK"]) process.on(signal, () => void shutdown(0));
+// A parent that started this with an IPC channel (npm run smoke) asks for a clean stop this way: Windows has no SIGTERM
+// for another process.
+process.on("message", (message) => {
+  if (message === "stop") void shutdown(0);
+});
 
 if (embedded) {
   start("db", process.execPath, ["--env-file-if-exists=.env", "--env-file-if-exists=.env.local", "scripts/local-db.mjs"], { ipc: true, prefix: "" });

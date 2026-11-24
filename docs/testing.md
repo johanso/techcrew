@@ -42,6 +42,32 @@ for that (see code.claude.com/docs/en/legal-and-compliance). Running Claude Code
 computer, for yourself, is normal use: that's the local plan route, and it must stay local and owner-only. Use
 simulated mode to test the pipeline for free.
 
+## Smoke test
+
+`npm run smoke -- --repo <owner/name>` runs **one card through the whole pipeline in simulated mode** against a
+throwaway GitHub repository and checks the result. It is the quick answer to "does the pipeline still work end to end?"
+after a change. It is not part of `npm run check` (it touches GitHub and takes a few minutes).
+
+What it does: starts its **own** TechTeam (the production build in `.next-smoke`, an embedded database in a temp
+folder, Inngest, on ports 3992 / 8294 / 54794 instead of 3000 / 8288 / 54329, so a TechTeam you have running is never
+touched), seeds a user, a workspace on the repository and one card, starts the run with the app's own functions
+(`scripts/smoke-start-run.mjs`: the same path as the Run button), waits up to 12 minutes for `awaiting_merge`, then
+checks that every stage logged work, that the branch and the `agent-simulations/<branch>.md` note exist and that the
+pull request is open. It prints a stage table and exits 0 (passed), 1 (failed) or 2 (refused, nothing started).
+Afterwards it closes the pull request, deletes the `agent/*` branches the run created, stops what it started and deletes
+the temp folder, also on failure and Ctrl+C.
+
+Requirements: Node 22.18+, a **throwaway** repository your GitHub account can push to (its name must contain `smoke`,
+`throwaway` or `scratch`, unless you pass `--i-know-this-repo-gets-junk`), and a token: `SMOKE_GITHUB_TOKEN`,
+else the GitHub CLI's (`gh auth token`). The token is encrypted into the temp database; it is never printed or passed on a
+command line. Options: `--repo` (or `SMOKE_REPO`), `--timeout <minutes>`, `--reuse-build` (skip the rebuild when the smoke
+build is current), `--keep` (leave the stack, the temp folder, the pull request and the branch for inspection; it says how
+to remove them). Ports: `SMOKE_APP_PORT`, `SMOKE_INNGEST_PORT`, `SMOKE_PG_PORT`. The stack's log is `stack.log` in the temp
+folder; a failure prints the last agent log rows and the end of that log.
+
+What it does **not** cover: model calls (simulated agents always take the happy path: no needs-info, rework, failing CI,
+merge) and the sandbox (switched off). Rows 9 to 11 of the test plan still need real runs.
+
 ## Models and providers
 
 Each agent picks its **company and model** on the AI Team page (Configure → Company, Model); a team can mix

@@ -9,6 +9,11 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 ## [Unreleased]
 
 ### Added
+- **`npm run smoke`**: one card through the whole agent pipeline in simulated mode against a throwaway GitHub repository,
+  on its own stack (separate build folder, ports, temp database and data folder, so a running TechTeam is untouched).
+  Checks every stage ran, the branch, the note file and the open pull request, prints a stage table, and cleans up the
+  pull request, the `agent/*` branches, its processes and its temp folder, also on failure. Refuses repositories whose
+  name doesn't say throwaway. `TECHTEAM_DIST_DIR` moves Next's build folder (default `.next`).
 - **The agent sandbox on your own Docker.** With no `SANDBOX_DOCKER_HOST`, the sandbox (the Developer's and the
   Tester's `run_tests` / `run_build` / `run_command`, PR previews, the Tester's browser) runs on the Docker of this
   computer: Docker Desktop on Windows or macOS, Docker Engine on Linux. No VPS, Caddy or domain. `npm run sandbox:setup`
