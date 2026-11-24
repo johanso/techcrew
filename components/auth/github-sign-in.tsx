@@ -25,6 +25,8 @@ export function GithubSignIn({ next }: { next?: string }) {
   const router = useRouter();
   const [view, setView] = useState<View>({ name: "idle" });
   const [retryInMs, setRetryInMs] = useState(0);
+  // Counts the polls: GitHub usually repeats the same interval, so the delay alone can't re-arm the timer.
+  const [pollCount, setPollCount] = useState(0);
   const [copied, setCopied] = useState(false);
 
   function apply(step: SignInStep) {
@@ -32,9 +34,11 @@ export function GithubSignIn({ next }: { next?: string }) {
       case "waiting":
         setView({ name: "waiting", userCode: step.userCode, verificationUri: step.verificationUri });
         setRetryInMs(step.retryInMs);
+        setPollCount((count) => count + 1);
         break;
       case "pending":
         setRetryInMs(step.retryInMs);
+        setPollCount((count) => count + 1);
         break;
       case "done":
         router.replace(step.next);
@@ -85,7 +89,7 @@ export function GithubSignIn({ next }: { next?: string }) {
     };
     // `apply` only calls setters and the router, so it isn't a dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [waiting, retryInMs]);
+  }, [waiting, retryInMs, pollCount]);
 
   async function copy(code: string) {
     try {
