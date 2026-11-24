@@ -1,6 +1,6 @@
 # Roadmap
 
-Where TechTeam goes next (latest release: [v0.9.0](../CHANGELOG.md#090--2026-11-24)), and how a version is released.
+Where TechTeam goes next (latest release: [v0.10.0](../CHANGELOG.md#0100--2026-11-24)), and how a version is released.
 For what works today see [status.md](status.md); for what's verified see [testing.md](testing.md).
 
 - [Direction: an AI software factory](#direction-an-ai-software-factory)
@@ -128,7 +128,7 @@ TechTeam runs on the owner's computer with nothing remote but GitHub and the mod
   `npm run backup` / `restore`, `npm run doctor`, `npm run start:local` (stable mode), a Get started checklist, a sweeper
   for runs left behind when TechTeam stopped, a configurable fallback order across companies.
 
-### v0.10 — A local sandbox, and cleanup
+### v0.10 — A local sandbox, and cleanup ✅ released as v0.10.0 (2026-11-24)
 - Phase 8: the sandbox on your own computer's Docker (no VPS, previews on `127.0.0.1`, install scripts off by default),
   so the Tester's browser and the Developer's tests work on a plain computer with Docker. Bubblewrap/WSL2 is not part of
   it.
