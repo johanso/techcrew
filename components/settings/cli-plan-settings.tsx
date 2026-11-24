@@ -74,7 +74,7 @@ export function ClaudePlanSettings({ workspaceId, initial }: { workspaceId: numb
           <span className="text-xs text-muted-foreground">
             {meta.label}
             {view.version ? ` ${view.version}` : ""} on this computer runs the agents on Claude models with your plan: no API spend, the
-            agents keep their model, and each stage still has its turn limit. Off on your other computers until you switch it on there.
+            agents keep their model, and each stage still has its turn limit.
           </span>
         </span>
         <Switch

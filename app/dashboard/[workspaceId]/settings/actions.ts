@@ -35,11 +35,6 @@ async function authorize(workspaceId: number) {
   return getOwnedWorkspace(user.id, workspaceId);
 }
 
-// Where a key is saved: the user's account (every workspace they own) or this workspace only.
-const KEY_SCOPES = ["account", "workspace"] as const;
-export type KeyScopeName = (typeof KEY_SCOPES)[number];
-const isKeyScope = (value: unknown): value is KeyScopeName => KEY_SCOPES.includes(value as never);
-
 // Provider changes show on the AI Team page too (model picker, "not connected" labels, agent models).
 function refresh(workspaceId: number) {
   revalidatePath(`/dashboard/${workspaceId}/settings`);
@@ -83,10 +78,10 @@ export async function saveSandboxAction(workspaceId: number, _prev: SandboxFormS
     else errors[kind] = parsed.error;
   }
   if (Object.keys(errors).length) return { errors };
-  if (enabled && !sandboxAvailable()) return { message: "This server has no sandbox host. Set SANDBOX_DOCKER_HOST." };
+  if (enabled && !sandboxAvailable()) return { message: "No sandbox host is set up on this computer (SANDBOX_DOCKER_HOST)." };
   if (enabled && !commands.test && !commands.build) return { message: "Add a test or a build command for the agents to run." };
   if (preview) {
-    if (!previewsAvailable()) return { message: "This server can't serve previews. Set SANDBOX_DOCKER_HOST and SANDBOX_PREVIEW_DOMAIN." };
+    if (!previewsAvailable()) return { message: "This computer can't serve previews. Set SANDBOX_DOCKER_HOST and SANDBOX_PREVIEW_DOMAIN." };
     if (!enabled) return { message: "Previews run in the sandbox: switch it on too, or switch previews off." };
     if (!commands.preview) return { errors: { preview: "Add the command that serves your app, or switch previews off." } };
   }
@@ -106,7 +101,7 @@ export type SandboxCheckResult = { ok: true; passed: boolean; headline: string; 
 export async function checkSandboxAction(workspaceId: number): Promise<SandboxCheckResult> {
   const workspace = await authorize(workspaceId);
   if (!workspace) return { ok: false, error: "Workspace not found." };
-  if (!sandboxAvailable()) return { ok: false, error: "This server has no sandbox host. Set SANDBOX_DOCKER_HOST." };
+  if (!sandboxAvailable()) return { ok: false, error: "No sandbox host is set up on this computer (SANDBOX_DOCKER_HOST)." };
   const commands = sandboxCommandsOf(workspace.sandboxCommands);
   if (!commands) return { ok: false, error: "Save the commands first." };
 
@@ -159,21 +154,19 @@ export async function refreshModelsAction(workspaceId: number): Promise<{ ok: tr
 export type ProviderKeyState = { ok?: boolean; errors?: { apiKey?: string }; message?: string; savedAt?: number };
 
 /**
- * Saves an API key after checking it with the provider: on the account (every workspace the user owns) or on this
- * workspace only. The key is encrypted at rest and never sent back: the form only ever shows its masked hint. Bound
- * to the workspace id, provider and scope (validated: bound args are input too).
+ * Saves an API key after checking it with the provider, on the account (every workspace the user owns). The key is
+ * encrypted at rest and never sent back: the form only ever shows its masked hint. Bound to the workspace id and
+ * provider (validated: bound args are input too).
  */
 export async function saveProviderKeyAction(
   workspaceId: number,
   provider: unknown,
-  scope: unknown,
   _prev: ProviderKeyState,
   formData: FormData
 ): Promise<ProviderKeyState> {
   const workspace = await authorize(workspaceId);
   if (!workspace) return { message: "Workspace not found." };
   if (!isAgentProvider(provider)) return { message: "Unknown provider." };
-  if (!isKeyScope(scope)) return { message: "Unknown key scope." };
 
   const raw = formData.get("apiKey");
   const key = typeof raw === "string" ? raw.trim() : "";
@@ -184,37 +177,29 @@ export async function saveProviderKeyAction(
   if (!verified.ok) return { errors: { apiKey: verified.error } };
 
   try {
-    await saveProviderKey(scope === "account" ? { userId: workspace.ownerId } : { workspaceId: workspace.id }, provider, key);
+    await saveProviderKey(workspace.ownerId, provider, key);
   } catch (error) {
     console.error("[settings] key save failed", error);
     return { message: "We couldn't save the key. Please try again." };
   }
-  refreshKeys(workspaceId, scope);
+  refreshKeys();
   return { ok: true, savedAt: Date.now() };
 }
 
 // An account key serves every workspace the user owns: refresh all their dashboards.
-function refreshKeys(workspaceId: number, scope: KeyScopeName) {
-  if (scope === "account") revalidatePath("/dashboard", "layout");
-  else refresh(workspaceId);
-}
+const refreshKeys = () => revalidatePath("/dashboard", "layout");
 
-export async function removeProviderKeyAction(
-  workspaceId: number,
-  provider: unknown,
-  scope: unknown
-): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function removeProviderKeyAction(workspaceId: number, provider: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
   const workspace = await authorize(workspaceId);
   if (!workspace) return { ok: false, error: "Workspace not found." };
   if (!isAgentProvider(provider)) return { ok: false, error: "Unknown provider." };
-  if (!isKeyScope(scope)) return { ok: false, error: "Unknown key scope." };
   try {
-    await removeProviderKey(scope === "account" ? { userId: workspace.ownerId } : { workspaceId: workspace.id }, provider);
+    await removeProviderKey(workspace.ownerId, provider);
   } catch (error) {
     console.error("[settings] key remove failed", error);
     return { ok: false, error: "We couldn't remove the key. Please try again." };
   }
-  refreshKeys(workspaceId, scope);
+  refreshKeys();
   return { ok: true };
 }
 

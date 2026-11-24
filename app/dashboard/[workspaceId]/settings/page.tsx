@@ -3,8 +3,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { after } from "next/server";
 import { format, formatDistanceToNowStrict } from "date-fns";
-import { ArrowRightIcon, BadgeCheckIcon, BotIcon, ContainerIcon, ExternalLinkIcon, KeyRoundIcon, LibraryBigIcon } from "lucide-react";
+import { ArrowRightIcon, BotIcon, ContainerIcon, ExternalLinkIcon, KeyRoundIcon, LibraryBigIcon, LogOutIcon } from "lucide-react";
 
+import { signOut } from "@/app/(auth)/actions";
 import { dashboardHref } from "@/components/dashboard/nav";
 import { DetailGrid, PageHeader, SurfaceHeader } from "@/components/dashboard/page-header";
 import { AccountSpendCard } from "@/components/settings/account-spend";
@@ -16,7 +17,7 @@ import { ModelCatalogStatus } from "@/components/settings/model-catalog-status";
 import { ProviderKeyForm } from "@/components/settings/provider-key-form";
 import { SandboxFormSkeleton, SandboxSettings } from "@/components/settings/sandbox-form";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { WorkspaceAvatar, workspaceLogoSrc } from "@/components/workspace/workspace-avatar";
 import { PROVIDER_IDS, effectiveFallbackOrder, normalizeFallbackOrder } from "@/lib/agent-config";
 import { parseMergeMode } from "@/lib/agent-run-config";
@@ -24,6 +25,7 @@ import { getSkillLibrary } from "@/lib/agent-skills";
 import { ensureDefaultAgents, getAccountSpend } from "@/lib/agents";
 import { getProviderKeyViews } from "@/lib/ai-keys";
 import { getClaudePlanView } from "@/lib/cli/plan-view";
+import { getGithubAccount } from "@/lib/github";
 import { getModelCatalog, refreshModelCatalogIfStale } from "@/lib/model-catalog";
 import { detectRepoCommands, sandboxAvailable } from "@/lib/sandbox";
 import { previewsAvailable } from "@/lib/sandbox/preview";
@@ -36,12 +38,13 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
   const { user, workspace } = await getDashboardContext((await params).workspaceId);
   // Agents and built-in skills exist before the library lists who uses what.
   await ensureDefaultAgents(workspace.id);
-  const [keys, skills, spend, owned, catalog] = await Promise.all([
-    getProviderKeyViews(user.id, workspace.id),
+  const [keys, skills, spend, owned, catalog, github] = await Promise.all([
+    getProviderKeyViews(user.id),
     getSkillLibrary(workspace.id),
     getAccountSpend(user.id),
     listWorkspaces(user.id),
     getModelCatalog(),
+    getGithubAccount(user.id),
   ]);
   // A model list older than a day is fetched again after the response.
   after(refreshModelCatalogIfStale);
@@ -50,8 +53,10 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
   // Configured providers first; the others wait under "Add another provider".
   const configured = PROVIDER_IDS.filter((provider) => keys[provider].account !== null);
   const others = PROVIDER_IDS.filter((provider) => keys[provider].account === null);
-  // Reads package.json on GitHub: streamed in so the rest of the page doesn't wait for it.
-  const detectedCommands = detectRepoCommands(workspace).catch(() => null);
+  // Reads package.json on GitHub: streamed in so the rest of the page doesn't wait for it. Null (and never read)
+  // without a sandbox host: the section is then one line.
+  const detectedCommands = sandboxAvailable() ? detectRepoCommands(workspace).catch(() => null) : null;
+  const avatar = github?.avatarUrl ?? user.image;
 
   return (
     <>
@@ -67,28 +72,33 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
         <SurfaceHeader
           icon={
             <Avatar size="lg" className="size-12">
-              {user.image && <AvatarImage src={user.image} alt="" />}
-              <AvatarFallback className="text-base">{initials(user.name, user.email)}</AvatarFallback>
+              {avatar && <AvatarImage src={avatar} alt="" />}
+              <AvatarFallback className="text-base">{initials(user.name, github?.login ?? user.email)}</AvatarFallback>
             </Avatar>
           }
-          title={user.name || user.email}
-          description={
-            user.emailVerified ? (
-              <span className="flex items-center gap-1 text-xs font-medium text-foreground">
-                <BadgeCheckIcon className="size-3.5 text-success" /> Verified email
-              </span>
-            ) : (
-              <span className="text-xs">Email not verified</span>
-            )
+          title={user.name || github?.login || "Your account"}
+          description={github ? `@${github.login} · Signed in with GitHub` : "GitHub not connected"}
+          actions={
+            <form action={signOut}>
+              <Button type="submit" variant="outline" className="h-9">
+                <LogOutIcon data-icon="inline-start" />
+                Sign out
+              </Button>
+            </form>
           }
-          actions={<span className="eyebrow text-muted-foreground">Account</span>}
         />
+        {!github && (
+          <p className="border-b border-border/70 px-6 py-4 text-xs text-muted-foreground">
+            <Link href="/sign-in" className="font-medium text-brand-emphasis hover:underline">
+              Sign in with GitHub
+            </Link>{" "}
+            to connect your repositories.
+          </p>
+        )}
         <DetailGrid
           items={[
-            { label: "Email", value: user.email },
             { label: "Member since", value: format(user.createdAt, "MMMM d, yyyy") },
             { label: "Last sign-in", value: format(user.lastSignInAt, "MMM d, yyyy 'at' h:mm a") },
-            { label: "Account ID", value: `#${user.id}` },
           ]}
         />
       </section>
@@ -120,11 +130,11 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
         <div className={cn("flex flex-col gap-6 p-6", plan && "border-t border-border/70")}>
           {plan && <SubgroupHeading title="API keys" description="Your keys pay for every project, and for any stage your plan doesn't carry." />}
           {configured.map((provider) => (
-            <ProviderKeyForm key={provider} workspaceId={workspace.id} provider={provider} scope="account" view={keys[provider]} />
+            <ProviderKeyForm key={provider} workspaceId={workspace.id} provider={provider} view={keys[provider]} />
           ))}
           {configured.length > 0 && others.length > 0 && <p className="eyebrow -mb-2 text-muted-foreground">Add another provider</p>}
           {others.map((provider) => (
-            <ProviderKeyForm key={provider} workspaceId={workspace.id} provider={provider} scope="account" view={keys[provider]} />
+            <ProviderKeyForm key={provider} workspaceId={workspace.id} provider={provider} view={keys[provider]} />
           ))}
         </div>
         <div className="border-t border-border/70 p-6">
@@ -156,17 +166,6 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
               }}
             />
           )}
-          <div className="flex flex-col gap-6 border-t border-border/70 pt-6">
-            <div className="flex flex-col gap-1">
-              <h3 className="text-sm font-bold">Workspace keys (optional)</h3>
-              <p className="text-xs text-muted-foreground">
-                Only used for a company your account has no key for. Your account&apos;s key always wins.
-              </p>
-            </div>
-            {PROVIDER_IDS.map((provider) => (
-              <ProviderKeyForm key={provider} workspaceId={workspace.id} provider={provider} scope="workspace" view={keys[provider]} />
-            ))}
-          </div>
         </div>
       </section>
 
@@ -213,12 +212,6 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
           actions={<span className="eyebrow text-muted-foreground">Agents</span>}
         />
         <AgentAutomationForm workspaceId={workspace.id} autoPickup={workspace.agentAutoPickup} mergeMode={parseMergeMode(workspace.agentMergeMode)} />
-        {plan && (
-          <p className="border-t border-border/70 px-6 py-4 text-xs text-muted-foreground">
-            Auto pickup runs on every computer where TechTeam and its Inngest are up. To keep it on one, set{" "}
-            <code className="font-mono">AGENTS_AUTO_PICKUP=false</code> in the other computer&apos;s .env.
-          </p>
-        )}
       </section>
 
       <section id="sandbox" className="surface scroll-mt-24">
@@ -232,17 +225,22 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
           description="Agents with “Run tests in a sandbox” install, test and build your repository in an isolated container before review."
           actions={<span className="eyebrow text-muted-foreground">Execution</span>}
         />
-        <Suspense fallback={<SandboxFormSkeleton />}>
-          <SandboxSettings
-            workspaceId={workspace.id}
-            available={sandboxAvailable()}
-            enabled={workspace.sandboxEnabled}
-            saved={workspace.sandboxCommands}
-            previewsAvailable={previewsAvailable()}
-            previewEnabled={workspace.sandboxPreview}
-            detected={detectedCommands}
-          />
-        </Suspense>
+        {detectedCommands ? (
+          <Suspense fallback={<SandboxFormSkeleton />}>
+            <SandboxSettings
+              workspaceId={workspace.id}
+              enabled={workspace.sandboxEnabled}
+              saved={workspace.sandboxCommands}
+              previewsAvailable={previewsAvailable()}
+              previewEnabled={workspace.sandboxPreview}
+              detected={detectedCommands}
+            />
+          </Suspense>
+        ) : (
+          <p className="px-6 py-4 text-sm text-muted-foreground">
+            Not set up on this computer. Agents check their changes with your repository&apos;s CI. See docs/setup.md to connect a Docker host.
+          </p>
+        )}
       </section>
 
       {/* The library has its own page (it can grow to many skills); #skills stays as an anchor for old links. */}

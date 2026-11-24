@@ -13,41 +13,38 @@ const row = (provider: string, apiKey: string) => ({ provider, apiKey, hint: "h"
 
 describe("unreadable saved keys", () => {
   it("reads a readable row and treats an unreadable or absent one as missing", () => {
-    expect(readSavedKey(row("openai", "ok:sk-1"), "openai", "account")).toBe("sk-1");
-    expect(readSavedKey(row("openai", "v1.a.b.c"), "openai", "account")).toBeNull();
-    expect(readSavedKey(undefined, "openai", "workspace")).toBeNull();
+    expect(readSavedKey(row("openai", "ok:sk-1"), "openai")).toBe("sk-1");
+    expect(readSavedKey(row("openai", "v1.a.b.c"), "openai")).toBeNull();
+    expect(readSavedKey(undefined, "openai")).toBeNull();
   });
 
   it("is no key when the only saved key is unreadable", () => {
-    const rows = { account: [row("openai", "v1.a.b.c")], workspace: [] };
-    expect(resolveKey(rows, "openai", null)).toBeNull();
+    expect(resolveKey([row("openai", "v1.a.b.c")], "openai", null)).toBeNull();
   });
 
-  it("falls through to the next source", () => {
-    const rows = { account: [row("openai", "v1.a.b.c")], workspace: [row("openai", "ok:sk-ws")] };
-    expect(resolveKey(rows, "openai", "sk-env")).toBe("sk-ws");
-    expect(resolveKey({ account: rows.account, workspace: [] }, "openai", "sk-env")).toBe("sk-env");
+  it("falls through to the environment's key", () => {
+    expect(resolveKey([row("openai", "v1.a.b.c")], "openai", "sk-env")).toBe("sk-env");
+    expect(resolveKey([row("openai", "ok:sk-acct")], "openai", "sk-env")).toBe("sk-acct");
   });
 
   it("leaves other providers alone", () => {
-    const rows = { account: [row("openai", "v1.a.b.c"), row("anthropic", "ok:sk-ant")], workspace: [] };
+    const rows = [row("openai", "v1.a.b.c"), row("anthropic", "ok:sk-ant")];
     expect(resolveKey(rows, "anthropic", null)).toBe("sk-ant");
   });
 
   it("shows the provider as not connected", () => {
-    const keys: AIKeys = { openai: resolveKey({ account: [row("openai", "bad")], workspace: [] }, "openai", null), anthropic: "sk-ant", openrouter: null };
+    const keys: AIKeys = { openai: resolveKey([row("openai", "bad")], "openai", null), anthropic: "sk-ant", openrouter: null };
     expect(keyStatus(keys)).toEqual({ openai: false, anthropic: true, openrouter: false });
   });
 });
 
 describe("keyInUse", () => {
-  it("prefers the account's key, then the workspace's, then the server's", () => {
-    expect(keyInUse({ account: "a", workspace: "w", environment: "e" })).toEqual({ source: "account", key: "a" });
-    expect(keyInUse({ account: null, workspace: "w", environment: "e" })).toEqual({ source: "workspace", key: "w" });
-    expect(keyInUse({ account: null, workspace: null, environment: "e" })).toEqual({ source: "environment", key: "e" });
+  it("prefers the account's key, then the environment's", () => {
+    expect(keyInUse({ account: "a", environment: "e" })).toEqual({ source: "account", key: "a" });
+    expect(keyInUse({ account: null, environment: "e" })).toEqual({ source: "environment", key: "e" });
   });
 
   it("is null with no key anywhere", () => {
-    expect(keyInUse({ account: null, workspace: null, environment: null })).toBeNull();
+    expect(keyInUse({ account: null, environment: null })).toBeNull();
   });
 });

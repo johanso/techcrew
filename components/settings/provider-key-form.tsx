@@ -2,12 +2,11 @@
 
 import { startTransition, useActionState, useState } from "react";
 import { formatDistanceToNowStrict } from "date-fns";
-import { CircleCheckIcon, CircleDashedIcon, ExternalLinkIcon, EyeIcon, EyeOffIcon, ServerIcon, TriangleAlertIcon, UserRoundIcon } from "lucide-react";
+import { CircleCheckIcon, CircleDashedIcon, ExternalLinkIcon, EyeIcon, EyeOffIcon, ServerIcon, TriangleAlertIcon } from "lucide-react";
 
 import {
   removeProviderKeyAction,
   saveProviderKeyAction,
-  type KeyScopeName,
   type ProviderKeyState,
 } from "@/app/dashboard/[workspaceId]/settings/actions";
 import { FormMessage } from "@/components/auth/form-parts";
@@ -59,8 +58,8 @@ function SavedKey({ saved, label }: { saved: SavedKeyView; label: string }) {
 
 const CHECK = <CircleCheckIcon aria-hidden className="size-3.5 shrink-0 text-success" />;
 
-function KeyStatus({ provider, scope, view }: { provider: AgentProvider; scope: KeyScopeName; view: ProviderKeyView }) {
-  const saved = scope === "account" ? view.account : view.workspace;
+function KeyStatus({ provider, view }: { provider: AgentProvider; view: ProviderKeyView }) {
+  const saved = view.account;
   if (saved?.unreadable) {
     return (
       <StatusLine icon={<TriangleAlertIcon aria-hidden className="size-3.5 shrink-0 text-warning" />}>
@@ -68,36 +67,14 @@ function KeyStatus({ provider, scope, view }: { provider: AgentProvider; scope: 
       </StatusLine>
     );
   }
-  if (scope === "account" && saved) {
-    return <StatusLine icon={CHECK}><SavedKey saved={saved} label="Connected" /><span>· every project</span></StatusLine>;
-  }
-  if (scope === "workspace" && view.account && !view.account.unreadable) {
-    // The account key wins: a project key saved too is kept but unused.
-    return (
-      <StatusLine icon={<UserRoundIcon aria-hidden className="size-3.5 shrink-0 text-action" />}>
-        <span>
-          Using your account&apos;s key <span className="font-mono">{view.account.hint}</span>.
-          {saved ? ` This project's key (${saved.hint}) is only used if you remove it.` : ""}
-        </span>
-      </StatusLine>
-    );
-  }
   if (saved) {
-    return <StatusLine icon={CHECK}><SavedKey saved={saved} label="Connected" /><span>· this project only</span></StatusLine>;
-  }
-  if (scope === "account" && view.workspace && view.inUse === "workspace") {
-    return (
-      <StatusLine icon={<CircleDashedIcon aria-hidden className="size-3.5 shrink-0" />}>
-        Not saved on your account. This project uses its own key.
-      </StatusLine>
-    );
+    return <StatusLine icon={CHECK}><SavedKey saved={saved} label="Connected" /><span>· every project</span></StatusLine>;
   }
   if (view.environment) {
     return (
       <StatusLine icon={<ServerIcon aria-hidden className="size-3.5 shrink-0 text-action" />}>
         <span>
-          Using the server&apos;s key (<code className="font-mono">{PROVIDERS[provider].envVar}</code>).
-          {scope === "account" ? " Save one here to use your own in every project." : ""}
+          Using the key from the environment (<code className="font-mono">{PROVIDERS[provider].envVar}</code>). Save one here to use your own.
         </span>
       </StatusLine>
     );
@@ -109,23 +86,21 @@ function KeyStatus({ provider, scope, view }: { provider: AgentProvider; scope: 
 const maskedValue = (hint: string) => hint.replace("••••", "•".repeat(24));
 
 /**
- * One provider's API key, on the account (every project) or on this project only. The saved key never comes back
+ * One provider's API key, on the account (every project). The saved key never comes back
  * from the server: the field shows it masked (first characters, dots, last four) until you choose Replace key; then
  * it only shows what you type (the eye toggles that).
  */
 export function ProviderKeyForm({
   workspaceId,
   provider,
-  scope,
   view,
 }: {
   workspaceId: number;
   provider: AgentProvider;
-  scope: KeyScopeName;
   view: ProviderKeyView;
 }) {
-  const [state, formAction, pending] = useActionState<ProviderKeyState, FormData>(saveProviderKeyAction.bind(null, workspaceId, provider, scope), {});
-  const saved = scope === "account" ? view.account : view.workspace;
+  const [state, formAction, pending] = useActionState<ProviderKeyState, FormData>(saveProviderKeyAction.bind(null, workspaceId, provider), {});
+  const saved = view.account;
   const { errorFor, onChange } = useFieldErrors(state);
   const [visible, setVisible] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -133,17 +108,15 @@ export function ProviderKeyForm({
   const [removeError, setRemoveError] = useState<string | null>(null);
   const label = PROVIDERS[provider].label;
   const error = errorFor("apiKey");
-  const inputId = `api-key-${scope}-${provider}`;
+  const inputId = `api-key-${provider}`;
   // Replace key opens an empty field; a successful save (a newer savedAt) closes it again.
   const [editingSince, setEditingSince] = useState<number | null>(null);
   const editing = !saved || saved.unreadable || (editingSince !== null && editingSince > (state.savedAt ?? 0));
-  // A workspace key is never used while the account has one: only the status (and Remove for a stale key) shows.
-  const shadowed = scope === "workspace" && view.account !== null && !view.account.unreadable;
 
   const remove = () => {
     setRemoving(true);
     startTransition(async () => {
-      const result = await removeProviderKeyAction(workspaceId, provider, scope);
+      const result = await removeProviderKeyAction(workspaceId, provider);
       setRemoving(false);
       setConfirming(false);
       setRemoveError(result.ok ? null : result.error);
@@ -156,7 +129,7 @@ export function ProviderKeyForm({
         <div className="flex min-w-0 flex-col gap-1">
           <h3 className="text-sm font-bold">{label}</h3>
           {NOTE[provider] && <p className="text-xs text-muted-foreground">{NOTE[provider]}</p>}
-          <KeyStatus provider={provider} scope={scope} view={view} />
+          <KeyStatus provider={provider} view={view} />
         </div>
         <div className="flex items-center gap-1">
           <a
@@ -176,7 +149,7 @@ export function ProviderKeyForm({
         </div>
       </div>
 
-      {shadowed ? null : !editing && saved ? (
+      {!editing && saved ? (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
           <InputGroup className="h-10 flex-1 bg-muted/40">
             <InputGroupInput
@@ -260,9 +233,7 @@ export function ProviderKeyForm({
           <AlertDialogHeader>
             <AlertDialogTitle>Remove the {label} key?</AlertDialogTitle>
             <AlertDialogDescription>
-              {scope === "account"
-                ? `Every project without its own ${label} key stops running ${label} models until you add a key again, unless the server has ${PROVIDERS[provider].envVar} set. The key is deleted from your account.`
-                : `This project falls back to your account's key, or the server's. The key is deleted from this project.`}
+              {`Every project stops running ${label} models until you add a key again, unless ${PROVIDERS[provider].envVar} is set in the environment. The key is deleted from your account.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
