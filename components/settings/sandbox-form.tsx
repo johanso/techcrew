@@ -42,11 +42,9 @@ const AGENT_COMMAND_KINDS = SANDBOX_COMMAND_KINDS.filter((kind) => kind !== "pre
 
 type SandboxFormProps = {
   workspaceId: number;
-  /** The server has a sandbox host (SANDBOX_DOCKER_HOST). */
-  available: boolean;
   enabled: boolean;
   saved: StoredSandboxCommands | null;
-  /** The server can serve previews (a sandbox host and SANDBOX_PREVIEW_DOMAIN). */
+  /** This computer can serve previews (a sandbox host and SANDBOX_PREVIEW_DOMAIN). */
   previewsAvailable: boolean;
   previewEnabled: boolean;
 };
@@ -82,7 +80,6 @@ export function SandboxFormSkeleton() {
 
 function SandboxForm({
   workspaceId,
-  available,
   enabled,
   saved,
   detected,
@@ -96,7 +93,7 @@ function SandboxForm({
   const [values, setValues] = useState<Values>(() => toValues(saved, detected));
   const [checking, startCheck] = useTransition();
   const [check, setCheck] = useState<SandboxCheckResult | null>(null);
-  // Previews run in the sandbox: switching it off (or a server without previews) switches them off too.
+  // Previews run in the sandbox: switching it off (or a computer without previews) switches them off too.
   const previews = on && previewOn && previewsAvailable;
 
   // Compared with what the server rendered, so "Saved" shows only until the next edit. Nothing saved yet: always savable.
@@ -168,15 +165,8 @@ function SandboxForm({
             tests run without network access, and no token or secret ever enters the container.
           </span>
         </span>
-        <Switch checked={on} onCheckedChange={setOn} disabled={!available || pending} aria-label="Let agents run code in the sandbox" className="mt-1" />
+        <Switch checked={on} onCheckedChange={setOn} disabled={pending} aria-label="Let agents run code in the sandbox" className="mt-1" />
       </label>
-
-      {!available && (
-        <p className="flex items-start gap-2 text-xs text-muted-foreground">
-          <ServerOffIcon className="mt-0.5 size-3.5 shrink-0" />
-          This server has no sandbox host (SANDBOX_DOCKER_HOST), so agents can&apos;t run code yet.
-        </p>
-      )}
 
       <div className="flex flex-col gap-4">{AGENT_COMMAND_KINDS.map((kind) => commandField(kind))}</div>
 
@@ -204,7 +194,7 @@ function SandboxForm({
         {!previewsAvailable ? (
           <p className="flex items-start gap-2 text-xs text-muted-foreground">
             <ServerOffIcon className="mt-0.5 size-3.5 shrink-0" />
-            This server has no preview domain (SANDBOX_PREVIEW_DOMAIN) or sandbox host, so previews can&apos;t be switched on.
+            No preview domain (SANDBOX_PREVIEW_DOMAIN) is set up on this computer, so previews can&apos;t be switched on.
           </p>
         ) : (
           !on && <p className="text-xs text-muted-foreground">Previews run in the sandbox: switch it on first.</p>
@@ -222,7 +212,7 @@ function SandboxForm({
       <FormMessage message={state.message} />
 
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Button type="button" variant="outline" className="h-9" onClick={runCheck} disabled={!available || !saved || dirty || checking || pending}>
+        <Button type="button" variant="outline" className="h-9" onClick={runCheck} disabled={!saved || dirty || checking || pending}>
           {checking ? <Spinner /> : <PlayIcon data-icon="inline-start" />}
           {checking ? "Running… this can take a few minutes" : "Test the sandbox"}
         </Button>

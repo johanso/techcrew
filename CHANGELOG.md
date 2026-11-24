@@ -21,7 +21,18 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   the encryption key changed. Enter it again." on that key (saving replaces it), and an unreadable GitHub token is
   treated like an expired connection (sign in again).
 
+### Removed
+- **Workspace API keys.** Settings → AI → This workspace only no longer has "Workspace keys (optional)": AI keys live on
+  your account (or the environment), and nothing reads or writes `ai_provider_keys` any more (the table stays, unused,
+  until a cleanup migration).
+- **Multi-computer notices in Settings** ("Off on your other computers…", the `AGENTS_AUTO_PICKUP=false` note under
+  Agent automation): each computer has its own database. The variable still works for computers that share a Postgres.
+
 ### Changed
+- **The Sandbox section is one line without a sandbox host.** No dead switches, commands or buttons, and `package.json`
+  isn't read from GitHub. With a host, it is unchanged.
+- **Settings → Your account shows your GitHub identity**: avatar, name, `@login`, "Signed in with GitHub", member
+  since, last sign-in and a **Sign out** button. The "Verified email", email and account id rows are gone.
 - **`.env.example` is minimal.** It sets only `NEXT_PUBLIC_APP_URL`; every other setting is optional and documented in
   [docs/setup.md](docs/setup.md). A copied placeholder (`your_openai_api_key`, `preview.example.com`) used to count as a
   real key or domain. The Inngest Cloud keys (production only) are gone from it: the Dev Server needs none.

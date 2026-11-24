@@ -102,12 +102,12 @@ app/
                           uploadCardReferenceAction (one file per call) / addCardLinkAction (captures a link) /
                           removeCardReferenceAction (auth + validation).
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
-      settings/           Your account: profile (#account), AI (#ai: "Plans on this computer" when running locally —
+      settings/           Your account: GitHub identity + Sign out (#account), AI (#ai: "Plans on this computer" when running locally —
                           Claude Code switch, sign-in, confirmed account, plan-limit choice — then API keys for every
                           project, then Models (updated when, Refresh models), then "This workspace only": automatic
-                          switch + optional workspace keys), API spending
+                          switch + fallback order), API spending
                           and plan usage this month across projects (#usage). This workspace: workspace (#workspace), agent automation (#agents), Sandbox
-                          (#sandbox) and an Agent skills card (#skills) linking to
+                          (#sandbox; one line when the computer has no sandbox host) and an Agent skills card (#skills) linking to
                           skills/page.tsx (the library on its own page). actions.ts: automation, saveSandboxAction /
                           checkSandboxAction (Test the sandbox),
                           auto failover toggle, saveFallbackOrderAction (the order companies are tried in), save/remove provider key, refreshModelsAction,
@@ -181,9 +181,9 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   github.ts               GitHub REST + connection persistence (saveGithubConnection is the only token writer); commitFiles (several files, one commit); the
                           merge's Git Data calls (mergeIntoBranch, getTreeEntries, getBlob / createBlob, commitTree).
   crypto.ts               encrypt / decrypt for secrets at rest (key from secrets.ts).
-  ai-keys.ts              AI provider keys: getAIKeys (owner's account key, else workspace key, else env; keyInUse),
-                          getProviderKeyViews (masked), verifyProviderKey, saveProviderKey / removeProviderKey (account
-                          or workspace scope, encrypted).
+  ai-keys.ts              AI provider keys: getAIKeys (owner's account key, else env; keyInUse),
+                          getProviderKeyViews (masked), verifyProviderKey, saveProviderKey / removeProviderKey (the
+                          account's keys, encrypted).
   storage.ts              Local files under TECHTEAM_DATA_DIR/files (logos, screenshots, card references): uploads/reads/deletes by validated relative key, atomic writes, logo limits.
   workspaces.ts           Workspace queries (always scoped by owner) + getDashboardContext().
   overview.ts             getOverviewData(): stats + upcoming tasks from getBoardData, recent work activity.
@@ -413,8 +413,8 @@ Where new code goes:
 
 **Secrets & external services**
 - GitHub tokens are stored only via `saveGithubConnection` (encrypted) and read only via `getGithubToken`. Never send a token, ciphertext or storage key to the client.
-- AI provider keys are stored only via `saveProviderKey` (verified with the provider, encrypted; on the account, used by
-  every workspace the user owns, or on one workspace, used only when the account has none) and read only via
+- AI provider keys are stored only via `saveProviderKey` (verified with the provider, encrypted, on the account, used by
+  every workspace the user owns; the environment's key only covers a provider the account has none for) and read only via
   `getAIKeys`. The client only ever gets `ProviderKeyView` (masked hints + the source in use); the show/hide eye applies to what the
   user is typing, never to a saved key. Model calls take the key as an argument (`openAIClient(key)`, `anthropicClient(key)`).
 - A stored secret is read with `tryDecrypt` (`lib/crypto.ts`), never bare `decrypt`: when the encryption key changed it

@@ -228,9 +228,9 @@ columns aren't updated (yet).
 
 ## user_ai_keys
 
-A user's API key per AI provider (Settings → Your account → AI keys), used by every workspace they own. It wins over a
-workspace's own key; the server's environment key comes last (`keyInUse` in `lib/ai-keys.ts`). Migration 0010 moved
-every workspace key here (the newest per owner and provider) and deleted the workspace copies.
+A user's API key per AI provider (Settings → AI), used by every workspace they own. The environment's key only covers a
+provider with no key here (`keyInUse` in `lib/ai-keys.ts`). Migration 0010 moved every workspace key here (the newest
+per owner and provider) and deleted the workspace copies.
 
 | Column | Type | Null | Notes |
 | --- | --- | --- | --- |
@@ -243,8 +243,8 @@ every workspace key here (the newest per owner and provider) and deleted the wor
 
 ## ai_provider_keys
 
-A workspace's own API key per AI provider (Settings → This workspace → AI provider), optional: used only for a provider
-the owner's account has no key for. Separate from `workspaces` so a workspace row never carries a secret.
+**Unused.** A workspace's own API key per AI provider. Settings no longer offers workspace keys and no code reads or
+writes this table; it stays until a cleanup migration drops it (it is still classified in the backup registry).
 
 | Column | Type | Null | Notes |
 | --- | --- | --- | --- |

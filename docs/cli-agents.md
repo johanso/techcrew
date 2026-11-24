@@ -107,15 +107,16 @@ OpenRouter's public `/models`: Claude Fable 5.2, Opus, Sonnet and Haiku 5.5 on 2
 (`claude-fable-5-2`); Claude Code takes them as they are (`--model`). A new Claude model shows up in the picker after
 the next catalog refresh, with *Your plan* instead of a price.
 
-## Two computers, one database
+## Two computers
 
-Each computer runs its own app and Inngest Dev Server (`npm run dev`); a run executes on the computer whose Inngest
-received it, and route resolution happens there. The same agent may take the plan on the Mac and the key on the
-Windows PC: that's intended.
+Each computer keeps its own database and its own plan switch, and runs its own app and Inngest Dev Server
+(`npm run dev`); a run executes on the computer that started it, and route resolution happens there.
+
+The rest only matters if you deliberately point two computers at the same Postgres through `DATABASE_URL`:
 
 - **One run in flight per card**: a unique partial index (`agent_runs_one_active_per_task`, queued or running) makes
   `createRun` return nothing on the second start, so two computers can't run the same card.
-- **Auto pickup** runs on every computer whose Inngest is up. Keep it on one: set `AGENTS_AUTO_PICKUP=false` in the
+- **Auto pickup** then runs on every computer whose Inngest is up. Keep it on one: set `AGENTS_AUTO_PICKUP=false` in the
   other computer's `.env`.
 
 ## Setting it up
