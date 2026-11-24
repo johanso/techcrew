@@ -137,9 +137,10 @@ TechTeam runs on the owner's computer with nothing remote but GitHub and the mod
   local mode on Linux and macOS by hand.
 
 ### v0.11 — Brain
-- A project memory every agent reads before working: repository conventions, decisions, what earlier cards learned.
-  Markdown in the linked repository (`.techteam/memory/`), so your computers share it through GitHub; agents only
-  propose changes in their card's PR (see cli-agents-plan.md §6).
+- A memory every agent reads before working: repository conventions, decisions, what earlier cards and rejected pull
+  requests taught, plus the owner's own preferences across projects. A project's notes are Markdown in its repository
+  (`.techteam/memory/`); agents only **propose**, in a separate pull request or an inbox. Plan, decisions, security rules
+  and the four parts (A foundation, B signals, C the librarian, D promotion and release): [brain-plan.md](brain-plan.md).
 
 ### Later
 - **Hosting TechTeam** (was v0.6 "Deploy"; dropped when TechTeam became local-first): running it on a server for
