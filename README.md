@@ -5,8 +5,8 @@ a Kanban board, and a team of AI agents (Analyst, Developer, Reviewer, Security,
 analysis to a reviewed, tested, merged pull request. TechTeam runs **on your own computer**, for one user: your data
 stays in a folder you own, and the only remote services are GitHub and the AI companies you choose.
 
-> Version 0.7.0 is the latest release; this branch also has the local-first rewrite (v0.9, unreleased). What changed:
-> [CHANGELOG.md](CHANGELOG.md). What is real and what is not: [docs/status.md](docs/status.md).
+> Version 0.9.0 (local-first) is the latest release. What changed: [CHANGELOG.md](CHANGELOG.md). What is real and what
+> is not: [docs/status.md](docs/status.md).
 
 ## How it works
 

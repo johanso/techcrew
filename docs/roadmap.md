@@ -1,6 +1,6 @@
 # Roadmap
 
-Where TechTeam goes next (latest release: [v0.7.0](../CHANGELOG.md#070--2026-11-20); v0.8 and v0.9 are on `main`, unreleased), and how a version is released.
+Where TechTeam goes next (latest release: [v0.9.0](../CHANGELOG.md#090--2026-11-24)), and how a version is released.
 For what works today see [status.md](status.md); for what's verified see [testing.md](testing.md).
 
 - [Direction: an AI software factory](#direction-an-ai-software-factory)
@@ -111,7 +111,7 @@ The owner designs and specifies outside TechTeam (a design tool, a document); th
 - Not yet seen live: `add_dependency`, conflict resolution (testing.md rows 71–78).
 - Released as **v0.7.0** (2026-11-20, before v0.6); see [CHANGELOG.md](../CHANGELOG.md#070--2026-11-20).
 
-### v0.8 — Agents on your plans (local CLIs) ✅ built
+### v0.8 — Agents on your plans (local CLIs) ✅ released in v0.9.0
 TechTeam stays a web app; when it runs on the owner's own computer, agents can work on the owner's subscription through
 the official CLI installed there, next to API keys ([cli-agents.md](cli-agents.md), plan: [cli-agents-plan.md](cli-agents-plan.md)).
 - **Claude Code** first: Settings → AI → Plans on this computer (switch per computer, TechTeam's own login, confirmed
@@ -121,17 +121,21 @@ the official CLI installed there, next to API keys ([cli-agents.md](cli-agents.m
 - Validated live by the owner in real use. Not run: `scripts/cli-isolation-check.mts` on macOS and Windows (it spends
   plan usage). Codex comes later on the same rules.
 
-### v0.9 — Local-first (on `main`, not released)
+### v0.9 — Local-first ✅ released as v0.9.0 (2026-11-24)
 TechTeam runs on the owner's computer with nothing remote but GitHub and the model providers. Plan, phases and risks:
-[local-first-plan.md](local-first-plan.md).
+[local-first-plan.md](local-first-plan.md). Released with v0.8 (see above); see [CHANGELOG.md](../CHANGELOG.md#090--2026-11-24).
 - **Done** (phases 1–7): GitHub sign-in (device flow), an embedded Postgres 18 (or `DATABASE_URL`), local files,
   `npm run backup` / `restore`, `npm run doctor`, `npm run start:local` (stable mode), a Get started checklist, a sweeper
   for runs left behind when TechTeam stopped, a configurable fallback order across companies.
-- **Remains**: phase 0 (a smoke test of one simulated card against a throwaway repository), phase 8 (a sandbox without a
-  Docker host: WSL2 + bubblewrap, previews on `localhost`) and the final cleanup migration (drops the unused Switch,
-  auth-id and workspace-key schema). Then the release: version bump, changelog, tag.
 
-### v0.10 — Brain
+### v0.10 — A local sandbox, and cleanup
+- Phase 8: a sandbox without a Docker host (WSL2 + bubblewrap, previews on `localhost`), so the Tester's browser and the
+  Developer's tests work on a plain computer.
+- Phase 0: a smoke test of one simulated card against a throwaway repository.
+- The final cleanup migration (drops the unused Switch, auth-id and workspace-key schema), and trying it on Linux and
+  macOS by hand.
+
+### v0.11 — Brain
 - A project memory every agent reads before working: repository conventions, decisions, what earlier cards learned.
   Markdown in the linked repository (`.techteam/memory/`), so your computers share it through GitHub; agents only
   propose changes in their card's PR (see cli-agents-plan.md §6).

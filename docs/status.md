@@ -1,7 +1,7 @@
 # Project status
 
 Where the project stands, what's not real yet, and what to tackle next. Last updated **2026-11-24**
-(latest release **v0.7.0**; `main` also has the unreleased **v0.8** (agents on your Claude plan) and **v0.9 local-first** work: TechTeam runs on your own computer for one user, with nothing remote but GitHub and the model providers; phases 1–7 of [local-first-plan.md](local-first-plan.md) are done). For what has been tested and how to test the agents, see [testing.md](testing.md).
+(latest release **v0.9.0**, which also carries **v0.8** (agents on your Claude plan): TechTeam runs on your own computer for one user, with nothing remote but GitHub and the model providers; phases 1–7 of [local-first-plan.md](local-first-plan.md) are done). For what has been tested and how to test the agents, see [testing.md](testing.md).
 
 - [Feature status](#feature-status)
 - [Dummy data and placeholders](#dummy-data-and-placeholders)
@@ -111,8 +111,8 @@ Each is marked in code with `⚠️ DUMMY DATA` or `⚠️ PLACEHOLDER`:
 
 The plan lives in [roadmap.md](roadmap.md). Done: smarter gates and the live process (v0.2), agent skills (v0.3), CI in
 the loop with a Metrics page (v0.4), the sandbox, previews, account keys and OpenRouter (v0.5), references on cards
-(v0.7), agents on your Claude plan (v0.8, on `main`) and local-first (v0.9, phases 1–7, on `main`). What remains before
-the v0.9 release:
+(v0.7), agents on your Claude plan (v0.8) and local-first (v0.9, phases 1–7), both released as v0.9.0. What remains for
+the next release (v0.10):
 
 1. **Phase 0**: a smoke test (one simulated card through the whole pipeline against a throwaway repository), which does
    not exist yet.
@@ -120,14 +120,14 @@ the v0.9 release:
 3. **The final cleanup migration**: drop the unused tables and columns ([data-model.md](data-model.md#unused-tables-and-columns)).
 4. Try it on Linux and macOS by hand, and leave `npm run start:local` running for a few days.
 
-Then v0.10, a project memory (the Brain). Hosting TechTeam for several people is not planned.
+Then v0.11, a project memory (the Brain). Hosting TechTeam for several people is not planned.
 
 ## History
 
 | Commit | Change |
 | --- | --- |
-| local-first work | **v0.9, on `main`, unreleased**: GitHub device-flow sign-in, loopback only, embedded Postgres, local files, backup and restore, `npm run doctor` and `start:local`, the Get started checklist, the interrupted-run sweeper, the fallback order; the hosted auth service, S3, Cloudhike Jobs, Switch Trust and the tunnel removed (migrations 0018–0019). |
-| `feat/cli-agents` | **v0.8, on `main`, unreleased**: agents on the owner's Claude plan through Claude Code, the live model catalog (migrations 0016–0017). |
+| `v0.9.0` | **Seventh release** (carries v0.8): GitHub device-flow sign-in, loopback only, embedded Postgres, local files, backup and restore, `npm run doctor` and `start:local`, the Get started checklist, the interrupted-run sweeper, the fallback order; the hosted auth service, S3, Cloudhike Jobs, Switch Trust and the tunnel removed (migrations 0018–0019). |
+| `feat/cli-agents` | **v0.8, released in v0.9.0**: agents on the owner's Claude plan through Claude Code, the live model catalog (migrations 0016–0017). |
 | `v0.7.0` | **Sixth release** (before v0.6): references on cards (files and captured links) for the agents, the Tester comparing the preview with them, the `interface-design` skill, the install step off private ranges, bold fonts in the browser image, `add_dependency`, agents fixing merge conflicts, leaner turns and no lost work at the turn limit (migrations 0013–0015; live runs 52–55). Next: v0.6 deploy. |
 | `v0.5.0` | **Fifth release**: the sandbox (PR #12), account keys and a company per agent (#13, #14), OpenRouter (#15, #16) and previews with the Tester's browser. Next: v0.7 card references and sandbox polish, or v0.6 deploy. |
 | `feat/sandbox-preview` | Sandbox milestone 2: PR previews over HTTPS on the sandbox host (Caddy, migrations 0011–0012), the Tester's headless browser (`browse_preview`) with screenshots in the agent log, a ufw rule keeping containers off the host's services. Built by two parallel agents on one shared contract. |
