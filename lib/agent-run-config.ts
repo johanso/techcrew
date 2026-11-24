@@ -212,7 +212,9 @@ export type TestReport = {
 export type RunFailure =
   | { kind: "out_of_credit"; provider: AgentProvider }
   /** The owner's plan ran out and the run couldn't wait or continue on a key (docs/cli-agents-plan.md). */
-  | { kind: "plan_limit"; cli: CliKind; resetsAt: string | null };
+  | { kind: "plan_limit"; cli: CliKind; resetsAt: string | null }
+  /** TechTeam (or its job runner) stopped mid-run; the sweeper ended the run. A rerun continues the branch. */
+  | { kind: "interrupted" };
 
 /** What a board card shows about its latest run. */
 export type BoardCardRun = {

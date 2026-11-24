@@ -57,6 +57,7 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | `agent-task-run` | event `agent/task.run` | `lib/inngest/agent-run.ts` | The agent pipeline for one card (below). |
 | `agent-auto-pickup` | cron `*/2 * * * *` | `lib/inngest/agent-pickup.ts` | Auto pickup: starts a run on the top never-run Todo card per workspace. |
+| `run-sweep` | cron `*/5 * * * *` | `lib/inngest/run-sweep.ts` | Ends runs left behind when TechTeam stopped (below). |
 
 The starter template's example jobs and its unauthenticated `POST /api/inngest/trigger` route were removed.
 
@@ -143,6 +144,20 @@ a provider (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `AGENTS_SIMULATED=true`), 
 (unique index), so two computers never start the same card. Cards that were run before (failed,
 needs info) wait for a human to press Run (or Answer, for a question). A never-run follow-up card the Tester filed
 for a blocked merge is picked up like any other and continues on that pull request (`createCardRun`).
+
+## run-sweep
+
+A run is `queued` or `running` in the database while its Inngest function works; if the app or the Inngest Dev Server
+stops mid-run, nothing moves it on, and the unique index (one active run per card) keeps the card's Run disabled.
+Every 5 minutes `sweepStaleRuns` (`lib/run-sweep.ts`) ends a run that is `queued`/`running`, has **no `waiting`** (the
+plan-limit pause), and whose latest sign of life is older than 30 minutes (`isStaleRun` in
+`lib/run-recovery-config.ts`: the newest of the run's `updated_at`, its latest `agent_run_steps.created_at` and the
+card's latest `agent_activity.created_at`). It never touches `needs_info`, `awaiting_merge`, `waiting`, cancelled,
+failed or completed runs. The run becomes `failed` with `failure = { kind: "interrupted" }` through one conditional
+update (two sweeps end it once), its open stages are closed in the agent log and activity, the card is released, and the
+owner gets one notification: press Run to continue, which picks up the same branch and pull request. If Inngest later
+resumes the old function, it finds the run ended and stops at its next step. A quiet stretch of up to 20 minutes (one
+CLI chunk) stays under the 30-minute limit.
 
 ## Local development
 

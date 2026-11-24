@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 
 import { AppHeader } from "@/components/app-header";
+import { SetupChecklist } from "@/components/dashboard/setup-checklist";
 import { CreateWorkspaceForm } from "@/components/workspace/create-workspace-form";
 import type { RepoListResult } from "@/components/workspace/github-repo-picker";
 import { requireUser } from "@/lib/current-user";
 import { GithubError, getGithubAccount, getGithubToken, listLinkableRepos } from "@/lib/github";
+import { getSetupStatus } from "@/lib/setup";
 import { hasWorkspaces } from "@/lib/workspaces";
 
 export const metadata: Metadata = { title: "Create workspace" };
@@ -27,6 +29,8 @@ export default async function NewWorkspacePage() {
   const user = await requireUser("/workspaces/new");
 
   const [github, existing] = await Promise.all([getGithubAccount(user.id), hasWorkspaces(user.id)]);
+  // /workspaces sends a user without a workspace here, so this is where "Before you start" shows.
+  const setup = existing ? null : await getSetupStatus(user.id);
 
   return (
     <div className="min-h-svh bg-canvas">
@@ -41,6 +45,8 @@ export default async function NewWorkspacePage() {
             A workspace connects your AI agents to one GitHub repository. It takes about a minute.
           </p>
         </div>
+
+        {setup && <SetupChecklist steps={setup} variant="before" />}
 
         <div className="surface p-6 sm:p-8">
           <CreateWorkspaceForm
