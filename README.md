@@ -61,6 +61,8 @@ To move to another computer, run `npm run backup` on the old one and `npm run re
 | `npm run start:local` | Stable mode: builds when the code changed (`-- --rebuild` forces it), runs the production build, the database and Inngest, stops all on Ctrl+C. |
 | `npm run doctor` | Checks Node, git, ports, database, secrets, GitHub, Claude Code and `.env`; `-- --json` for scripts. |
 | `npm run backup` / `npm run restore -- <file>` | One archive of your database and files (no secrets), restored into an empty database. |
+| `npm run sandbox:setup` | Once, to use the agent sandbox on your computer's Docker: pulls the sandbox image and builds the Tester's browser image (`-- --check` only reports). See [docs/sandbox.md](docs/sandbox.md). |
+| `npm run smoke -- --repo <owner/name>` | Maintainers: one card through the whole agent pipeline in simulated mode against a throwaway GitHub repository (its name must contain `smoke`, `throwaway` or `scratch`); it cleans up after itself. See [docs/testing.md](docs/testing.md). |
 | `npm run db:local` | Only the embedded database (`npm run dev` starts it for you). |
 | `npm run db:migrate` / `db:generate` / `db:studio` | Apply migrations / write one after editing `db/schema.ts` / browse the data. `db:baseline` and `db:push` are for old or throwaway databases. |
 | `npm run storage:import-s3` | One time: copy files from the old S3 bucket of the hosted version. |
