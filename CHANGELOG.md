@@ -9,6 +9,9 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 ## [Unreleased]
 
 ### Changed
+- **`.env.example` is now all optional.** Only `NEXT_PUBLIC_APP_URL` stays active; every other line is commented out,
+  because a copied placeholder (`your_openai_api_key`, `preview.example.com`) counted as a real key or domain. The
+  Inngest Cloud keys (production only) are gone from it: the Dev Server needs none.
 - **Sign in with GitHub, on your computer.** The hosted auth service is gone: there is no password, sign-up or
   `AUTH_*` setting. One GitHub sign-in (OAuth device flow: you type a code on github.com; or a personal access token)
   is both your identity and repository access, so the separate "Connect GitHub" step is now "Reconnect GitHub" and
