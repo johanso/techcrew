@@ -26,6 +26,9 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# backups made by `npm run backup`: your project data, never committed
+techteam-backup-*.tar.gz
+
 # vercel
 .vercel
 
