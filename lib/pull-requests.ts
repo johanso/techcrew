@@ -38,7 +38,7 @@ export async function mergeAgentPullRequest(pr: PullRequestRow): Promise<MergeOu
   const workspace = await loadWorkspace(pr.workspaceId);
   if (!workspace) return { status: "error", reason: "Workspace not found." };
   const token = await getGithubToken(workspace.ownerId).catch(() => null);
-  if (!token) return { status: "error", reason: "Connect GitHub again to merge." };
+  if (!token) return { status: "error", reason: "Reconnect GitHub to merge." };
   const repo = workspace.githubRepoFullName;
 
   try {

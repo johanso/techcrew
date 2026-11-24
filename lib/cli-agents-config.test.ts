@@ -13,6 +13,7 @@ import {
   planLimitAction,
   planUsageSummary,
   resolveRoute,
+  selfOrigin,
   type CliAuth,
   type CliMachineState,
 } from "@/lib/cli-agents-config";
@@ -55,6 +56,24 @@ describe("cliAgentsAllowed", () => {
 
   it("ignores a kill switch set to anything but false", () => {
     expect(cliAgentsAllowed({ NEXT_PUBLIC_APP_URL: "http://localhost:3000", AGENTS_LOCAL_CLI: "true" })).toBe(true);
+  });
+});
+
+describe("selfOrigin", () => {
+  it("calls the app at 127.0.0.1, where it listens, whichever loopback name the URL uses", () => {
+    expect(selfOrigin("http://localhost:3000")).toBe("http://127.0.0.1:3000");
+    expect(selfOrigin("http://[::1]:3999/x")).toBe("http://127.0.0.1:3999");
+    expect(selfOrigin("http://127.0.0.1:3000")).toBe("http://127.0.0.1:3000");
+  });
+
+  it("falls back to the default address when the URL is unset or broken", () => {
+    expect(selfOrigin(undefined)).toBe("http://127.0.0.1:3000");
+    expect(selfOrigin("")).toBe("http://127.0.0.1:3000");
+    expect(selfOrigin("not a url")).toBe("http://127.0.0.1:3000");
+  });
+
+  it("leaves other hosts alone", () => {
+    expect(selfOrigin("https://techteam.example.com/app")).toBe("https://techteam.example.com");
   });
 });
 

@@ -77,6 +77,20 @@ export function isLocalAppUrl(raw: string | undefined) {
 }
 
 /**
+ * The address the app uses to call itself (the MCP endpoint, Inngest): the app listens on 127.0.0.1 only, and
+ * `localhost` can resolve to ::1 first (Windows), where nothing listens. So a loopback name becomes 127.0.0.1.
+ */
+export function selfOrigin(raw: string | undefined) {
+  try {
+    const url = new URL(raw?.trim() || "http://127.0.0.1:3000");
+    if (url.hostname === "localhost" || url.hostname === "[::1]") url.hostname = "127.0.0.1";
+    return url.origin;
+  } catch {
+    return "http://127.0.0.1:3000";
+  }
+}
+
+/**
  * CLI agents are possible here: no hosted-platform marker, the app's own URL is local, and the kill switch
  * (AGENTS_LOCAL_CLI=false) is not set. No variable turns them on: a local checkout just has them.
  */

@@ -1,21 +1,18 @@
 import "server-only";
 
-import { createHash, randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 
 import { db, githubConnections } from "@/db";
 import { decrypt, encrypt } from "@/lib/crypto";
+import { resolveGithubClientId } from "@/lib/github-client-id";
+import type { GithubIdentity } from "@/lib/user-identity";
 
 /**
- * GitHub OAuth App integration used to link a repository to a workspace.
- * Callback URL to register on the OAuth App: `${NEXT_PUBLIC_APP_URL}/api/github/callback`.
+ * GitHub REST access. Sign-in is the OAuth device flow (lib/device-flow.ts) of an OAuth App identified by
+ * GITHUB_CLIENT_ID (public: there is no client secret) or a personal access token; both end in `saveGithubConnection`.
  */
 
 const API = "https://api.github.com";
-/** `repo` lets agents read and push to private repositories; `read:user` identifies the account. */
-const SCOPES = "repo read:user";
-/** Holds state + PKCE verifier + return path during the OAuth round trip. */
-export const GITHUB_OAUTH_COOKIE = "github_oauth";
 
 export type GithubRepo = {
   id: number;
@@ -36,55 +33,9 @@ export class GithubError extends Error {
   }
 }
 
-export function isGithubConfigured() {
-  return Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET);
-}
-
-export function githubCallbackUrl(origin: string) {
-  return `${origin}/api/github/callback`;
-}
-
-/** Fresh `state` and PKCE pair for one authorization attempt. */
-export function createOAuthChallenge() {
-  const state = randomBytes(24).toString("base64url");
-  const verifier = randomBytes(48).toString("base64url");
-  const challenge = createHash("sha256").update(verifier).digest("base64url");
-  return { state, verifier, challenge };
-}
-
-export function githubAuthorizeUrl(input: { state: string; challenge: string; redirectUri: string }) {
-  const url = new URL("https://github.com/login/oauth/authorize");
-  url.search = new URLSearchParams({
-    client_id: process.env.GITHUB_CLIENT_ID!,
-    redirect_uri: input.redirectUri,
-    scope: SCOPES,
-    state: input.state,
-    code_challenge: input.challenge,
-    code_challenge_method: "S256",
-    allow_signup: "false",
-  }).toString();
-  return url.toString();
-}
-
-export async function exchangeCodeForToken(input: { code: string; verifier: string; redirectUri: string }) {
-  const res = await fetch("https://github.com/login/oauth/access_token", {
-    method: "POST",
-    headers: { accept: "application/json", "content-type": "application/json" },
-    body: JSON.stringify({
-      client_id: process.env.GITHUB_CLIENT_ID,
-      client_secret: process.env.GITHUB_CLIENT_SECRET,
-      code: input.code,
-      code_verifier: input.verifier,
-      redirect_uri: input.redirectUri,
-    }),
-    cache: "no-store",
-  });
-  // GitHub answers 200 with an `error` field when the exchange fails.
-  const data = (await res.json().catch(() => null)) as { access_token?: string; scope?: string; error_description?: string } | null;
-  if (!res.ok || !data?.access_token) {
-    throw new GithubError(data?.error_description ?? "GitHub did not return an access token.", res.status);
-  }
-  return { accessToken: data.access_token, scope: data.scope ?? null };
+/** The OAuth App's public client id: GITHUB_CLIENT_ID, else the project's own app (lib/github-client-id.ts). */
+export function githubClientId() {
+  return resolveGithubClientId(process.env);
 }
 
 async function githubRequest<T>(token: string, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
@@ -137,8 +88,17 @@ function isLinkable(repo: ApiRepo) {
   return !repo.archived && repo.permissions?.push === true;
 }
 
-export function getGithubUser(token: string) {
-  return githubRequest<{ id: number; login: string; avatar_url: string | null }>(token, "/user");
+/** The account a token belongs to. */
+export async function getGithubIdentity(token: string): Promise<GithubIdentity> {
+  const user = await githubRequest<{ id: number; login: string; name: string | null; avatar_url: string | null }>(token, "/user");
+  return { githubUserId: user.id, login: user.login, name: user.name?.trim() || null, avatarUrl: user.avatar_url };
+}
+
+/** A personal access token is usable when it identifies an account and can list repositories. */
+export async function verifyPersonalToken(token: string): Promise<GithubIdentity> {
+  const identity = await getGithubIdentity(token);
+  await githubRequest<unknown[]>(token, "/user/repos?per_page=1");
+  return identity;
 }
 
 /** Linkable repositories, most recently pushed first (up to 300). */

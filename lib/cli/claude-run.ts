@@ -3,6 +3,7 @@ import "server-only";
 import { timingSafeEqual } from "node:crypto";
 import path from "node:path";
 
+import { selfOrigin } from "@/lib/cli-agents-config";
 import { deriveSecret } from "@/lib/crypto";
 import type { AgentStage } from "@/lib/agent-run-config";
 import { MCP_TOKEN_ENV, claudeChunkArgs, claudeStreamReader, classifyClaudeChunk, foreignTools, type ClaudeChunkOutcome, type ClaudeStreamSummary } from "@/lib/cli/claude-config";
@@ -33,7 +34,7 @@ export function verifyMcpRunCredential(runId: number, stage: AgentStage, round: 
 
 /** The MCP endpoint of a run's stage on this computer (the app's own local address). */
 export function mcpRunUrl(runId: number, stage: AgentStage, round: number, turn: number) {
-  const origin = new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").origin;
+  const origin = selfOrigin(process.env.NEXT_PUBLIC_APP_URL);
   const query = new URLSearchParams({ stage, round: String(round), turn: String(turn) });
   return `${origin}/api/mcp/runs/${runId}?${query}`;
 }
