@@ -6,7 +6,7 @@ import { SKILL_LOAD_META, SKILL_SOURCE_META, SKILL_TYPE_META, type SkillView } f
 import { cn } from "@/lib/utils";
 
 /** Small pill shared by the skill badges. */
-function Pill({ children, className, title }: { children: React.ReactNode; className?: string; title?: string }) {
+export function Pill({ children, className, title }: { children: React.ReactNode; className?: string; title?: string }) {
   return (
     <span
       title={title}

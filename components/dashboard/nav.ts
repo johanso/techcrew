@@ -1,6 +1,7 @@
 import {
   ActivityIcon,
   BotIcon,
+  BrainIcon,
   ChartColumnIcon,
   GitPullRequestIcon,
   LayoutDashboardIcon,
@@ -16,6 +17,7 @@ export const DASHBOARD_NAV: DashboardSection[] = [
   { segment: "", label: "Overview", icon: LayoutDashboardIcon },
   { segment: "board", label: "Board", icon: SquareKanbanIcon },
   { segment: "ai-team", label: "AI Team", icon: BotIcon },
+  { segment: "brain", label: "Brain", icon: BrainIcon },
   { segment: "pull-requests", label: "Pull Requests", icon: GitPullRequestIcon },
   { segment: "metrics", label: "Metrics", icon: ChartColumnIcon },
   { segment: "activity", label: "Activity", icon: ActivityIcon },

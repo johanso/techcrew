@@ -257,6 +257,22 @@ export async function listRootFiles(token: string, fullName: string, ref: string
   return entries.filter((entry) => entry.type === "file").map((entry) => entry.name);
 }
 
+/** The files directly inside a folder at `ref` (one request), or null when the folder doesn't exist. Subfolders are left out. */
+export async function listRepoDir(token: string, fullName: string, path: string, ref: string) {
+  try {
+    const entries = await githubRequest<{ name: string; type: string; size?: number }[] | { type: string }>(
+      token,
+      `/repos/${fullName}/contents/${encodePath(path)}?ref=${encodeURIComponent(ref)}`
+    );
+    // A file at that path comes back as one object, not a list.
+    if (!Array.isArray(entries)) return null;
+    return entries.filter((entry) => entry.type === "file").map((entry) => ({ name: entry.name, size: entry.size ?? 0 }));
+  } catch (error) {
+    if (error instanceof GithubError && error.status === 404) return null;
+    throw error;
+  }
+}
+
 /**
  * The repository at `ref` as a gzipped tarball stream (one top-level folder), or null when the ref doesn't exist.
  * GitHub answers with a redirect to a short-lived download URL; following it by hand keeps the token off that host.

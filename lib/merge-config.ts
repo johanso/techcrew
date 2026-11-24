@@ -64,7 +64,7 @@ export type ConflictRoute =
 
 export function routeConflict(conflict: PlannedConflict, permissions: readonly PermissionId[]): ConflictRoute {
   const { path, ours, theirs } = conflict;
-  if (isProtectedPath(path)) return { route: "refused", reason: `${path} is protected (CI workflows, env files and git internals), so agents can't merge it` };
+  if (isProtectedPath(path)) return { route: "refused", reason: `${path} is protected (CI workflows, env files, git internals and the Brain's memory folder), so agents can't merge it` };
   const sides = [ours, theirs].filter((side): side is TreeEntry => side !== null);
   if (sides.some((side) => side.type !== "blob" || !REGULAR_MODES.has(side.mode))) {
     return { route: "refused", reason: `${path} is a submodule or a symbolic link, which agents can't merge` };

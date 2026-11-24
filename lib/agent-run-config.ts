@@ -72,6 +72,8 @@ export const TOOL_LABEL: Record<string, string> = {
   get_checks: "Checked CI",
   search_skill: "Searched skill",
   read_skill: "Read skill",
+  search_memory: "Searched memory",
+  read_memory: "Read memory",
   list_references: "Listed references",
   read_reference: "Read reference",
   run_tests: "Ran the tests",

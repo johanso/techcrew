@@ -111,7 +111,7 @@ The pipeline acts on the repository with the workspace owner's token, so its gua
   the run's own `agent/…` branch, never the default branch. Tool calls outside the agent's set are refused even if
   the model invents them.
 - **Protected paths**: agents can't write `.github/workflows/*` (a workflow could exfiltrate repository secrets),
-  `.env*` files (except `.env.example`) or `.git/`. Dependency manifests and lockfiles need *Manage dependencies*.
+  `.env*` files (except `.env.example`), `.git/` or `.techteam/` (the Brain's notes). Dependency manifests and lockfiles need *Manage dependencies*.
   Paths with `..`, empty segments or a leading `/` are rejected. The rules live in `lib/repo-paths.ts` and cover the
   merge tools too.
 - **Merging the default branch** (`merge_default_branch`, `lib/branch-merge.ts`): the merge commit only moves the
@@ -227,6 +227,39 @@ Skills are text that reaches agent prompts, so they're treated like any other un
 - **Trust score**: enabled uploaded skills' findings count in every agent's rule-based trust scan; switching a skill
   on or off, a new version or a delete rescans the affected agents. Built-ins count as reviewed.
 
+## Brain (memory)
+
+A note is text that reaches every agent's prompt, and in mode `repo` it comes from a repository anyone with write access
+(or a merged pull request from a stranger) can change, so a note is untrusted input like a skill ([brain-plan.md](brain-plan.md#security)).
+This is part A: notes are written by their owner or the repository; nothing learns or proposes yet.
+
+- **Reference data, never instructions.** The operating protocol says memory never overrides it and a note never adds a
+  tool or a permission; the Memory block repeats it and tells the agent to skip a note that asks for secrets, commands or
+  to ignore the protocol. A note can't close or open the block's tags (`<` before `memory`, `task`, `skill`, `system` … is
+  neutralized). The tools are read-only (`search_memory`, `read_memory`) and logged by key only.
+- **A deterministic scan** (`lib/memory-scan.ts`, sharing patterns with `lib/skill-scan.ts`) on every save and **again every
+  time a note is loaded** (a file edited in the repository after it was reviewed is still untrusted). Critical findings
+  block saving and skip the note at load, counted on the page with the reason: prompt-injection phrases and claims of
+  authority or a system message, `curl | sh`, `rm -rf`, `eval` and `sudo`, requests to print, send or read secrets,
+  requests to grant permissions, change the protocol or merge without review, secret-looking strings (API keys, private
+  keys, JWTs, connection strings, `password=…`), links outside the allowlist (**github.com** and **docs.github.com**; loopback
+  addresses such as `http://localhost:3000` are allowed because they reach nothing outside), control, zero-width and
+  bidirectional characters, and hidden instructions in HTML comments. Warnings (shown, allowed): pushing to the default
+  branch, disabling tests or CI, raw HTML, image links, encoded blobs. A guardrail ("Never commit secrets") is not a
+  finding. The scan is a net, not a proof: see Known gaps below.
+- **Isolation by construction.** `visibleNotes` (`lib/memory-config.ts`) is the one rule for what an agent of a workspace
+  can see: that workspace's project notes and its owner's global notes, nothing of another workspace or user. The loader,
+  the prompt block, `search_memory` and `read_memory` all go through it (the tools filter again themselves), and tests build
+  rows of two users and two workspaces and prove it for search, read and the block. A key that isn't in the agent's set
+  answers the same error whatever exists elsewhere.
+- **Limits.** Body ≤ 2,000 characters, title ≤ 120, 200 notes per place, a repository file over 6,000 bytes is never
+  downloaded, 200 files read per repository, the always-loaded block ≤ 2,000 + 1,000 characters.
+- **Owner-scoped writes.** The Brain's Server Actions load the workspace with an owner-scoped query, touch a row only
+  inside the owner's own place (their global notes, or that workspace's), and re-validate and re-scan the text.
+- **Your own repository's token** reads the memory files (read-only requests). `.techteam/` is a protected path for the
+  agents' write tools (`lib/repo-paths.ts`), so no agent can write a note, and a card's pull request can't carry one. A revoked connection shows as a notice on the
+  page and agents run without project notes.
+
 ## Card references
 
 Files the owner attaches to a card for the agents ([features.md](features.md#card-references)):
@@ -308,6 +341,7 @@ The source URL is the owner's own; the dialog opens it with `rel="noopener noref
 | --- | --- | --- |
 | Whoever can read your user profile can read the data folder (`encryption.key`, `session.secret`, `postgres.secret`, the GitHub token and AI keys' ciphertext sit side by side). | The secrets protect against a leaked backup or database dump, not against someone using your account on your computer. | Use full-disk encryption and a locked screen; keep the folder out of shared drives and cloud sync. |
 | Agents can be steered by a malicious issue within their tools (e.g. a harmful code change on their branch). | A bad PR. Nothing merges without review + tests, and auto-merge is off by default. | Keep auto-merge off for repos that accept issues from outsiders; review agent PRs. |
+| A Brain note can be subtly wrong or outdated, or steer style without tripping the scan; a repository's notes can be edited by anyone with write access. | Worse code on an agent branch; the scan blocks the obvious attacks, reviews and the human gate still apply. | Review changes to `.techteam/memory/` like code; notes are reference data and the protocol overrides them; the Reviewer checks the change against them. |
 | An uploaded skill's guidance can be subtly wrong or steer code style without tripping the scan. | Worse code on an agent branch; reviews and the human gate still apply. | Review skills before assigning them; prefer built-ins; keep their findings visible. |
 | The agent log stores tool targets and the first line of tool answers (paths, error messages). | Repository paths and error text are kept in Postgres. File contents never are (reads store no summary). | Nothing needed; keep `toolStep` from summarizing read tools. |
 | A link capture is a real browser on the internet with the sandbox host's IP. | The owner can make the host fetch any public page (and what it loads), up to 60 MB per capture. Nothing internal is reachable (see [Link captures](#link-captures)). | Owner-only action, one capture at a time; per-user limits with the rate limiting below. |

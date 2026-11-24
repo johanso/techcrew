@@ -4,7 +4,7 @@ import { cleanRepoPath, isLockfile, pathWriteRefusal } from "@/lib/repo-paths";
 
 describe("pathWriteRefusal", () => {
   it("refuses protected paths for everyone", () => {
-    for (const path of [".github/workflows/ci.yml", ".env", "app/.env.local", ".git/config"]) {
+    for (const path of [".github/workflows/ci.yml", ".env", "app/.env.local", ".git/config", ".techteam/memory/conventions.md", ".techteam/memory/notes/a.md"]) {
       expect(pathWriteRefusal(path, ["code.write", "deps.manage"]), path).toMatch(/^Refused: .* is protected/);
     }
     expect(pathWriteRefusal(".env.example", [])).toBeNull();

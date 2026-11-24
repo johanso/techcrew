@@ -18,23 +18,23 @@ type Rule = {
   negatable?: boolean;
 };
 
-const NEGATION = /\b(never|do not|don't|must not|mustn't|no(?!-)|without|avoid|refuse)\b/i;
+export const NEGATION = /\b(never|do not|don't|must not|mustn't|no(?!-)|without|avoid|refuse)\b/i;
 
-const INJECTION =
+export const INJECTION =
   /\b(ignore|disregard|forget|override|bypass)\b[^\n]{0,40}\b(previous|prior|above|earlier|system|operating|all (the )?other)\b[^\n]{0,20}\b(instructions?|rules|prompts?|protocol|guidelines)\b|\byou are no longer\b|\b(reveal|print|output|repeat) (your|the) (system prompt|instructions)\b|\bnew (system )?instructions:\s/i;
-const CREDENTIAL =
+export const CREDENTIAL =
   /(sk-(ant-)?[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|xox[abprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/;
-const PUSH_DEFAULT = /\b(push|commit|merge)(ed|ing)? (directly |straight )?(to|into|on(to)?) (the )?(main|master|default|production) branch\b|\b(push|commit)(ed|ing)? (directly )?(to|into) (main|master)\b|\bforce[- ]?push/i;
-const SKIP_CHECKS = /\b(disable|skip|bypass|delete|remove|comment out|turn off)\b[^\n]{0,20}\b(tests?|ci|checks|linters?|lint|hooks|reviews?|branch protection)\b|--no-verify\b/i;
+export const PUSH_DEFAULT = /\b(push|commit|merge)(ed|ing)? (directly |straight )?(to|into|on(to)?) (the )?(main|master|default|production) branch\b|\b(push|commit)(ed|ing)? (directly )?(to|into) (main|master)\b|\bforce[- ]?push/i;
+export const SKIP_CHECKS = /\b(disable|skip|bypass|delete|remove|comment out|turn off)\b[^\n]{0,20}\b(tests?|ci|checks|linters?|lint|hooks|reviews?|branch protection)\b|--no-verify\b/i;
 const SECRET_WORD = /\b(secrets?|tokens?|api[ _-]?keys?|credentials?|passwords?|env(ironment)? variables?|\.env\b|private keys?|cookies?|session ids?)/i;
 const SEND_WORD = /\b(send|post|upload|transmit|forward|exfiltrate|leak|curl|wget|fetch|beacon|webhook|email)\b/i;
 const URL = /\bhttps?:\/\/[^\s)>"']+|\bwebhook\b/i;
 const SEND_TO_URL = /\b(send|post|upload|transmit|forward|report|submit)\b[^\n]{0,80}\bto\b[^\n]{0,20}(https?:\/\/|\bwebhook\b|\ban? (external|remote|third[- ]party) (server|endpoint|url|service)\b)/i;
-const PIPE_SHELL = /\b(curl|wget)\b[^\n|]*\|\s*(sudo\s+)?(ba|z|da)?sh\b/i;
-const BLOB = /[A-Za-z0-9+/]{400,}={0,2}/;
-const HIDDEN_CHARS = /[​-‏‪-‮⁠-⁤⁦-⁩﻿]/;
-const COMMENT = /<!--([\s\S]*?)-->/g;
-const IMPERATIVE = /\b(ignore|disregard|you (must|should|are)|always|never|instead|do not|don't|system|assistant|agent|instructions?|secret|token|push|merge|delete)\b/i;
+export const PIPE_SHELL = /\b(curl|wget)\b[^\n|]*\|\s*(sudo\s+)?(ba|z|da)?sh\b/i;
+export const BLOB = /[A-Za-z0-9+/]{400,}={0,2}/;
+export const HIDDEN_CHARS = /[​-‏‪-‮⁠-⁤⁦-⁩﻿]/;
+export const COMMENT = /<!--([\s\S]*?)-->/g;
+export const IMPERATIVE = /\b(ignore|disregard|you (must|should|are)|always|never|instead|do not|don't|system|assistant|agent|instructions?|secret|token|push|merge|delete)\b/i;
 
 const RULES: Rule[] = [
   {

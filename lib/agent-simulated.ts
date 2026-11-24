@@ -10,6 +10,7 @@ import { callTool, type ToolContext, type ToolStep } from "@/lib/agent-tools";
  * without an API key or spend. Each stage takes two turns: one real tool call (so GitHub reads, the developer's
  * commit, the diff and CI checks really happen), then the stage's finish tool with a fixed, passing result: the
  * Reviewer and Security approve with no findings and the Lead approves at low risk (the risk floor still applies).
+ * With Brain notes for the workspace it also searches the first note and reads it (search_memory, read_memory).
  * An agent with skills switched on also searches its first skill and reads the top match in that first turn, so the
  * skill tools run for free too, and on a card with references it lists them and reads the first one (an image is read
  * from storage like for a model, then dropped: nothing looks at it). With the sandbox on, the Developer (after its commit) and the Tester also run the tests
@@ -122,6 +123,16 @@ async function skillCalls(input: { finish: FunctionTool; toolContext: ToolContex
   return [found.step, read.step];
 }
 
+/** search_memory with the first note's title, then read_memory on the top match, when the agent has the memory tools. */
+async function memoryCalls(input: { toolContext: ToolContext; tools: FunctionTool[] }): Promise<ToolStep[]> {
+  const first = input.toolContext.memory?.notes[0];
+  if (!first || !input.tools.some((tool) => tool.name === "search_memory")) return [];
+  const found = await callTool(input.toolContext, input.tools, "search_memory", JSON.stringify({ query: first.title, files: null }));
+  const key = /^- (\S+) — /m.exec(found.output)?.[1] ?? first.key;
+  const read = await callTool(input.toolContext, input.tools, "read_memory", JSON.stringify({ key, offset: null }));
+  return [found.step, read.step];
+}
+
 /** list_references, then read_reference on the card's first reference, when the agent has the reference tools. */
 async function referenceCalls(input: { toolContext: ToolContext; tools: FunctionTool[] }): Promise<ToolStep[]> {
   const first = input.toolContext.references?.items[0];
@@ -168,6 +179,7 @@ export async function simulatedTurn<T>(input: {
     return { state: next, costMicros: 0, steps: [], result: finishResult(input.finish.name, input.toolContext) as T };
   }
   const skillSteps = await skillCalls(input);
+  const memorySteps = await memoryCalls(input);
   const referenceSteps = await referenceCalls(input);
   const args = JSON.stringify(call.args);
   const { output, step } = await callTool(input.toolContext, input.tools, call.name, args);
@@ -176,5 +188,5 @@ export async function simulatedTurn<T>(input: {
     throw new Error(`Simulated developer couldn't write its file: ${output}`);
   }
   const sandboxSteps = input.finish.name === "submit_work" || input.finish.name === "submit_test_report" ? await sandboxCalls(input) : [];
-  return { state: next, costMicros: 0, steps: [...skillSteps, ...referenceSteps, step, ...sandboxSteps], result: null };
+  return { state: next, costMicros: 0, steps: [...skillSteps, ...memorySteps, ...referenceSteps, step, ...sandboxSteps], result: null };
 }

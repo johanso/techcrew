@@ -8,6 +8,7 @@ import { db, workspaces, type NewWorkspace } from "@/db";
 import type { AgentProvider } from "@/lib/agent-config";
 import type { MergeMode } from "@/lib/agent-run-config";
 import { requireUser } from "@/lib/current-user";
+import type { MemoryMode } from "@/lib/memory-config";
 import type { StoredSandboxCommands } from "@/lib/sandbox/config";
 
 export function listWorkspaces(ownerId: number) {
@@ -48,6 +49,14 @@ export async function updateFallbackOrder(workspaceId: number, order: AgentProvi
 }
 
 /** Settings → Sandbox: the switch and the commands, saved together so a run never guesses them. */
+/** Brain → Settings: where the project's memory lives. The caller has already checked ownership. */
+export async function updateMemoryMode(workspaceId: number, mode: MemoryMode) {
+  await db
+    .update(workspaces)
+    .set({ memoryMode: mode, updatedAt: new Date() })
+    .where(eq(workspaces.id, workspaceId));
+}
+
 export async function updateSandbox(
   workspaceId: number,
   values: { sandboxEnabled: boolean; sandboxCommands: StoredSandboxCommands; sandboxPreview: boolean }

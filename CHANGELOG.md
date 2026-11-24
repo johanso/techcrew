@@ -8,6 +8,18 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 
 ## [Unreleased]
 
+### Added
+- **The Brain, part A (foundation)**: a **Brain** page where you keep the notes your agents read before they work.
+  Project notes live as files in the repository (`.techteam/memory/conventions.md`, the always-loaded core, and
+  `notes/<name>.md`) or, if you prefer nothing added to the repository, as notes TechTeam keeps for you (**On this
+  computer**), or are off. **Your memory** holds notes that apply to every project of yours. Every stage's prompt gets a
+  **Memory** block (reference data that never overrides the operating protocol), every agent gets read-only
+  `search_memory` / `read_memory` when notes exist, and the Reviewer checks the change against them. A security scan
+  (prompt injection, commands to run, secrets, outside links, hidden characters) refuses unsafe notes on save and skips
+  them on load. The page shows what loaded, what was skipped and why, and the exact block agents get with its size.
+  Migration `0021` adds `memory_notes` and `workspaces.memory_mode` / `memory_bootstrapped_at` (included in backups).
+  Nothing learns or writes to your repository yet: see [docs/brain-plan.md](docs/brain-plan.md).
+
 ## [0.10.0] — 2026-11-24
 
 The agent sandbox now runs on your own computer's Docker (no VPS needed), there is a smoke test of the whole agent

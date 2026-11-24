@@ -148,6 +148,13 @@
       "when": 1795553557385,
       "tag": "0020_drop_unused_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795559276971,
+      "tag": "0021_brain_notes",
+      "breakpoints": true
     }
   ]
 }
