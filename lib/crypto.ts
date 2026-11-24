@@ -27,6 +27,33 @@ export function decrypt(payload: string) {
 }
 
 /**
+ * `decrypt`, but null for a payload that can't be read with the current key: malformed, or failing authentication
+ * (the key changed, or the data was altered). A missing or invalid key configuration still throws.
+ */
+export function tryDecrypt(payload: string): string | null {
+  const [version, iv, tag, ciphertext] = payload.split(".");
+  if (version !== "v1" || !iv || !tag || !ciphertext) return null;
+  const secretKey = key();
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", secretKey, Buffer.from(iv, "base64url"));
+    decipher.setAuthTag(Buffer.from(tag, "base64url"));
+    return Buffer.concat([decipher.update(Buffer.from(ciphertext, "base64url")), decipher.final()]).toString("utf8");
+  } catch {
+    // The key was read above, so this is a bad IV or tag, or a failed authentication.
+    return null;
+  }
+}
+
+const warned = new Set<string>();
+
+/** One short warning per process for a stored secret that can't be read (`what` names the table or provider, never a value). */
+export function warnUnreadable(what: string) {
+  if (warned.has(what)) return;
+  warned.add(what);
+  console.warn(`[crypto] a saved secret (${what}) can't be read with the current encryption key; it is treated as not set.`);
+}
+
+/**
  * A stable secret for `label` (e.g. the credential an outside service uses to call one agent's endpoint), derived
  * from the encryption key so nothing extra is stored. Replacing the key changes every derived secret.
  */

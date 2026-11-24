@@ -14,6 +14,13 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   first company in that order with a key (default: OpenAI, Anthropic, OpenRouter). New column
   `workspaces.ai_fallback_order`; applied at start.
 
+### Fixed
+- **A secret that can't be read no longer breaks the app.** After the encryption key changed or was removed, every saved
+  AI key and GitHub token became undecryptable and the board answered 500 (Settings too, so the keys couldn't be
+  entered again). Such a secret now counts as not set: Settings shows "The saved key can't be read, probably because
+  the encryption key changed. Enter it again." on that key (saving replaces it), and an unreadable GitHub token is
+  treated like an expired connection (sign in again).
+
 ### Changed
 - **`.env.example` is minimal.** It sets only `NEXT_PUBLIC_APP_URL`; every other setting is optional and documented in
   [docs/setup.md](docs/setup.md). A copied placeholder (`your_openai_api_key`, `preview.example.com`) used to count as a

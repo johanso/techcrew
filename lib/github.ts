@@ -3,7 +3,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 
 import { db, githubConnections } from "@/db";
-import { decrypt, encrypt } from "@/lib/crypto";
+import { encrypt, tryDecrypt, warnUnreadable } from "@/lib/crypto";
 import { resolveGithubClientId } from "@/lib/github-client-id";
 import type { GithubIdentity } from "@/lib/user-identity";
 
@@ -665,7 +665,14 @@ export async function getGithubToken(userId: number) {
     .select({ accessToken: githubConnections.accessToken })
     .from(githubConnections)
     .where(eq(githubConnections.userId, userId));
-  return row ? decrypt(row.accessToken) : null;
+  if (!row) return null;
+  const token = tryDecrypt(row.accessToken);
+  if (token === null) {
+    // Same as a revoked token: the owner signs in with GitHub again, which saves a new one over this row.
+    warnUnreadable("github_connections");
+    throw new GithubError("The saved GitHub token can't be read.", 401);
+  }
+  return token;
 }
 
 export async function deleteGithubConnection(userId: number) {

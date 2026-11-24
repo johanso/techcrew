@@ -2,7 +2,7 @@
 
 import { startTransition, useActionState, useState } from "react";
 import { formatDistanceToNowStrict } from "date-fns";
-import { CircleCheckIcon, CircleDashedIcon, ExternalLinkIcon, EyeIcon, EyeOffIcon, ServerIcon, UserRoundIcon } from "lucide-react";
+import { CircleCheckIcon, CircleDashedIcon, ExternalLinkIcon, EyeIcon, EyeOffIcon, ServerIcon, TriangleAlertIcon, UserRoundIcon } from "lucide-react";
 
 import {
   removeProviderKeyAction,
@@ -61,10 +61,17 @@ const CHECK = <CircleCheckIcon aria-hidden className="size-3.5 shrink-0 text-suc
 
 function KeyStatus({ provider, scope, view }: { provider: AgentProvider; scope: KeyScopeName; view: ProviderKeyView }) {
   const saved = scope === "account" ? view.account : view.workspace;
+  if (saved?.unreadable) {
+    return (
+      <StatusLine icon={<TriangleAlertIcon aria-hidden className="size-3.5 shrink-0 text-warning" />}>
+        <span>The saved key can&apos;t be read, probably because the encryption key changed. Enter it again.</span>
+      </StatusLine>
+    );
+  }
   if (scope === "account" && saved) {
     return <StatusLine icon={CHECK}><SavedKey saved={saved} label="Connected" /><span>· every project</span></StatusLine>;
   }
-  if (scope === "workspace" && view.account) {
+  if (scope === "workspace" && view.account && !view.account.unreadable) {
     // The account key wins: a project key saved too is kept but unused.
     return (
       <StatusLine icon={<UserRoundIcon aria-hidden className="size-3.5 shrink-0 text-action" />}>
@@ -129,9 +136,9 @@ export function ProviderKeyForm({
   const inputId = `api-key-${scope}-${provider}`;
   // Replace key opens an empty field; a successful save (a newer savedAt) closes it again.
   const [editingSince, setEditingSince] = useState<number | null>(null);
-  const editing = !saved || (editingSince !== null && editingSince > (state.savedAt ?? 0));
+  const editing = !saved || saved.unreadable || (editingSince !== null && editingSince > (state.savedAt ?? 0));
   // A workspace key is never used while the account has one: only the status (and Remove for a stale key) shows.
-  const shadowed = scope === "workspace" && view.account !== null;
+  const shadowed = scope === "workspace" && view.account !== null && !view.account.unreadable;
 
   const remove = () => {
     setRemoving(true);
@@ -206,8 +213,8 @@ export function ProviderKeyForm({
                 id={inputId}
                 name="apiKey"
                 type={visible ? "text" : "password"}
-                placeholder={saved ? "Paste the new key" : PLACEHOLDER[provider]}
-                autoFocus={saved !== null}
+                placeholder={saved && !saved.unreadable ? "Paste the new key" : PLACEHOLDER[provider]}
+                autoFocus={saved !== null && !saved.unreadable}
                 autoComplete="off"
                 autoCapitalize="off"
                 spellCheck={false}
@@ -233,7 +240,7 @@ export function ProviderKeyForm({
               {pending && <Spinner />}
               {pending ? "Checking key…" : "Save key"}
             </Button>
-            {saved && (
+            {saved && !saved.unreadable && (
               <Button type="button" variant="ghost" className="h-10" disabled={pending} onClick={() => setEditingSince(null)}>
                 Cancel
               </Button>
