@@ -337,6 +337,13 @@ lib/                      Server logic. Files that touch secrets/DB start with `
   inngest/agent-pickup.ts agentAutoPickup: cron every 2 min, starts runs on never-run Todo cards (auto pickup on;
                           AGENTS_AUTO_PICKUP=false opts a computer out).
   inngest/preview-sweep.ts previewSweep: every 10 min, stops previews older than 2 h and removes leftovers.
+  inngest/run-sweep.ts    runSweep: every 5 min, `sweepStaleRuns` (lib/run-sweep.ts) ends runs left behind when TechTeam
+                          stopped (`failure.kind = "interrupted"`, via `stopInterruptedRun`; rules in
+                          lib/run-recovery-config.ts: isStaleRun, 30 min without a sign of life, never `waiting`,
+                          needs_info or awaiting_merge). Tested.
+  setup-status.ts / setup.ts  The "Get started" checklist: pure steps (setupSteps) + the server facts (getSetupStatus:
+                          account or env key, plan route, simulated); shown by components/dashboard/setup-checklist.tsx on
+                          the Overview and, with no workspace yet, on /workspaces/new.
   task-events.ts          People's card moves/edits/removals for Activity: taskSnapshots (before a change),
                           logCardEdited / logCardsMoved / logCardRemoved (never throw), describeCardChanges.
   github-issues.ts        syncWorkspaceIssues(): pulls the repo's GitHub issues onto the board (see "GitHub issues").

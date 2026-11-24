@@ -9,6 +9,13 @@ heading. See [Releasing](docs/roadmap.md#releasing).
 ## [Unreleased]
 
 ### Added
+- **A "Get started" checklist.** The Overview shows what is left before agents can work (an AI route: an API key or
+  Claude Code on your plan; a workspace) with a link to Settings → AI, until everything is done. A user without a
+  workspace sees a short "Before you start" version above the create form.
+- **Runs interrupted when TechTeam stopped are ended.** A run left `running` after the app or the Inngest Dev Server
+  stopped mid-run no longer blocks its card for ever: every 5 minutes (`run-sweep`), a run with no sign of life for 30
+  minutes (and not waiting for your plan) is failed as "Interrupted when TechTeam stopped", the card is released and the
+  bell says to press Run, which continues the same branch.
 - **Choose the order companies fall back in.** Settings → AI → This workspace only lists your companies with move up and
   move down buttons: when one runs out of credit, or your Claude plan runs out with "Switch company", agents go to the
   first company in that order with a key (default: OpenAI, Anthropic, OpenRouter). New column
