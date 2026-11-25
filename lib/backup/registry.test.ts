@@ -62,6 +62,11 @@ describe("secret guard", () => {
     for (const name of Object.keys(RETIRED_TABLES)) expect(names).not.toContain(name);
   });
 
+  it("includes what the librarian proposed and decided, so a restore doesn't propose it again", () => {
+    expect(exportTables().map((table) => table.name)).toContain("memory_proposals");
+    expect(excludedSummary().join("\n")).not.toContain("memory_");
+  });
+
   it("lists what was left out", () => {
     const summary = excludedSummary().join("\n");
     expect(summary).toContain("github_connections");

@@ -3,8 +3,19 @@
 import { revalidatePath } from "next/cache";
 
 import { requireUser } from "@/lib/current-user";
+import { requestLearning } from "@/lib/librarian-request";
+import { requestLibrarianRun } from "@/lib/librarian-run";
 import { createMemoryNote, deleteMemoryNote, setMemoryNoteStatus, updateMemoryNote, type NotePlace } from "@/lib/memory";
 import { isMemoryMode, type NoteField } from "@/lib/memory-config";
+import { LIBRARIAN_JOBS, type LibrarianJob } from "@/lib/memory-proposals";
+import {
+  acceptProposal,
+  editProposal,
+  openMemoryPullRequest,
+  refreshMemoryPullRequests,
+  rejectProposal,
+  type ProposalWrite,
+} from "@/lib/memory-proposals-store";
 import type { MemoryScanFinding } from "@/lib/memory-scan";
 import type { SignalField } from "@/lib/memory-signals";
 import { answerRejection, deleteSignal, dismissRejection, rememberNote, type SignalWrite } from "@/lib/memory-signals-store";
@@ -115,7 +126,10 @@ export async function answerRejectionAction(workspaceId: number, pullRequestId: 
   const owned = await authorize(workspaceId);
   if (!owned) return { message: "Workspace not found." };
   const result = await answerRejection(owned.workspace.id, pullRequestId, { reason: formData.get("reason"), note: formData.get("text") });
-  if (result.ok) refreshSignals(workspaceId);
+  if (result.ok) {
+    await requestLearning(owned.workspace.id);
+    refreshSignals(workspaceId);
+  }
   return toFormState(result);
 }
 
@@ -134,7 +148,10 @@ export async function rememberAction(workspaceId: number, cardId: string, stepId
   const owned = await authorize(workspaceId);
   if (!owned) return { message: "Workspace not found." };
   const result = await rememberNote(owned.workspace.id, { taskId: Number(cardId), stepId }, { text: formData.get("text"), scope: formData.get("scope") });
-  if (result.ok) refresh(workspaceId);
+  if (result.ok) {
+    await requestLearning(owned.workspace.id);
+    refresh(workspaceId);
+  }
   return toFormState(result);
 }
 
@@ -147,15 +164,97 @@ export async function deleteSignalAction(workspaceId: number, signalId: number):
   return { ok: true };
 }
 
+// ── The librarian and its proposals ────────────────────────────────────────────
+
+/** "Learn now" and "Build a first memory": asks the job runner for a librarian run. */
+export async function runLibrarianAction(workspaceId: number, job: LibrarianJob): Promise<NoteActionResult> {
+  const owned = await authorize(workspaceId);
+  if (!owned) return { ok: false, message: "Workspace not found." };
+  if (!LIBRARIAN_JOBS.includes(job)) return { ok: false, message: "That isn't something the librarian does." };
+  const result = await requestLibrarianRun(owned.workspace, job);
+  refresh(workspaceId);
+  return result;
+}
+
+export type ProposalFormState = {
+  ok?: boolean;
+  message?: string;
+  /** The proposal left the inbox though the request was refused (superseded, or decided elsewhere). */
+  gone?: boolean;
+  errors?: Partial<Record<NoteField, string>>;
+  findings?: MemoryScanFinding[];
+};
+
+/** The owner's edit in a proposal's form, or null when the form carries none. */
+function editOf(formData: FormData) {
+  if (formData.get("edited") !== "1") return null;
+  return {
+    title: formData.get("title"),
+    type: formData.get("type"),
+    load: formData.get("load"),
+    paths: formData.get("paths"),
+    body: formData.get("body"),
+  };
+}
+
+const proposalState = (result: ProposalWrite): ProposalFormState =>
+  result.ok ? { ok: true, message: result.message } : { message: result.message, gone: result.gone, errors: result.errors, findings: result.findings };
+
+/** Accepts a proposal into the notes, with the owner's edit if the form carries one. */
+export async function acceptProposalAction(workspaceId: number, proposalId: number, _prev: ProposalFormState, formData: FormData): Promise<ProposalFormState> {
+  const owned = await authorize(workspaceId);
+  if (!owned) return { message: "Workspace not found." };
+  const result = await acceptProposal(owned.workspace, proposalId, { edit: editOf(formData), confirmed: formData.get("confirmed") === "on" });
+  refresh(workspaceId);
+  return proposalState(result);
+}
+
+/** Saves an edit to a proposal that stays waiting for the memory pull request. */
+export async function editProposalAction(workspaceId: number, proposalId: number, _prev: ProposalFormState, formData: FormData): Promise<ProposalFormState> {
+  const owned = await authorize(workspaceId);
+  if (!owned) return { message: "Workspace not found." };
+  const result = await editProposal(owned.workspace, proposalId, editOf(formData));
+  refresh(workspaceId);
+  return proposalState(result);
+}
+
+export async function rejectProposalAction(workspaceId: number, proposalId: number): Promise<ProposalFormState> {
+  const owned = await authorize(workspaceId);
+  if (!owned) return { message: "Workspace not found." };
+  const result = await rejectProposal(owned.workspace, proposalId);
+  refresh(workspaceId);
+  return proposalState(result);
+}
+
+/** "Open memory pull request": the chosen proposals, with the untrusted ones the owner confirmed. */
+export async function openMemoryPullRequestAction(workspaceId: number, proposalIds: number[], confirmedIds: number[]): Promise<NoteActionResult> {
+  const owned = await authorize(workspaceId);
+  if (!owned) return { ok: false, message: "Workspace not found." };
+  if (!Array.isArray(proposalIds) || !Array.isArray(confirmedIds)) return { ok: false, message: "Select at least one proposal." };
+  const result = await openMemoryPullRequest(owned.workspace, proposalIds, confirmedIds);
+  refresh(workspaceId);
+  return result;
+}
+
+/** Checks the memory pull request on GitHub now: merged or closed. */
+export async function refreshMemoryPullRequestsAction(workspaceId: number): Promise<NoteActionResult> {
+  const owned = await authorize(workspaceId);
+  if (!owned) return { ok: false, message: "Workspace not found." };
+  const { ended, unchecked } = await refreshMemoryPullRequests(owned.workspace);
+  refresh(workspaceId);
+  if (unchecked) return { ok: false, message: "GitHub couldn't be checked. Try again, or reconnect GitHub." };
+  return { ok: true, message: ended ? "Updated from GitHub." : "Still open on GitHub." };
+}
+
 export type MemoryModeFormState = { ok?: boolean; message?: string; savedAt?: number };
 
-/** Brain → Settings: where this project's memory lives. */
+/** Brain → Settings: where this project's memory lives, and whether the librarian learns on its own. */
 export async function saveMemoryModeAction(workspaceId: number, _prev: MemoryModeFormState, formData: FormData): Promise<MemoryModeFormState> {
   const owned = await authorize(workspaceId);
   if (!owned) return { message: "Workspace not found." };
   const mode = formData.get("mode");
   if (!isMemoryMode(mode)) return { message: "Choose where the project's memory lives." };
-  await updateMemoryMode(owned.workspace.id, mode);
+  await updateMemoryMode(owned.workspace.id, { memoryMode: mode, memoryAutoLearn: formData.get("autoLearn") === "on" });
   refresh(workspaceId);
   return { ok: true, savedAt: Date.now() };
 }

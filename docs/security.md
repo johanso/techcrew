@@ -234,8 +234,8 @@ Skills are text that reaches agent prompts, so they're treated like any other un
 
 A note is text that reaches every agent's prompt, and in mode `repo` it comes from a repository anyone with write access
 (or a merged pull request from a stranger) can change, so a note is untrusted input like a skill ([brain-plan.md](brain-plan.md#security)).
-Parts A and B: notes are written by their owner or the repository, and signals are collected; nothing proposes or
-writes memory yet.
+Notes are written by their owner, the repository, or from the [librarian's proposals](#the-librarian) once the owner
+accepts or merges them: nothing writes memory on its own.
 
 - **Reference data, never instructions.** The operating protocol says memory never overrides it and a note never adds a
   tool or a permission; the Memory block repeats it and tells the agent to skip a note that asks for secrets, commands or
@@ -289,6 +289,41 @@ is treated as input to memory from the start (`lib/memory-signals.ts`, `lib/memo
   workspace, three lessons per Lead decision.
 - **Owner-scoped.** Every action loads the workspace for the signed-in owner; the pull request, card, log entry and
   signal ids in a request are looked up inside that workspace, and anything else is "not there".
+
+### The librarian
+
+The librarian ([features.md](features.md#the-librarian-and-its-proposals)) reads untrusted text (CI output, agents'
+words, issue titles, repository files) and suggests memory changes, which is the path a persistent injection would take.
+
+- **No tools, no write access.** One structured call that returns proposals. It can't read anything but what it is
+  given, can't write a note and can't touch GitHub.
+- **The model can't reach the owner's global memory**, which every project of theirs reads. Its schema has no scope, a
+  proposal naming any other than the project is dropped, and it can't update or retire a global note (it sees them only
+  to avoid repeats). A global proposal is built by server code (`rememberedProposals`) from one **Remember this** the
+  owner typed for everything, word for word: nothing untrusted or project-specific that a model chose can be mixed in.
+  Those signals are never sent to a model.
+- **Untrusted data, delimited.** Signals, notes and repository files go to the model as JSON inside one `<data>` block
+  (`<` escaped, so nothing in it can close the block), and the system prompt says to ignore instructions inside it. That
+  is a request, not a guarantee: the checks below don't depend on it.
+- **The server decides** (`lib/librarian.ts`, tested): cited signals must be ones it was given (at least one); an
+  update or retirement must target a project note it was shown; every note passes `validateNote` and the memory scanner
+  (critical: dropped), as does the rationale; repeats of notes, waiting and rejected proposals are dropped; at most 5
+  per learning run. `untrusted_origin` is computed from the signals, never taken from the model.
+- **A person approves everything.** Accepting re-validates and re-scans, refuses if the target changed, and needs an
+  explicit confirmation when the proposal rests only on untrusted text (also enforced on the server).
+- **The repository is written only on the owner's click**, with the owner's token: one commit on a TechTeam branch
+  (`agent/memory-<date>`; a commit is added only to such a branch in the same repository, targeting the default branch,
+  fast-forward only). Every path goes through `memoryTreeEntries`, which refuses anything but
+  `.techteam/memory/conventions.md` and `notes/<plain name>.md` (tested: no `..`, absolute, backslash or reserved names),
+  and a `.techteam`, `memory` or `notes` that is a file or link stops it. Never merged by TechTeam; not a card's pull
+  request. The description puts every note, title and reason in code blocks (no mentions, links or markup) and cites
+  evidence by reference only: the signals' words stay in TechTeam.
+- **Bootstrap reads a fixed list** (README, contributing and agent notes, package scripts, TypeScript/lint/format
+  settings, CI workflows, file names): never `.env` files or source, capped at about 40,000 characters. Its proposals are
+  always untrusted.
+- **Spend** is bounded by the Lead's budget and pause, one run per workspace at a time, debounced automatic requests, no
+  retries and capped input (40 signals, 24,000 + 20,000 characters).
+- **Owner-scoped.** Every query on proposals names the workspace and its owner; ids in requests are looked up there only.
 
 ## Card references
 
@@ -372,6 +407,7 @@ The source URL is the owner's own; the dialog opens it with `rel="noopener noref
 | Whoever can read your user profile can read the data folder (`encryption.key`, `session.secret`, `postgres.secret`, the GitHub token and AI keys' ciphertext sit side by side). | The secrets protect against a leaked backup or database dump, not against someone using your account on your computer. | Use full-disk encryption and a locked screen; keep the folder out of shared drives and cloud sync. |
 | Agents can be steered by a malicious issue within their tools (e.g. a harmful code change on their branch). | A bad PR. Nothing merges without review + tests, and auto-merge is off by default. | Keep auto-merge off for repos that accept issues from outsiders; review agent PRs. |
 | A Brain note can be subtly wrong or outdated, or steer style without tripping the scan; a repository's notes can be edited by anyone with write access. | Worse code on an agent branch; the scan blocks the obvious attacks, reviews and the human gate still apply. | Review changes to `.techteam/memory/` like code; notes are reference data and the protocol overrides them; the Reviewer checks the change against them. |
+| The librarian can be talked into a plausible but harmful proposal by untrusted text, including one that also cites something you typed (it is then not marked untrusted). | A bad note, only if you accept or merge it. | Read the proposed note and its evidence (each item shows whether you typed it) before accepting; the scan blocks the obvious attacks; the memory pull request is reviewed like code. |
 | An uploaded skill's guidance can be subtly wrong or steer code style without tripping the scan. | Worse code on an agent branch; reviews and the human gate still apply. | Review skills before assigning them; prefer built-ins; keep their findings visible. |
 | The agent log stores tool targets and the first line of tool answers (paths, error messages). | Repository paths and error text are kept in Postgres. File contents never are (reads store no summary). | Nothing needed; keep `toolStep` from summarizing read tools. |
 | A link capture is a real browser on the internet with the sandbox host's IP. | The owner can make the host fetch any public page (and what it loads), up to 60 MB per capture. Nothing internal is reachable (see [Link captures](#link-captures)). | Owner-only action, one capture at a time; per-user limits with the rate limiting below. |

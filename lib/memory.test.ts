@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { callTool, toolStep, toolsFor, type ToolContext } from "@/lib/agent-tools";
 import { GithubError, getBranchSha } from "@/lib/github";
-import { agentBlock, getMemoryMode, loadMemory, noteHash, readMemory, searchMemory, type AgentMemory } from "@/lib/memory";
+import { agentBlock, getMemoryMode, loadMemory, readMemory, searchMemory, type AgentMemory } from "@/lib/memory";
+import { noteHash } from "@/lib/memory-hash";
 import { activeNotes, buildMemoryBlock, memoryPromptBlock, visibleNotes, type MemoryNote } from "@/lib/memory-config";
 
 // loadMemory without a database (no rows) and without GitHub (each test says how the branch lookup fails).

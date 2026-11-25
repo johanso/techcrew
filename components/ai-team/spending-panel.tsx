@@ -9,6 +9,8 @@ const CATEGORIES: { id: SpendCategory; label: string; tone: string }[] = [
   { id: "tasks", label: "Task runs", tone: "bg-brand-emphasis" },
   { id: "configuration", label: "AI drafting", tone: "bg-action" },
   { id: "scans", label: "Trust scans", tone: "bg-success" },
+  // Only the Lead pays for the librarian: the others don't list it.
+  { id: "memory", label: "Memory (librarian)", tone: "bg-warning" },
 ];
 
 // Budgets reset at 00:00 UTC on the 1st; format in UTC so the date doesn't shift with the viewer's time zone.
@@ -74,7 +76,7 @@ export function SpendingPanel({ spend, budgetCents, onPlan = false }: { spend: A
         <div className="flex flex-col gap-2.5 border-t border-border/70 pt-4">
           <p className="eyebrow text-muted-foreground">Breakdown</p>
           <ul className="flex flex-col gap-2.5">
-            {CATEGORIES.map(({ id, label, tone }) => {
+            {CATEGORIES.filter(({ id }) => id !== "memory" || spend.byCategory.memory > 0).map(({ id, label, tone }) => {
               const value = spend.byCategory[id];
               const share = spend.monthMicros > 0 ? (value / spend.monthMicros) * 100 : 0;
               return (

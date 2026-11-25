@@ -8,6 +8,7 @@ triggered it. Code: [`lib/inngest/`](../lib/inngest), served by [`app/api/innges
 - [agent-task-run](#agent-task-run)
 - [agent-auto-pickup](#agent-auto-pickup)
 - [run-sweep](#run-sweep)
+- [memory-librarian](#memory-librarian)
 - [Local development](#local-development)
 - [Inngest Cloud (not the default)](#inngest-cloud-not-the-default)
 - [Adding a function](#adding-a-function)
@@ -60,6 +61,8 @@ sequenceDiagram
 | `agent-auto-pickup` | cron `*/2 * * * *` | `lib/inngest/agent-pickup.ts` | Auto pickup: starts a run on the top never-run Todo card per workspace. |
 | `preview-sweep` | cron `*/10 * * * *` | `lib/inngest/preview-sweep.ts` | Stops previews older than 2 h and removes leftovers (only with a sandbox host). |
 | `run-sweep` | cron `*/5 * * * *` | `lib/inngest/run-sweep.ts` | Ends runs left behind when TechTeam stopped (below). |
+| `memory-librarian` | event `memory/learn.requested` | `lib/inngest/memory-librarian.ts` | The Brain's librarian: one run per workspace at a time (below). |
+| `memory-librarian-auto` | event `memory/learn.auto` (debounced) | `lib/inngest/memory-librarian.ts` | Waits until signals settle, then requests a librarian run. |
 
 There is no function for Switch scans or remote jobs any more: nothing in TechTeam waits for a call from the internet.
 
@@ -160,6 +163,32 @@ update (two sweeps end it once), its open stages are closed in the agent log and
 owner gets one notification: press Run to continue, which picks up the same branch and pull request. If Inngest later
 resumes the old function, it finds the run ended and stops at its next step. A quiet stretch of up to 20 minutes (one
 CLI chunk) stays under the 30-minute limit.
+
+## memory-librarian
+
+The Brain's librarian ([brain-plan.md](brain-plan.md#how-it-learns), `lib/librarian-run.ts`): one structured model call
+that turns signals into proposals, or a repository's files into a first memory. Two functions in
+`lib/inngest/memory-librarian.ts`; events in `lib/librarian-request.ts`.
+
+```
+merge / close, rejection reason, Remember this ── memory/learn.auto ──▶ memory-librarian-auto (debounce 3 min,
+                                                                       at most 15) ── memory/learn.requested ──┐
+Brain page: Learn now, Build first memory ───────────────────────────── memory/learn.requested ───────────────▶ memory-librarian
+```
+
+- **Automatic requests** (`requestLearning`) are sent only with memory on and **Learn automatically** on; they never
+  throw into a pipeline, sync or action (4 s timeout, a warning when the Dev Server is down). `memory-librarian-auto`
+  waits until a workspace has been quiet for 3 minutes (15 at most), then sends the run request.
+- **`memory-librarian`**: event data `{ workspaceId, job: "learn" | "bootstrap", trigger: "auto" | "manual" }`,
+  checked by `parseLibrarianRequest`; **concurrency 1 per workspace**; **no retries** (a retry would pay for the model
+  again); one step. An automatic run that has nothing to do (`learnDecision`) ends without a trace. Otherwise the state
+  goes to `workspaces.memory_librarian` (`running`, then `done` or `failed`). A learning run first proposes what the
+  owner asked to remember for everything (no model, no key or budget), then calls the model with the other signals if
+  the Lead and a key allow it; the cost goes to the Lead's `memory` activity. Each of the two steps saves its proposals
+  and marks its signals used in one transaction, only when it succeeds.
+- **Manual requests** mark the state `queued` first; if the event can't be sent the action reports it and the state says
+  so. A queued state older than 10 minutes, or a running one older than 15 (the app stopped mid-run), reads as failed;
+  nothing needs sweeping, since no signal was used.
 
 ## Local development
 

@@ -519,9 +519,9 @@ never executed. Not to be confused with **permissions**, which decide what an ag
 
 ## Brain
 
-`/dashboard/[workspaceId]/brain` (sidebar **Brain**): the notes agents read before they work, where they live, and
-what TechTeam has collected to learn from ([brain-plan.md](brain-plan.md); parts A and B: notes by hand and signals,
-nothing turns a signal into a note yet).
+`/dashboard/[workspaceId]/brain` (sidebar **Brain**): the notes agents read before they work, where they live, what
+TechTeam has collected to learn from, and the [librarian](#the-librarian-and-its-proposals) that turns it into proposals
+you review ([brain-plan.md](brain-plan.md); parts A to C).
 
 - **A note** is a short Markdown summary (≤ 2,000 characters) with a title, a type (convention, decision, pitfall,
   command, preference, lesson), when it loads (**always**: in every prompt; **on demand**: found by search), optional
@@ -531,9 +531,9 @@ nothing turns a signal into a note yet).
 - **Where the project's notes live** (Brain → **Settings**, per workspace): **In the repository** (default): the files
   `.techteam/memory/conventions.md` (the always-loaded core; no header needed) and `.techteam/memory/notes/<name>.md` on
   the default branch, read with your GitHub connection (cached about a minute, read again when the branch moves).
-  Nothing is written to the repository by this version: edit the files there. A notice warns that notes in a public
-  repository are public. **On this computer**: notes kept by TechTeam (create, edit, switch off, delete on the page),
-  nothing added to the repository. **Off**: agents get no memory at all.
+  TechTeam writes there only with the memory pull request you open yourself (below); you can also edit the files. A notice
+  warns that notes in a public repository are public. **On this computer**: notes kept by TechTeam (create, edit, switch
+  off, delete on the page), nothing added to the repository. **Off**: agents get no memory at all.
 - **What the page shows**: the project's notes (read-only in `repo` mode, with the file and **N files skipped** and why: a
   bad header, a file over 6,000 bytes, a note over 2,000 characters, or a security-scan block); your own notes with
   create, edit, switch off and delete in a dialog (the scan's findings show there: critical ones refuse the note,
@@ -545,14 +545,57 @@ nothing turns a signal into a note yet).
   exist, every agent also gets read-only `search_memory` (ranked like skills, boosted by the files it names) and
   `read_memory`; they appear in the agent log by key only. The Reviewer checks the change against the notes and reports
   a violation as a finding. Memory never adds a tool or a permission, and no agent can write to `.techteam/`.
-- **Not yet**: the librarian, proposals and memory pull requests, bootstrap from a repository, promotion to your memory
-  (parts C and D of the plan).
+- **Not yet**: promotion of project lessons to your memory, marking notes stale and usage counters (part D of the plan).
+
+### The librarian and its proposals
+
+The **librarian** reads what was collected and proposes changes to the notes. It isn't a seventh agent and has no tools or
+write access: it is one structured model call whose answer TechTeam checks (the signals it may cite, the notes it may
+change, the limits, the security scan, repeats) and drops what fails. Nothing it says reaches an agent without you.
+
+- **The model only proposes project notes.** It never writes **Your memory**: that gets proposals only from a
+  **Remember this** you typed for everything, each as one new note in your own words (title: its first line or sentence;
+  preference; always loaded), still checked, scanned, deduped and waiting for you. These need no model, so they appear
+  without an API key and with the Lead paused or out of budget; the run says why the rest couldn't run. A **Remember
+  this** saved with someone else's text unchanged can only become a project proposal.
+
+- **When it runs.** **Learn now** (any unused signal). On its own (Brain → Settings → **Learn automatically**, on by
+  default) a few minutes after a pull request is merged or closed, a rejection reason or a **Remember this**, once there
+  are at least 3 unused signals or one you typed, and fewer than 20 proposals wait. One run at a time per project; the
+  card says it is waiting or running, and how the last run ended (what it read, how many proposals, what it left out,
+  the cost). A failed step uses none of its signals up.
+- **Who pays.** The Lead's budget (a paused Lead or a spent budget stops the model's call; the spend shows in the Lead's
+  panel as *Memory (librarian)* and in Activity), with an **API key**: the company of the Lead's model if it has a key,
+  else OpenAI, Anthropic, OpenRouter; the company's **fast** model to learn, its **balanced** model to read a repository.
+  Your Claude plan isn't used. Without a key the card says so. In simulated mode a script stands in and nothing is spent.
+- **Build a first memory from this repository.** Reads, from the default branch with your GitHub connection, only the
+  README, contributing notes, `AGENTS.md` / `CLAUDE.md`, the `package.json` scripts, TypeScript, ESLint and Prettier
+  configuration, up to four CI workflows, the top-level tree and where the tests are (about 40,000 characters at most,
+  never `.env` files or source code), and proposes a conventions note (always loaded; an update when one exists) and up
+  to five on-demand notes. Offered until it has run once; **Read again** afterwards.
+- **A proposal** shows what it does (new note, update, retire), where (This project / Everything), the proposed note next
+  to the current one for an update or a retirement, why, and what it is based on (each signal with **Trusted** or **From
+  an agent**, its card, pull request and entry in Activity; or the repository's files). One **based only on text from
+  agents, CI or the repository** says so and needs a box ticked before it can be accepted or sent. The model makes at
+  most five per learning run; your requests for everything aren't limited by that.
+- **Your memory and projects in mode On this computer**: **Accept**, **Edit then accept** or **Reject**. Accepting writes
+  the note (checked and scanned again); a retirement switches the note off. If the note changed since the proposal was
+  made, nothing is written and the proposal is marked superseded.
+- **Projects in mode In the repository**: choose proposals (editing allowed) and press **Open memory pull request**.
+  Only then is anything written: one commit on a new branch `agent/memory-<date>` that changes only
+  `.techteam/memory/` (conventions to `conventions.md`, other notes to `notes/<name>.md`, a retirement deletes the
+  file), and a pull request **TechTeam memory: N notes** listing the notes, why and what they are based on. While it is
+  open, the next click adds a commit to it (fast-forward only). TechTeam never merges it, and it isn't one of the
+  board's pull requests. The Brain page (and **Check GitHub**) picks up the result: merged → the notes are in; closed
+  without merging → rejected.
+- **Rejecting is remembered**: the same proposal isn't made again. Changing the memory mode keeps waiting proposals and
+  offers what fits the new mode; with memory off nothing can be decided and the librarian doesn't run.
 
 ### Signals: what it learns from
 
 TechTeam writes down what you reject and correct. A **signal** is raw material: agents never read it, and nothing becomes
-a note without a review (a later version). Every text is capped and passes the memory scanner; a refused text isn't
-stored. At most 500 per workspace (used ones, then the oldest, go first).
+a note without a review. Every text is capped and passes the memory scanner; a refused text isn't stored. At most 500
+per workspace (used ones, then the oldest, go first).
 
 **With memory off** (Brain → Settings), TechTeam collects nothing on its own and asks nothing: no rework, answer or
 lesson signals, and no "Why was this rejected?" (one still pending from before is hidden and comes back when memory is
@@ -572,7 +615,7 @@ says the note is kept for when memory is turned on. Activity still lists what wa
   the same card or its follow-up card), and never for a merged one; a rerun that takes a pull request over leaves it
   open. **✕** or **Don't ask** dismisses it for good; closing the dialog leaves it for later.
 - **Activity** (on the Brain page): the signals, newest first, 20 at a time (**Show more**): the kind, the reason, cause or
-  title, the text, **Trusted** or **From an agent**, the card and pull request, whether it was used (not yet), when, and
+  title, the text, **Trusted** or **From an agent**, the card and pull request, whether the librarian used it, when, and
   delete.
 
 ## Live process

@@ -1,6 +1,6 @@
 import "server-only";
 
-import type OpenAI from "openai";
+import OpenAI from "openai";
 
 import {
   AGENT_KEYS,
@@ -10,13 +10,13 @@ import {
   PERMISSION_BY_ID,
   PROVIDER_IDS,
   formatCents,
-  roleDefaultModel,
+  tierModel,
   type AgentKey,
   type AgentModelId,
   type AgentProvider,
-  type ModelPricing,
   type PermissionId,
 } from "@/lib/agent-config";
+import { librarianClaudeEffort, librarianEffort, modelKnobs } from "@/lib/agent-request-params";
 import { STAGE_META } from "@/lib/agent-run-config";
 import { SKILL_LOADS, SKILL_TYPES, type SkillLoad, type SkillScanFinding, type SkillType } from "@/lib/agent-skills-config";
 import { scanAgentRules, sortFindings, type TrustFinding, type TrustReport, type TrustSeverity, type TrustSkillInput } from "@/lib/agent-trust";
@@ -24,7 +24,8 @@ import { getAIKeys, type AIKeys } from "@/lib/ai-keys";
 import { anthropicClient, anthropicErrorMessage, messageCostMicros } from "@/lib/anthropic";
 import { getGithubToken, getRepoContext, type RepoContext } from "@/lib/github";
 import { getModelCatalog } from "@/lib/model-catalog";
-import { findModel } from "@/lib/model-catalog-config";
+import type { LibrarianJob } from "@/lib/memory-proposals";
+import { findModel, type Effort, type ModelTier } from "@/lib/model-catalog-config";
 import { openAIClient, openAIErrorMessage, responseCostMicros } from "@/lib/openai";
 import { OPENROUTER_ROUTING, completionCostMicros, openRouterClient, openRouterErrorMessage } from "@/lib/openrouter";
 import { sandboxAvailable } from "@/lib/sandbox";
@@ -37,13 +38,14 @@ import { SANDBOX_STAGES } from "@/lib/sandbox/config";
  */
 
 /**
- * Model for configuration helpers on a company, with its catalog price: the Analyst's default there (the company's
- * balanced model in the catalog), strong writing at a moderate price.
+ * The model of a tier on a company, with its catalog entry and price. Configuration helpers use the balanced one:
+ * strong writing at a moderate price.
  */
-async function configModel(provider: AgentProvider): Promise<{ model: AgentModelId; pricing: ModelPricing | null }> {
+async function configModel(provider: AgentProvider, tier: ModelTier) {
   const catalog = await getModelCatalog();
-  const model = roleDefaultModel(catalog, "analyst", provider);
-  return { model, pricing: findModel(catalog, model)?.pricing ?? null };
+  const model = tierModel(catalog, provider, tier);
+  const entry = findModel(catalog, model);
+  return { model, entry, pricing: entry?.pricing ?? null };
 }
 
 export type ConfigAI = { provider: AgentProvider; apiKey: string };
@@ -68,28 +70,51 @@ export function configAIErrorMessage(ai: ConfigAI, error: unknown) {
   return ai.provider === "anthropic" ? anthropicErrorMessage(error) : openRouterErrorMessage(error);
 }
 
-/** One structured (JSON schema) completion on the workspace's provider. */
-async function structuredCompletion<T>(
+export type StructuredInput = { system: string; user: string; name: string; schema: Record<string, unknown> };
+
+/** What a structured call answered: the JSON text (null when there is none), and what it cost either way. */
+export type StructuredReply = { text: string | null; refused: boolean; model: AgentModelId; costMicros: number };
+
+// A librarian job reads far more than a configuration helper, and thinks before it answers.
+const JOB_TIMEOUT_MS = 180_000;
+
+/**
+ * One structured (JSON schema) call on a company, without tools. `tier` picks the model from the catalog; `job` is
+ * the librarian's, which sets the request's effort and a longer timeout. The caller logs the cost, then reads the text.
+ */
+export async function structuredReply(
   ai: ConfigAI,
-  input: { system: string; user: string; name: string; schema: Record<string, unknown> }
-) {
+  input: StructuredInput,
+  { tier = "balanced", job }: { tier?: ModelTier; job?: LibrarianJob } = {}
+): Promise<StructuredReply> {
+  const { model, entry, pricing } = await configModel(ai.provider, tier);
+  const knobs = modelKnobs(model, entry);
+  const effort = job ? librarianEffort(knobs, job) : null;
+  const options = job ? { timeout: JOB_TIMEOUT_MS } : undefined;
+
   if (ai.provider === "openai") {
     const openai = openAIClient(ai.apiKey);
-    const { model, pricing } = await configModel("openai");
-    const response = await openai.responses.create({
+    const request: OpenAI.Responses.ResponseCreateParamsNonStreaming = {
       model,
       input: [
         { role: "system", content: input.system },
         { role: "user", content: input.user },
       ],
       text: { format: { type: "json_schema", name: input.name, strict: true, schema: input.schema } },
-    });
-    return { data: JSON.parse(response.output_text) as T, model, costMicros: responseCostMicros(pricing, response.usage) };
+    };
+    let response: OpenAI.Responses.Response;
+    try {
+      response = await openai.responses.create({ ...request, ...(effort ? { reasoning: { effort } } : {}) }, options);
+    } catch (error) {
+      // The effort only saves tokens: a model that rejects it still answers, without it.
+      if (!(effort && error instanceof OpenAI.BadRequestError && error.param?.startsWith("reasoning"))) throw error;
+      response = await openai.responses.create(request, options);
+    }
+    return { text: response.output_text || null, refused: false, model, costMicros: responseCostMicros(pricing, response.usage) };
   }
 
   if (ai.provider === "openrouter") {
-    const { model, pricing } = await configModel("openrouter");
-    const body: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & { provider: typeof OPENROUTER_ROUTING } = {
+    const body: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & { provider: typeof OPENROUTER_ROUTING; reasoning?: { effort: Effort } } = {
       model,
       messages: [
         { role: "system", content: input.system },
@@ -97,26 +122,35 @@ async function structuredCompletion<T>(
       ],
       response_format: { type: "json_schema", json_schema: { name: input.name, strict: true, schema: input.schema } },
       provider: OPENROUTER_ROUTING,
+      ...(effort ? { reasoning: { effort } } : {}),
     };
-    const response = await openRouterClient(ai.apiKey).chat.completions.create(body);
-    const text = response.choices[0]?.message.content;
-    if (!text) throw new Error("The model returned no text.");
-    return { data: JSON.parse(text) as T, model, costMicros: completionCostMicros(pricing, response.usage) };
+    const response = await openRouterClient(ai.apiKey).chat.completions.create(body, options);
+    return { text: response.choices[0]?.message.content || null, refused: false, model, costMicros: completionCostMicros(pricing, response.usage) };
   }
 
   const anthropic = anthropicClient(ai.apiKey);
-  const { model, pricing } = await configModel("anthropic");
-  const response = await anthropic.messages.create({
-    model,
-    max_tokens: 16_000,
-    system: input.system,
-    messages: [{ role: "user", content: input.user }],
-    output_config: { format: { type: "json_schema", schema: input.schema } },
-  });
-  if (response.stop_reason === "refusal") throw new Error("The model declined this request.");
-  const text = response.content.find((block) => block.type === "text");
-  if (!text || text.type !== "text") throw new Error("The model returned no text.");
-  return { data: JSON.parse(text.text) as T, model, costMicros: messageCostMicros(pricing, response.usage) };
+  const claude = job ? librarianClaudeEffort(knobs, job) : null;
+  const response = await anthropic.messages.create(
+    {
+      model,
+      max_tokens: 16_000,
+      system: input.system,
+      messages: [{ role: "user", content: input.user }],
+      output_config: { format: { type: "json_schema", schema: input.schema }, ...(claude ? { effort: claude } : {}) },
+    },
+    options
+  );
+  const block = response.content.find((candidate) => candidate.type === "text");
+  const refused = response.stop_reason === "refusal";
+  return { text: !refused && block?.type === "text" ? block.text : null, refused, model, costMicros: messageCostMicros(pricing, response.usage) };
+}
+
+/** One structured completion on the workspace's provider, parsed. */
+async function structuredCompletion<T>(ai: ConfigAI, input: StructuredInput) {
+  const { text, refused, model, costMicros } = await structuredReply(ai, input);
+  if (refused) throw new Error("The model declined this request.");
+  if (!text) throw new Error("The model returned no text.");
+  return { data: JSON.parse(text) as T, model, costMicros };
 }
 
 type WorkspaceRepo = { ownerId: number; githubRepoFullName: string; githubDefaultBranch: string; sandboxEnabled: boolean };

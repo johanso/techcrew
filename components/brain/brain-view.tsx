@@ -1,26 +1,34 @@
 import { BanIcon, BrainIcon, TriangleAlertIcon, UserRoundIcon } from "lucide-react";
 
 import { BlockPreview } from "@/components/brain/block-preview";
+import { LibrarianCard, type LibrarianCardProps } from "@/components/brain/librarian-card";
 import { MemoryModeForm } from "@/components/brain/memory-mode-form";
 import { NoteLibrary } from "@/components/brain/note-library";
+import { ProposalInbox } from "@/components/brain/proposal-inbox";
 import { RepoNotes, SkippedList } from "@/components/brain/repo-notes";
 import { SignalActivity } from "@/components/brain/signal-activity";
 import { PageHeader, SurfaceHeader } from "@/components/dashboard/page-header";
 import { SurfaceEmpty } from "@/components/dashboard/section-empty";
 import type { LoadedMemory } from "@/lib/memory";
 import { MEMORY_DIR, type MemoryBlock } from "@/lib/memory-config";
+import type { ProposalView } from "@/lib/memory-proposals";
 import { collectsSignals } from "@/lib/memory-signals";
 import type { SignalView } from "@/lib/memory-signals-store";
 
 const tile = (icon: React.ReactNode) => <span className="icon-tile text-brand-emphasis">{icon}</span>;
 
-/** The Brain page's markup: this project's notes, the owner's own, what agents get, the activity and the settings. */
+/**
+ * The Brain page's markup: the librarian and its proposals, this project's notes, the owner's own, what agents get, the
+ * activity and the settings.
+ */
 export function BrainView({
   workspaceId,
   repoName,
   repoPrivate,
   memory,
   block,
+  librarian,
+  proposals,
   signals,
   olderSignalsHref,
 }: {
@@ -29,6 +37,9 @@ export function BrainView({
   repoPrivate: boolean;
   memory: LoadedMemory;
   block: MemoryBlock;
+  librarian: Omit<LibrarianCardProps, "workspaceId">;
+  /** What waits for the owner, and what is in the memory pull request. */
+  proposals: ProposalView[];
   /** The newest signals for Activity, and the link to a longer list when there are more. */
   signals: SignalView[];
   olderSignalsHref: string | null;
@@ -44,7 +55,10 @@ export function BrainView({
         description="What your agents know before they start: how this project is worked on, and how you like work done. Notes are reference data. They can never change an agent's rules, tools or permissions."
       />
 
-      {memory.mode === "repo" && <RepoNotes workspaceId={workspaceId} repoName={repoName}notes={memory.project} skipped={memory.skipped.filter((skipped) => inRepository(skipped.file))} found={memory.repoFound} problem={memory.problem} />}
+      <LibrarianCard workspaceId={workspaceId} {...librarian} />
+      <ProposalInbox workspaceId={workspaceId} mode={memory.mode} proposals={proposals} />
+
+      {memory.mode === "repo" && <RepoNotes workspaceId={workspaceId} repoName={repoName} notes={memory.project} skipped={memory.skipped.filter((skipped) => inRepository(skipped.file))} found={memory.repoFound} problem={memory.problem} />}
       {memory.mode === "local" && (
         <NoteLibrary
           workspaceId={workspaceId}
@@ -90,7 +104,7 @@ export function BrainView({
 
       <BlockPreview block={block} />
       <SignalActivity workspaceId={workspaceId} signals={signals} olderHref={olderSignalsHref} paused={!collectsSignals(memory.mode)} />
-      <MemoryModeForm workspaceId={workspaceId} mode={memory.mode} repoPrivate={repoPrivate} />
+      <MemoryModeForm workspaceId={workspaceId} mode={memory.mode} autoLearn={librarian.autoLearn} repoPrivate={repoPrivate} />
     </>
   );
 }

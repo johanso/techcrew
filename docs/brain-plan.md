@@ -98,16 +98,18 @@ Everything becomes a **signal** first (`memory_signals`), then the librarian tur
    contributing notes, lint, TypeScript and formatter configuration, the CI workflow, the `package.json` scripts and the
    test layout, and proposes a first `conventions.md`.
 
-**The librarian** is a stage (`memory`, a cheap model, with a budget, honoring pause and spend limits) that runs after a
-merge or a close, or when signals pile up. It dedupes against existing notes, updates instead of adding, detects
-contradictions and marks notes whose files no longer exist as `stale`.
+**The librarian** runs after a merge or a close, a rejection reason or a **Remember this**, once there is enough to
+learn from, or on **Learn now**. What the owner asked to remember for everything is proposed in their words, without a
+model; the rest goes to one structured model call (a cheap model, on the Lead's budget, honoring pause and spend limits)
+that proposes project notes. It dedupes against existing notes and updates instead of adding; marking notes whose files
+no longer exist as `stale` is part D.
 
 **How a proposal arrives**
 
 - **Project, mode `repo`**: in **one separate pull request** (`TechTeam memory: N notes`, branch
-  `agent/memory-<date>`, one commit that touches only `.techteam/memory/**`), never mixed with a card. It is never merged
-  automatically. The only tool that can write there is a dedicated `propose_memory`; the general write tools keep
-  refusing the folder.
+  `agent/memory-<date>`, one commit per send that touches only `.techteam/memory/**`), opened by the owner's click, never
+  mixed with a card and never merged by TechTeam. Only that code path writes there; the agents' write tools keep refusing
+  the folder.
 - **Project, mode `local`, and the owner's memory**: an **inbox** in the app (Accept, Edit, Reject), with the evidence.
 - **Promotion to the owner's memory**: when the librarian sees a similar lesson in two or more workspaces it drafts a
   version **without repository names, paths or identifiers** (a deterministic strip pass plus a model check) and puts it
@@ -143,9 +145,10 @@ All additive (migration `0021`, `0022`… as each part needs):
 - `memory_notes` (`user_id`, nullable `workspace_id`, `scope` global | project, `type`, `title`, `body`, `load`,
   `status`, `paths` text[], `source` jsonb, `origin` owner | agent | bootstrap, `content_hash`, timestamps). Global
   notes and `local`-mode project notes; in `repo` mode the repository's files are the truth.
-- `memory_proposals` (`kind` add | update | retire, the target, the proposed text, `rationale`, `evidence` jsonb,
-  `untrusted_origin`, `status` pending | accepted | rejected | merged | superseded, the memory pull request number,
-  `run_id`, timestamps).
+- `memory_proposals` (`kind` add | update | retire, `scope`, the target, the proposed text, `rationale`, `evidence`
+  jsonb, `untrusted_origin`, `origin`, `content_hash`, `status` pending | accepted | in_pr | merged | rejected |
+  superseded, the memory pull request number, timestamps; [data-model.md](data-model.md#memory_proposals)).
+- `workspaces.memory_auto_learn` and `workspaces.memory_librarian` (the last run).
 - `memory_signals` (`kind` pr_rejected | rework | answer | failure | lesson | remember, `run_id`, `pr_number`, `task_id`,
   `payload` jsonb, `trusted`, `created_at`, `consumed_at`).
 - `workspaces.memory_mode` (`repo` | `local` | `off`, default `repo`) and `workspaces.memory_bootstrapped_at`.
@@ -179,7 +182,7 @@ request with a reason, and watch the proposal appear.
 | --- | --- | --- | --- |
 | **A. Foundation** | Built, in review | Migration `0021` (`memory_notes`, `workspaces.memory_mode` and `memory_bootstrapped_at`), the note format and parser (`lib/memory-config.ts`), the scanner (`lib/memory-scan.ts`), the loader (repository files in `repo` mode through `lib/memory-loader.ts`, rows in `local` mode and for the owner's notes, `lib/memory.ts`), the Memory block pinned per stage, `search_memory` / `read_memory`, the Reviewer's check, the Brain page (notes, your memory, what agents get, settings), tests, backup coverage | No `memory_proposals` or `memory_signals` tables, no signals, no librarian, no proposals inbox, no memory pull request (the page says to edit the files in the repository), no bootstrap from a repository, no promotion, no stale detection, no usage counters, no "Brain" line in a run's header; not yet exercised by a full live or simulated pipeline run |
 | **B. Signals** | Built, in review | Migration `0022` (`memory_signals`, `pull_requests.rejection_prompt`), the builders, lessons parser and retention (`lib/memory-signals.ts`), the writer that never throws (`lib/memory-signals-store.ts`), signals from rejected pull requests (the one question on the card and the Pull Requests page), rework rounds, answers to the Analyst, the Lead's `lessons` and **Remember this** (card menu and agent log), the Brain page's Activity with delete, tests, backup coverage | No `failure` signals (they wait for the classification of v0.12), nothing consumes a signal (`consumed_at` stays empty), no librarian, proposals or memory pull requests; the Lead's `lessons` not yet exercised with a real model (the simulated Lead suggests none) |
-| **C. The librarian** | Not started | | |
+| **C. The librarian** | Built, in review | Migration `0023` (`memory_proposals`, `workspaces.memory_auto_learn` and `memory_librarian`), the librarian's structured call and the server's checks (`lib/librarian.ts`, `lib/librarian-run.ts`), the Inngest functions with debounced automatic requests, **Learn now**, bootstrap from a repository (`lib/memory-bootstrap.ts`), the Proposals inbox (accept, edit then accept, reject, supersede on change), the memory pull request with its path guard (`lib/memory-files.ts`, `lib/memory-proposals-store.ts`), a simulated librarian, tests, backup coverage | No promotion across projects, no `stale` marking (nothing detects notes whose files are gone), no usage counters, no Claude plan route; not yet run with a real model |
 | **D. Promotion and release** | Not started | | |
 
 Choices made while building A: a note's key is `project/<name>` or `global/<name>-<id>`; `load` is written `on-demand` in
@@ -193,6 +196,40 @@ with memory `off` nothing is collected or asked on its own (a pending question i
 **Remember this** stays available), and nothing is recorded when the mode can't be read; a lesson refused by the scan is dropped
 whole, rework feedback loses only the refused items; **Remember this** saved with someone else's starting text unchanged
 is untrusted; signals have no `status` and are deleted by the owner or by the limit of 500.
+
+Choices made while building C:
+
+- **The librarian** is not a pipeline stage or a seventh agent: one structured call without tools. It is paid and logged
+  on the **Lead** (activity kind `memory`, honoring pause and budget), and runs with **API keys only** (no Claude plan
+  route yet): the company of the Lead's model if it has a key, else OpenAI, Anthropic, OpenRouter; the company's fast
+  model to learn (low effort where listed), its balanced one to bootstrap.
+- **A model never writes the owner's global memory.** The model proposes project notes only (its schema has no scope,
+  and the server refuses one); it sees global notes just to avoid repeating them. A global proposal exists only for a
+  **Remember this** the owner typed for everything: server code turns it into one new note of their words (title: the
+  first line or sentence; type preference; always loaded), with the same validation, scan and dedupe. That signal is
+  never sent to a model, and the step needs no key and no budget: it runs first in a learning run, so a paused Lead or
+  a missing key only stops the rest. **Remember this** saved with someone else's text unchanged goes to the model like
+  any signal and can only become a project proposal. Promotion from project lessons stays in part D.
+- **Only the owner's click opens the memory pull request** (*Open memory pull request*, with the chosen proposals);
+  there is no dedicated `propose_memory` tool and nothing is pushed on its own. While it is open, the next click adds a
+  commit to its branch (fast-forward only). It isn't a row of `pull_requests`; its state is read when the Brain page
+  loads or on **Check GitHub**.
+- **Retiring** deletes the note's file in the repository (the diff shows what goes; history keeps it), and switches a
+  database note off (`disabled`).
+- The **core note** is the first chosen addition that is `always` loaded and a `convention` while `conventions.md`
+  doesn't exist; other additions go to `notes/<slug>.md`. Bootstrap proposes its conventions as an update when the core
+  exists.
+- At most 5 proposals per learning run; the bootstrap, one conventions note and up to 5 more. Automatic runs wait for a
+  quiet 3 minutes (15 at most) and need 3 unused signals or one the owner typed, and fewer than 20 waiting proposals;
+  **Learn now** takes any unused signal. A successful step uses its signals up even when it proposes nothing.
+- A repeat is the same note title (in its scope) or text, a second change to a note with one waiting, or something
+  rejected before (an addition also by title). `untrusted_origin` is true when no cited signal was typed by the owner:
+  one trusted signal among them clears it, so each evidence item still shows its own mark.
+- A proposal records the target note's version (a hash of all its fields); accepting or sending it after any change
+  marks it `superseded`. Evidence is copied into the proposal, so deleting a signal doesn't remove it. `run_id` from the
+  data model sketch was left out: a proposal can rest on several runs.
+- The librarian is offered the notes that aren't switched off (up to 20,000 characters) and up to 40 unused signals (up
+  to 24,000 characters), newest first.
 
 ## Risks
 
