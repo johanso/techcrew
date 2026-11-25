@@ -21,6 +21,8 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   Nothing learns or writes to your repository yet: see [docs/brain-plan.md](docs/brain-plan.md).
 
 ### Fixed
+- **An open redirect after sign-in.** A `next` such as `/<tab>/evil.example` passed the check, and browsers drop the tab
+  and read it as another site. Destinations with control characters or backslashes are refused now.
 - **Reconnect GitHub works while signed in.** The buttons led to the sign-in page, which sent a signed-in owner straight
   back, so a rejected GitHub token could only be replaced by signing out first. They now open a reconnect view that
   authorizes again and returns you to where you were; only the account you signed in with is accepted. The Brain page's

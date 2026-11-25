@@ -13,6 +13,17 @@ describe("isSafeRedirectPath", () => {
     }
   });
 
+  it("rejects what a browser would quietly turn into another site", () => {
+    for (const value of ["/\t/evil.example", "/\n/evil.example", "/\r/evil.example", "/\t\\evil.example", "/ok\\..\\evil", "/\u0000/evil.example"]) {
+      expect(isSafeRedirectPath(value)).toBe(false);
+    }
+  });
+
+  it("keeps encoded slashes, which stay part of the path", () => {
+    expect(isSafeRedirectPath("/%2F%2Fevil.example")).toBe(true);
+    expect(new URL("/%2F%2Fevil.example", "http://localhost").origin).toBe("http://localhost");
+  });
+
   it("rejects non-strings", () => {
     for (const value of [undefined, null, 3, ["/a"], {}]) expect(isSafeRedirectPath(value)).toBe(false);
   });
