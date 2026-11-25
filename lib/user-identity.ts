@@ -40,6 +40,29 @@ export function resolveUser(identity: GithubIdentity, users: UserRow[], connecti
   return { kind: "create" };
 }
 
+export type SessionSignIn =
+  /** Nobody is signed in: resolveUser decides who this is. */
+  | { kind: "signed-out" }
+  /** The signed-in user authorized their own account again (or their first one): save the new token for them. */
+  | { kind: "reconnect"; userId: number }
+  /** Refused: the session, the saved connection and every user stay as they are. */
+  | { kind: "different-account" };
+
+/**
+ * What a finished GitHub authorization may do while `session` is the signed-in user (null: signed out). A signed-in
+ * browser only ever reconnects its own user: another account never switches the session, creates or adopts a user.
+ */
+export function sessionSignIn(identity: Pick<GithubIdentity, "githubUserId">, session: Pick<UserRow, "id" | "githubUserId"> | null): SessionSignIn {
+  if (!session) return { kind: "signed-out" };
+  if (session.githubUserId !== null && session.githubUserId !== identity.githubUserId) return { kind: "different-account" };
+  return { kind: "reconnect", userId: session.id };
+}
+
+/** Why a `different-account` authorization was refused. */
+export function differentAccountMessage(login: string) {
+  return `That is a different GitHub account (@${login}). Authorize with the account you signed in with, or sign out first.`;
+}
+
 /** GitHub's no-reply address of an account: unique per GitHub id and needs no extra OAuth scope. */
 export function noreplyEmail(identity: Pick<GithubIdentity, "githubUserId" | "login">) {
   return `${identity.githubUserId}+${identity.login}@users.noreply.github.com`;

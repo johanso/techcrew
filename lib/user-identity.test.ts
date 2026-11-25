@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { noreplyEmail, resolveUser, type ConnectionRow, type GithubIdentity, type UserRow } from "@/lib/user-identity";
+import {
+  differentAccountMessage,
+  noreplyEmail,
+  resolveUser,
+  sessionSignIn,
+  type ConnectionRow,
+  type GithubIdentity,
+  type UserRow,
+} from "@/lib/user-identity";
 
 const me: GithubIdentity = { githubUserId: 1001, login: "octo-cat", name: "Octo Cat", avatarUrl: null };
 const user = (id: number, githubUserId: number | null = null, email = `u${id}@example.com`): UserRow => ({ id, githubUserId, email });
@@ -72,6 +80,30 @@ describe("resolveUser", () => {
   it("a different GitHub account after the owner's adoption is a separate user", () => {
     const other: GithubIdentity = { githubUserId: 2002, login: "someone", name: null, avatarUrl: null };
     expect(resolveUser(other, [user(1, 1001)], [])).toEqual({ kind: "create" });
+  });
+});
+
+describe("sessionSignIn", () => {
+  it("accepts the signed-in user's own GitHub account as a reconnect", () => {
+    expect(sessionSignIn(me, user(4, 1001))).toEqual({ kind: "reconnect", userId: 4 });
+  });
+
+  it("refuses another GitHub account while a session exists", () => {
+    expect(sessionSignIn(me, user(4, 2002))).toEqual({ kind: "different-account" });
+  });
+
+  it("accepts any account for a signed-in user without a GitHub id yet", () => {
+    expect(sessionSignIn(me, user(4, null))).toEqual({ kind: "reconnect", userId: 4 });
+  });
+
+  it("leaves a sign-in without a session to resolveUser", () => {
+    expect(sessionSignIn(me, null)).toEqual({ kind: "signed-out" });
+  });
+
+  it("names the refused account and says what to do", () => {
+    expect(differentAccountMessage("someone")).toBe(
+      "That is a different GitHub account (@someone). Authorize with the account you signed in with, or sign out first."
+    );
   });
 });
 

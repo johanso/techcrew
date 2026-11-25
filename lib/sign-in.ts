@@ -1,12 +1,13 @@
 import "server-only";
 
+import { getCurrentUser } from "@/lib/current-user";
 import { DISABLED_MESSAGE, pollDeviceFlow, requestDeviceCode, type DeviceFlowState } from "@/lib/device-flow";
 import { GithubError, getGithubIdentity, githubClientId, saveGithubConnection, verifyPersonalToken } from "@/lib/github";
-import { adoptUser, createGithubUser, resolveGithubSignIn } from "@/lib/local-user";
-import { isSafeRedirectPath } from "@/lib/safe-redirect";
+import { adoptUser, createGithubUser, resolveGithubSignIn, type SignInOutcome } from "@/lib/local-user";
+import { safeNext } from "@/lib/safe-redirect";
 import { ADOPT_COOKIE, ADOPT_TTL_MS, LOGIN_COOKIE } from "@/lib/session-config";
 import { clearCookie, readSealedCookie, startSession, writeSealedCookie } from "@/lib/session";
-import type { GithubIdentity } from "@/lib/user-identity";
+import { differentAccountMessage, sessionSignIn, type GithubIdentity } from "@/lib/user-identity";
 
 /** What the sign-in page shows after each step (the device code itself never leaves the server). */
 export type SignInStep =
@@ -17,12 +18,9 @@ export type SignInStep =
   | { status: "denied" | "expired" }
   | { status: "error" | "disabled" | "not-configured"; message: string };
 
-const DEFAULT_NEXT = "/workspaces";
 const NOT_CONFIGURED =
   "No GitHub client id is configured. Set GITHUB_CLIENT_ID to the client id of a GitHub OAuth App with Device Flow enabled, then restart (docs/setup.md).";
 const TOKEN_REFUSED = "GitHub didn't accept that token, or it can't read repositories. Create a token with the repo scope.";
-
-export const safeNext = (value: unknown) => (isSafeRedirectPath(value) ? value : DEFAULT_NEXT);
 
 const isFlowState = (value: unknown): value is DeviceFlowState => {
   const state = value as Partial<DeviceFlowState> | null;
@@ -107,12 +105,24 @@ export async function signInWithPersonalToken(token: string, next: unknown): Pro
   }
 }
 
+/**
+ * Whose sign-in this authorization is. The session is read from the request's cookie, never from anything the client
+ * sends: while signed in, only that user's own GitHub account is accepted.
+ */
+async function resolveSignIn(identity: GithubIdentity): Promise<SignInOutcome | { kind: "different-account" }> {
+  const session = sessionSignIn(identity, await getCurrentUser());
+  if (session.kind === "signed-out") return resolveGithubSignIn(identity);
+  const user = session.kind === "reconnect" ? await adoptUser(session.userId, identity) : null;
+  return user ? { kind: "signed-in", user } : { kind: "different-account" };
+}
+
 /** Identity and repository access in one step: resolve the user, save the token, open the session. */
 async function completeSignIn(accessToken: string, scope: string | null, next: string): Promise<SignInStep> {
   const identity = await getGithubIdentity(accessToken);
-  const outcome = await resolveGithubSignIn(identity);
+  const outcome = await resolveSignIn(identity);
   await clearCookie(LOGIN_COOKIE);
 
+  if (outcome.kind === "different-account") return { status: "error", message: differentAccountMessage(identity.login) };
   if (outcome.kind === "needs-adoption") {
     await writeSealedCookie(ADOPT_COOKIE, { identity, accessToken, scope, next, userId: outcome.userId }, ADOPT_TTL_MS, { encrypted: true });
     return { status: "adopt" };
@@ -158,12 +168,23 @@ export async function readPendingAdoption(): Promise<PendingAdoption | null> {
   };
 }
 
-/** The owner's answer on the adopt page: `adopt` hands them the existing data, otherwise a separate account is made. */
+/**
+ * The owner's answer on the adopt page: `adopt` hands them the existing data, otherwise a separate account is made.
+ * Returns where to go, or null when the question no longer applies. If someone signed in meanwhile (another tab), either
+ * answer can only reconnect that user; another account goes back to the adopt page, which says why.
+ */
 export async function answerAdoption(adopt: boolean): Promise<string | null> {
   const pending = await readPendingAdoption();
   if (!pending) return null;
 
-  const user = adopt ? await adoptUser(pending.userId, pending.identity) : await createGithubUser(pending.identity);
+  const session = sessionSignIn(pending.identity, await getCurrentUser());
+  if (session.kind === "different-account") return "/sign-in/adopt";
+  const user =
+    session.kind === "reconnect"
+      ? await adoptUser(session.userId, pending.identity)
+      : adopt
+        ? await adoptUser(pending.userId, pending.identity)
+        : await createGithubUser(pending.identity);
   if (!user) return null;
   await saveGithubConnection(user.id, { ...identityFields(pending.identity), accessToken: pending.accessToken, scope: pending.scope });
   await startSession(user.id);
