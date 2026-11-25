@@ -1,23 +1,30 @@
+import Link from "next/link";
 import { FileWarningIcon, FolderGitIcon, InfoIcon, PlugZapIcon } from "lucide-react";
 
+import { GitHubIcon } from "@/components/auth/brand-icons";
 import { NoteRow } from "@/components/brain/note-row";
+import { dashboardHref } from "@/components/dashboard/nav";
 import { SurfaceHeader } from "@/components/dashboard/page-header";
 import { SurfaceEmpty } from "@/components/dashboard/section-empty";
+import { buttonVariants } from "@/components/ui/button";
 import { CORE_FILE, MEMORY_DIR, type MemoryNote } from "@/lib/memory-config";
 import type { MemoryProblem } from "@/lib/memory";
 import type { SkippedFile } from "@/lib/memory-loader";
+import { reconnectHref } from "@/lib/safe-redirect";
 
 /**
  * Mode `repo`: the notes the repository holds under .techteam/memory/, read-only here. The files are the truth, so
  * they change with a pull request in the repository, not on this page.
  */
 export function RepoNotes({
+  workspaceId,
   repoName,
   notes,
   skipped,
   found,
   problem,
 }: {
+  workspaceId: number;
   repoName: string;
   notes: MemoryNote[];
   skipped: SkippedFile[];
@@ -44,12 +51,20 @@ export function RepoNotes({
         Edit these files in the repository ({MEMORY_DIR}/). TechTeam will propose changes in a pull request in a later version.
       </p>
       {problem && (
-        <p role="status" className="flex items-start gap-2 border-b border-border/70 bg-warning/5 px-6 py-3 text-sm">
-          <PlugZapIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
-          {problem === "reconnect"
-            ? "GitHub rejected the saved connection, so the notes couldn't be read. Reconnect GitHub from the workspace page; agents run without project notes until then."
-            : "GitHub couldn't be reached, so the notes couldn't be read. Agents run without project notes until it answers."}
-        </p>
+        <div role="status" className="flex flex-col items-start gap-3 border-b border-border/70 bg-warning/5 px-6 py-3 text-sm sm:flex-row sm:items-center">
+          <p className="flex min-w-0 flex-1 items-start gap-2">
+            <PlugZapIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
+            {problem === "reconnect"
+              ? "GitHub rejected the saved connection, so the notes couldn't be read. Agents run without project notes until you reconnect."
+              : "GitHub couldn't be reached, so the notes couldn't be read. Agents run without project notes until it answers."}
+          </p>
+          {problem === "reconnect" && (
+            <Link href={reconnectHref(dashboardHref(workspaceId, "brain"))} className={buttonVariants({ variant: "outline", className: "h-9" })}>
+              <GitHubIcon className="size-4" />
+              Reconnect GitHub
+            </Link>
+          )}
+        </div>
       )}
       {notes.length ? (
         <ul className="flex flex-col divide-y divide-border/70" aria-label="Notes in the repository">

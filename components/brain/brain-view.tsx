@@ -36,7 +36,7 @@ export function BrainView({
         description="What your agents know before they start: how this project is worked on, and how you like work done. Notes are reference data. They can never change an agent's rules, tools or permissions."
       />
 
-      {memory.mode === "repo" && <RepoNotes repoName={repoName} notes={memory.project} skipped={memory.skipped.filter((skipped) => inRepository(skipped.file))} found={memory.repoFound} problem={memory.problem} />}
+      {memory.mode === "repo" && <RepoNotes workspaceId={workspaceId} repoName={repoName}notes={memory.project} skipped={memory.skipped.filter((skipped) => inRepository(skipped.file))} found={memory.repoFound} problem={memory.problem} />}
       {memory.mode === "local" && (
         <NoteLibrary
           workspaceId={workspaceId}

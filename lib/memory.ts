@@ -112,6 +112,23 @@ const repoCache = repoMemoryCache();
 /** Why a project's notes couldn't be read from the repository: the owner's GitHub connection, or GitHub itself. */
 export type MemoryProblem = "reconnect" | "unavailable";
 
+/** Owners whose rejected GitHub connection this process has already reported. */
+const reportedRejections = new Set<number>();
+
+/**
+ * A rejected token (401) is expected: the page asks the owner to reconnect, so the log says it once. console.error
+ * would put Next's error overlay over that page, and is kept for failures nobody expects.
+ */
+function logUnreadableRepo(ownerId: number, error: unknown) {
+  const detail = error instanceof GithubError ? `${error.status} ${error.message}` : error;
+  if (!(error instanceof GithubError && error.status === 401)) {
+    console.error("[memory] couldn't read the repository's notes", detail);
+  } else if (!reportedRejections.has(ownerId)) {
+    reportedRejections.add(ownerId);
+    console.warn("[memory] couldn't read the repository's notes until GitHub is reconnected", detail);
+  }
+}
+
 async function repoNotes(workspace: MemoryWorkspace, token: string | null): Promise<{ memory: RepoMemory; problem: MemoryProblem | null }> {
   if (!token) return { memory: NO_REPO_MEMORY, problem: "reconnect" };
   const { githubRepoFullName: repo, githubDefaultBranch: branch } = workspace;
@@ -130,7 +147,7 @@ async function repoNotes(workspace: MemoryWorkspace, token: string | null): Prom
     );
     return { memory, problem: null };
   } catch (error) {
-    console.error("[memory] couldn't read the repository's notes", error instanceof GithubError ? `${error.status} ${error.message}` : error);
+    logUnreadableRepo(workspace.ownerId, error);
     return { memory: NO_REPO_MEMORY, problem: error instanceof GithubError && error.status === 401 ? "reconnect" : "unavailable" };
   }
 }

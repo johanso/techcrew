@@ -44,6 +44,9 @@ How the app protects accounts, data and secrets, and what isn't covered yet.
 - The first sign-in on a database that already has exactly one user asks before handing that data to the GitHub
   account (`/sign-in/adopt`). The pending identity, which includes the GitHub token, travels in the sealed **and
   encrypted** `tt_adopt` cookie (10 minutes), never in a URL.
+- While a session exists (**Reconnect GitHub**, `/sign-in?reconnect=1`), the server accepts only the signed-in user's own
+  GitHub account, judged from the session cookie when the authorization completes (`sessionSignIn`): another account
+  never switches the session, creates or adopts a user, or touches the saved connection.
 
 ## Authorization
 

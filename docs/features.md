@@ -35,8 +35,11 @@ There is no sign-up and no password: signing in with GitHub is also what lets ag
   GitHub sign-in) asks: *Adopt it with @you* keeps every workspace, board and agent; *Create a separate account* starts empty.
 - **Redirects.** `/sign-in?next=/some/path` goes there afterwards (same-origin paths only), otherwise to `/workspaces`.
   Visiting while signed in redirects right away.
+- **Reconnect GitHub.** Where GitHub access is missing or rejected (board, create-workspace page, Brain, Settings), the
+  button leads to `/sign-in?reconnect=1&next=…`: signed in, you see **Reconnect GitHub** with **Cancel**, authorize again
+  (code or token) with the same GitHub account, and return to where you were. Another account is refused.
 - **Sign out** is in the user menu (header avatar): it clears the cookie. **Disconnect** (create-workspace page) also deletes
-  the stored GitHub token. Where GitHub access is missing or revoked, the buttons say **Reconnect GitHub** and lead to `/sign-in`.
+  the stored GitHub token.
 
 Code: `app/(auth)/actions.ts`, `components/auth/*`, `lib/sign-in.ts`. Flow details: [architecture.md](architecture.md#authentication-and-sessions).
 

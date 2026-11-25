@@ -75,13 +75,18 @@ export async function resolveGithubSignIn(identity: GithubIdentity): Promise<Sig
   });
 }
 
-/** The owner's answer "adopt it": ties the existing user to this GitHub account. Refused if it got tied meanwhile. */
+/**
+ * Signs this existing user in with this GitHub account, tying them to it ("adopt it", or a signed-in reconnect).
+ * Refused (null) when the user is gone or tied to another account, or the account belongs to another user.
+ */
 export async function adoptUser(userId: number, identity: GithubIdentity): Promise<User | null> {
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(${SIGN_IN_LOCK})`);
     const [row] = await tx.select({ githubUserId: users.githubUserId }).from(users).where(eq(users.id, userId));
     if (!row) return null;
     if (row.githubUserId !== null && row.githubUserId !== identity.githubUserId) return null;
+    const [holder] = await tx.select({ id: users.id }).from(users).where(eq(users.githubUserId, identity.githubUserId));
+    if (holder && holder.id !== userId) return null;
     return touch(tx, userId, identity, true);
   });
 }

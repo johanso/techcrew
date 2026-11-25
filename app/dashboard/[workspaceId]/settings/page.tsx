@@ -28,6 +28,7 @@ import { getProviderKeyViews } from "@/lib/ai-keys";
 import { getClaudePlanView } from "@/lib/cli/plan-view";
 import { getGithubAccount } from "@/lib/github";
 import { getModelCatalog, refreshModelCatalogIfStale } from "@/lib/model-catalog";
+import { reconnectHref } from "@/lib/safe-redirect";
 import { cn, initials } from "@/lib/utils";
 import { getDashboardContext, listWorkspaces } from "@/lib/workspaces";
 
@@ -85,10 +86,10 @@ export default async function SettingsPage({ params }: PageProps<"/dashboard/[wo
         />
         {!github && (
           <p className="border-b border-border/70 px-6 py-4 text-xs text-muted-foreground">
-            <Link href="/sign-in" className="font-medium text-brand-emphasis hover:underline">
-              Sign in with GitHub
+            <Link href={reconnectHref(`/dashboard/${workspace.id}/settings`)} className="font-medium text-brand-emphasis hover:underline">
+              Reconnect GitHub
             </Link>{" "}
-            to connect your repositories.
+            so your agents can work on your repositories.
           </p>
         )}
         <DetailGrid
