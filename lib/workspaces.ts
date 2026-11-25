@@ -49,11 +49,11 @@ export async function updateFallbackOrder(workspaceId: number, order: AgentProvi
 }
 
 /** Settings → Sandbox: the switch and the commands, saved together so a run never guesses them. */
-/** Brain → Settings: where the project's memory lives. The caller has already checked ownership. */
-export async function updateMemoryMode(workspaceId: number, mode: MemoryMode) {
+/** Brain → Settings: where the project's memory lives and automatic learning. The caller has already checked ownership. */
+export async function updateMemoryMode(workspaceId: number, values: { memoryMode: MemoryMode; memoryAutoLearn: boolean }) {
   await db
     .update(workspaces)
-    .set({ memoryMode: mode, updatedAt: new Date() })
+    .set({ ...values, updatedAt: new Date() })
     .where(eq(workspaces.id, workspaceId));
 }
 

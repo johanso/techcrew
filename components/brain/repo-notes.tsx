@@ -14,7 +14,7 @@ import { reconnectHref } from "@/lib/safe-redirect";
 
 /**
  * Mode `repo`: the notes the repository holds under .techteam/memory/, read-only here. The files are the truth, so
- * they change with a pull request in the repository, not on this page.
+ * they change with a pull request in the repository (the owner's, or the memory pull request), not on this page.
  */
 export function RepoNotes({
   workspaceId,
@@ -48,7 +48,7 @@ export function RepoNotes({
       />
       <p className="flex items-start gap-2 border-b border-border/70 px-6 py-3 text-xs text-muted-foreground">
         <InfoIcon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-        Edit these files in the repository ({MEMORY_DIR}/). TechTeam will propose changes in a pull request in a later version.
+        Edit these files in the repository ({MEMORY_DIR}/), or send accepted proposals there with the memory pull request above.
       </p>
       {problem && (
         <div role="status" className="flex flex-col items-start gap-3 border-b border-border/70 bg-warning/5 px-6 py-3 text-sm sm:flex-row sm:items-center">

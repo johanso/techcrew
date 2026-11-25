@@ -13,7 +13,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { SkillFindings } from "@/components/skills/skill-findings";
 import { useFieldErrors } from "@/hooks/use-field-errors";
-import { MEMORY_TYPES, MEMORY_TYPE_META, NOTE_BODY_MAX, NOTE_TITLE_MAX, isMemoryType, type MemoryLoad, type MemoryNote, type MemoryType } from "@/lib/memory-config";
+import { MEMORY_TYPES, MEMORY_TYPE_META, NOTE_BODY_MAX, NOTE_TITLE_MAX, isMemoryType, type MemoryLoad, type MemoryNote, type MemoryType, type NoteField } from "@/lib/memory-config";
 
 const TYPE_ITEMS = MEMORY_TYPES.map((value) => ({ value, label: `${MEMORY_TYPE_META[value].label}: ${MEMORY_TYPE_META[value].hint}` }));
 const LOAD_ITEMS: { value: MemoryLoad; label: string }[] = [
@@ -60,9 +60,6 @@ export function NoteDialog({
 function NoteForm({ workspaceId, scope, note, onClose }: { workspaceId: number; scope: MemoryScopeName; note: MemoryNote | null; onClose: () => void }) {
   const [state, formAction, pending] = useActionState<NoteFormState, FormData>(saveNoteAction.bind(null, workspaceId, scope, note?.id ?? null), {});
   const { errorFor, onChange } = useFieldErrors(state);
-  const [type, setType] = useState<MemoryType>(note?.type ?? "convention");
-  const [load, setLoad] = useState<MemoryLoad>(note?.load ?? "on_demand");
-  const [body, setBody] = useState(note?.body ?? "");
 
   // Saved with nothing to say: the page behind already shows the note. Saved with warnings: they stay on screen until "Done".
   const warned = Boolean(state.ok && state.findings?.length);
@@ -83,6 +80,53 @@ function NoteForm({ workspaceId, scope, note, onClose }: { workspaceId: number; 
       onChange={onChange}
       className="flex flex-col gap-5"
     >
+      <NoteFields note={note} errorFor={errorFor} />
+
+      <FormMessage message={state.message} />
+      {state.findings && state.findings.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-lg border border-border/70 bg-muted/50 p-3">
+          <p role="status" className="text-xs font-semibold">
+            {blocked ? "The security scan refused this note" : "Saved. The security scan has warnings"}
+          </p>
+          <SkillFindings findings={state.findings} />
+        </div>
+      )}
+
+      <DialogFooter>
+        {warned ? (
+          <Button type="button" className="h-10" onClick={onClose}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button type="button" variant="outline" className="h-10" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" className="h-10" disabled={pending}>
+              {pending && <Spinner />}
+              {pending ? "Saving…" : note ? "Save changes" : "Add note"}
+            </Button>
+          </>
+        )}
+      </DialogFooter>
+    </form>
+  );
+}
+
+/** A note's fields (title, type, load, text, files), shared by the note dialog and a proposal's edit dialog. */
+export function NoteFields({
+  note,
+  errorFor,
+}: {
+  note: Pick<MemoryNote, "title" | "type" | "load" | "body" | "paths"> | null;
+  errorFor: (field: NoteField) => string | undefined;
+}) {
+  const [type, setType] = useState<MemoryType>(note?.type ?? "convention");
+  const [load, setLoad] = useState<MemoryLoad>(note?.load ?? "on_demand");
+  const [body, setBody] = useState(note?.body ?? "");
+
+  return (
+    <>
       <Field data-invalid={!!errorFor("title")}>
         <FieldLabel htmlFor="note-title">Title</FieldLabel>
         <Input
@@ -167,34 +211,6 @@ function NoteForm({ workspaceId, scope, note, onClose }: { workspaceId: number; 
         <FieldError>{errorFor("paths")}</FieldError>
         <FieldDescription>One pattern per line. The note ranks higher when a card touches matching files.</FieldDescription>
       </Field>
-
-      <FormMessage message={state.message} />
-      {state.findings && state.findings.length > 0 && (
-        <div className="flex flex-col gap-2 rounded-lg border border-border/70 bg-muted/50 p-3">
-          <p role="status" className="text-xs font-semibold">
-            {blocked ? "The security scan refused this note" : "Saved. The security scan has warnings"}
-          </p>
-          <SkillFindings findings={state.findings} />
-        </div>
-      )}
-
-      <DialogFooter>
-        {warned ? (
-          <Button type="button" className="h-10" onClick={onClose}>
-            Done
-          </Button>
-        ) : (
-          <>
-            <Button type="button" variant="outline" className="h-10" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" className="h-10" disabled={pending}>
-              {pending && <Spinner />}
-              {pending ? "Saving…" : note ? "Save changes" : "Add note"}
-            </Button>
-          </>
-        )}
-      </DialogFooter>
-    </form>
+    </>
   );
 }

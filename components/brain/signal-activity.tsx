@@ -1,41 +1,17 @@
 import Link from "next/link";
 import { format, formatDistanceToNowStrict } from "date-fns";
-import {
-  BanIcon,
-  BookmarkIcon,
-  BotIcon,
-  ChevronDownIcon,
-  CircleAlertIcon,
-  CircleCheckIcon,
-  CircleDashedIcon,
-  ExternalLinkIcon,
-  GitPullRequestClosedIcon,
-  HistoryIcon,
-  LightbulbIcon,
-  MessageCircleReplyIcon,
-  RotateCcwIcon,
-  UserCheckIcon,
-  type LucideIcon,
-} from "lucide-react";
+import { BanIcon, BotIcon, ChevronDownIcon, CircleCheckIcon, CircleDashedIcon, ExternalLinkIcon, HistoryIcon, UserCheckIcon } from "lucide-react";
 
 import { SignalDeleteButton } from "@/components/brain/signal-delete-button";
+import { SIGNAL_ICON } from "@/components/brain/signal-icons";
 import { SurfaceHeader } from "@/components/dashboard/page-header";
 import { SurfaceEmpty } from "@/components/dashboard/section-empty";
 import { Pill } from "@/components/skills/skill-badges";
 import { buttonVariants } from "@/components/ui/button";
 import { MEMORY_TYPE_META } from "@/lib/memory-config";
-import { REJECTION_REASON_LABEL, REWORK_CAUSE_LABEL, SIGNAL_KIND_LABEL, SIGNAL_SCOPE_LABEL, type SignalKind } from "@/lib/memory-signals";
+import { REJECTION_REASON_LABEL, REWORK_CAUSE_LABEL, SIGNAL_KIND_LABEL, SIGNAL_SCOPE_LABEL } from "@/lib/memory-signals";
 import type { SignalView } from "@/lib/memory-signals-store";
 import { cn } from "@/lib/utils";
-
-export const SIGNAL_ICON: Record<SignalKind, { icon: LucideIcon; tone: string }> = {
-  pr_rejected: { icon: GitPullRequestClosedIcon, tone: "text-error" },
-  rework: { icon: RotateCcwIcon, tone: "text-warning" },
-  answer: { icon: MessageCircleReplyIcon, tone: "text-brand-emphasis" },
-  failure: { icon: CircleAlertIcon, tone: "text-error" },
-  lesson: { icon: LightbulbIcon, tone: "text-brand-emphasis" },
-  remember: { icon: BookmarkIcon, tone: "text-brand-emphasis" },
-};
 
 /** The line above a signal's text: the reason, the cause, the lesson's title or where a note applies. */
 function heading({ kind, payload }: SignalView) {
