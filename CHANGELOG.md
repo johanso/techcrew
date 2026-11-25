@@ -27,8 +27,17 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   typed, and you can delete any. Every text is capped and scanned (a refused one isn't stored), at most 500 per
   workspace, and agents can't read them. With memory **off**, nothing is collected or asked on its own; only
   **Remember this** still saves. Migration `0022` adds `memory_signals` and `pull_requests.rejection_prompt`
-  (included in backups): run `npm run db:migrate` (`npm run dev` applies it at start). Nothing turns a signal into a note
-  yet.
+  (included in backups): run `npm run db:migrate` (`npm run dev` applies it at start).
+- **The Brain, part C (the librarian)**: a librarian turns the collected signals into **proposals** you review: new
+  notes, updates and retirements, each with why and what it is based on. It runs on **Learn now** or on its own after
+  merges, rejections and **Remember this** (switch it off in Brain → Settings), on the Lead's budget with an API key
+  (never your Claude plan; no tools, no write access), and **Build a first memory from this repository** proposes a
+  conventions note and a few more from the README, configuration, CI and file layout. Your own notes and `local` projects
+  are accepted, edited or rejected on the page; repository projects go in a separate **TechTeam memory** pull request that
+  only your click opens, changes only `.techteam/memory/` and is never merged by TechTeam. Proposals resting only on
+  agent, CI or repository text need a confirmation, and rejected ones aren't made again. Migration `0023` adds
+  `memory_proposals`, `workspaces.memory_auto_learn` and `memory_librarian` (included in backups): run
+  `npm run db:migrate` (`npm run dev` applies it at start).
 
 ### Fixed
 - **An open redirect after sign-in.** A `next` such as `/<tab>/evil.example` passed the check, and browsers drop the tab

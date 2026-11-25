@@ -14,6 +14,7 @@ Identity is GitHub's: a `users` row is found by its GitHub id (`users.github_use
 - [agent_skills, agent_skill_files, agent_skill_assignments](#agent_skills)
 - [memory_notes](#memory_notes)
 - [memory_signals](#memory_signals)
+- [memory_proposals](#memory_proposals)
 - [agent_activity](#agent_activity)
 - [agent_runs](#agent_runs)
 - [agent_run_messages](#agent_run_messages)
@@ -59,6 +60,8 @@ erDiagram
     workspaces ||--o{ memory_signals : "what to learn from"
     agent_runs |o--o{ memory_signals : "from (nullable)"
     tasks |o--o{ memory_signals : "about (nullable)"
+    users ||--o{ memory_proposals : "waits for the owner"
+    workspaces ||--o{ memory_proposals : "learned in"
 
     users {
         serial id PK
@@ -223,7 +226,9 @@ A workspace is bound to **exactly one** GitHub repository, chosen at creation. O
 | `sandbox_enabled` | boolean | no | Default `false`. Settings → Sandbox: agents with `tests.run` get the sandbox tools (migration 0009). |
 | `sandbox_commands` | jsonb | yes | `{ install, test, build }` (each a command or null), saved with the switch, prefilled from `package.json`. See [sandbox.md](sandbox.md). |
 | `memory_mode` | text | no | Default `repo` (migration 0021). Brain → Settings (`MEMORY_MODES`): where the project's memory lives: `repo` (files under `.techteam/memory/` in the repository), `local` (`memory_notes` rows of this workspace) or `off` (agents get no memory, not even the owner's). Unknown values read as `repo`. |
-| `memory_bootstrapped_at` | timestamp | yes | When the Brain was first built from the repository (a later part of the Brain; null = never). |
+| `memory_bootstrapped_at` | timestamp | yes | When the Brain was last built from the repository (a successful bootstrap; null = never). Written by the app. |
+| `memory_auto_learn` | boolean | no | Default `true` (migration 0023). Brain → Settings → **Learn automatically**: the librarian runs on its own after merges, rejections and **Remember this**. |
+| `memory_librarian` | jsonb | yes | The librarian's run asked for or going, or how the last one ended (`LibrarianState`: `state` queued \| running \| done \| failed, `job` learn \| bootstrap, `trigger` auto \| manual, `at`, `message`, `proposals`, `costMicros`). A queued state older than 10 minutes or a running one older than 15 reads as failed. |
 | `created_at`, `updated_at` | timestamp | no | |
 
 The repository metadata is captured once. If the repo is renamed or its default branch changes on GitHub, these
@@ -386,20 +391,20 @@ exported by the schema-driven [backup registry](../lib/backup/registry.mjs), and
 | `load` | text | no | | `always` (in every prompt, within the block's caps) \| `on_demand` (found with `search_memory`). |
 | `status` | text | no | `active` | `active` \| `stale` \| `disabled`. Only active notes reach agents. |
 | `paths` | text[] | yes | | Up to 10 globs (`src/**/*.test.ts`): the note ranks higher when the files being worked on match. |
-| `source` | jsonb | no | `{}` | Where it came from: a few short facts (`{ "kind": "owner" }`, later `run`, `pr`). |
-| `origin` | text | no | | `owner` \| `agent` \| `bootstrap`. Notes written on the Brain page are `owner`. |
+| `source` | jsonb | no | `{}` | Where it came from: a few short facts (`{ "kind": "owner" }`, or `{ "kind": "proposal", "proposal": 12 }`). |
+| `origin` | text | no | | `owner` \| `agent` \| `bootstrap`. Notes written on the Brain page are `owner`; an accepted proposal keeps its origin (an update leaves the note's). |
 | `content_hash` | text | no | | sha256 of the normalized title and body (`noteHash`). |
 | `created_at`, `updated_at` | timestamp | no | `now()` | |
 
 Indexes: `memory_notes_user_idx` (`user_id`, `scope`), `memory_notes_workspace_idx`, and two partial unique indexes that stop
 the same text twice in one place: `memory_notes_global_unique` (`user_id`, `content_hash` where `workspace_id` is null) and
 `memory_notes_project_unique` (`user_id`, `workspace_id`, `content_hash` where it is not). At most 200 notes per place
-(checked on create). `memory_proposals` comes with a later part of the Brain.
+(checked on create).
 
 ## memory_signals
 
 What happened that the Brain could learn from ([brain-plan.md](brain-plan.md#how-it-learns), migration
-`0022_brain_signals`): raw material for the librarian of a later version, never read by agents. Written only by
+`0022_brain_signals`): raw material for the librarian, never read by agents. Written only by
 `lib/memory-signals-store.ts` from what `lib/memory-signals.ts` builds: every text capped and passed through the memory
 scanner (a refused text is not stored). No secret column: backups include the table.
 
@@ -415,11 +420,40 @@ scanner (a refused text is not stored). No secret column: backups include the ta
 | `payload` | jsonb | no | | `SignalPayload`: `text` (≤ 2,000), and by kind `title` (≤ 120), `context` (the Analyst's question), `reason`, `cause`, `round`, `type`, `evidence` (≤ 500), `scope` (`project` \| `global`). |
 | `trusted` | boolean | no | `false` | True only when `title` / `text` are words the owner typed in the app. `context` and `evidence` are untrusted whatever this says. |
 | `created_at` | timestamp | no | `now()` | Newest first on the Brain page. An owner's input saved again with new words moves up. |
-| `consumed_at` | timestamp | yes | | When the librarian used it (later part; always null for now). |
+| `consumed_at` | timestamp | yes | | When a successful librarian run used it, in the same transaction as its proposals. A signal rewritten during the run stays null. |
 
 Indexes: `memory_signals_source_unique` (`workspace_id`, `kind`, `source_key`) and
 `memory_signals_workspace_created_idx` (`workspace_id`, `created_at`). At most **500 per workspace**: after an insert the
 oldest used ones are deleted first, then the oldest (`signalsToPrune`). The owner can delete any of them.
+
+## memory_proposals
+
+The librarian's proposals ([brain-plan.md](brain-plan.md#how-it-learns), migration `0023_brain_proposals`): a change to
+the memory waiting for the owner, or decided. Agents never read it. Written by `lib/librarian-run.ts` (after
+`lib/librarian.ts` checked the model's answer) and decided by `lib/memory-proposals-store.ts`. No secret column: backups
+include the table. Rows are never deleted by the app: a rejected one keeps the same proposal from being made again.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | serial | no | | Primary key. |
+| `user_id` | integer | no | | → `users.id`, cascade. The owner; every query is scoped by it and the workspace. |
+| `workspace_id` | integer | no | | → `workspaces.id`, cascade. Where it was learned, also for a global proposal. |
+| `kind` | text | no | | `add` \| `update` \| `retire`. |
+| `scope` | text | no | | `project` \| `global`. |
+| `target_key` | text | yes | | Update and retire: the note's key (`project/<name>`, `global/<name>-<id>`). |
+| `target` | jsonb | yes | | `{ version, note }`: the target as it was; `version` is a hash of all its fields. A changed note makes the proposal `superseded`. |
+| `note` | jsonb | yes | | The proposed `{ title, type, load, paths, body }` (null for retire). The owner may edit it. |
+| `rationale` | text | no | | ≤ 600 characters, scanned. |
+| `evidence` | jsonb | no | | Copies of the signals cited (`kind`, `signalId`, `trusted`, `summary` ≤ 300, `taskId`, `prNumber`), or `{ kind: "repository", files }`. |
+| `untrusted_origin` | boolean | no | | Computed by the server: no cited signal was typed by the owner (always true for a bootstrap). |
+| `origin` | text | no | | `agent` (learned) \| `bootstrap`. |
+| `content_hash` | text | no | | Hash of what the librarian proposed (not of an edit): kind, scope, target and the note's text (a retirement: the target's version). |
+| `status` | text | no | `pending` | `pending` \| `accepted` \| `in_pr` \| `merged` \| `rejected` \| `superseded`. |
+| `pr_number` | integer | yes | | The memory pull request (not a `pull_requests` row). `in_pr` with null: being sent right now (back to `pending` after 5 minutes). |
+| `created_at`, `updated_at` | timestamp | no | `now()` | Written by the app. |
+
+Indexes: `memory_proposals_workspace_status_idx` (`workspace_id`, `status`), `memory_proposals_user_scope_idx`
+(`user_id`, `scope`).
 
 ## task_events
 
@@ -486,7 +520,7 @@ month in UTC.
 | `id` | serial | no | | Primary key. |
 | `workspace_id` | integer | no | | → `workspaces.id`, cascade. |
 | `agent_id` | integer | no | | → `agents.id`, cascade. |
-| `kind` | text | no | | `AGENT_ACTIVITY_KINDS`: `joined`, `configured`, `paused`, `resumed`, `generated`, `scan`, `task_assigned`, `task_run` (one pipeline stage; its cost grows each turn), `pull_request` (opened / merged), `issue_filed` (merge follow-up). |
+| `kind` | text | no | | `AGENT_ACTIVITY_KINDS`: `joined`, `configured`, `paused`, `resumed`, `generated`, `scan`, `task_assigned`, `task_run` (one pipeline stage; its cost grows each turn), `pull_request` (opened / merged), `issue_filed` (merge follow-up), `memory` (a librarian run, on the Lead; its spend counts against the Lead's budget). |
 | `title`, `detail` | text | no / yes | | Display text, written at event time. |
 | `cost_micros` | integer | no | `0` | Model spend in micro-dollars (1e-6 USD), from the provider's reported token usage. API spend only: a stage on the owner's plan adds nothing here. |
 | `billing` | text | no | `api` | `plan` when the stage ran (at least partly) on the owner's plan through a local CLI ([cli-agents.md](cli-agents.md)). |

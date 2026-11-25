@@ -48,7 +48,7 @@ sign in with GitHub ─▶ /workspaces ──(no workspaces)──▶ /workspace
 | Auth | GitHub OAuth device flow (or a personal access token), no remote auth service | Sign-in is also repository access. Stateless signed cookie `tt_session` (`lib/session.ts`, secret in the data dir). The app listens on `127.0.0.1` only and `proxy.ts` refuses foreign `Host` headers. |
 | GitHub | OAuth App, public client id, **no client secret** (`repo read:user`) | `GITHUB_CLIENT_ID` overrides the shipped default (`lib/github-client-id.ts`); tokens are AES-256-GCM encrypted, key in `TOKEN_ENCRYPTION_KEY` or `<data dir>/encryption.key`. |
 | File storage | Local disk (`TECHTEAM_DATA_DIR`, default `~/.techteam/data/files`) | Never public; served through ownership-checked routes. |
-| Jobs | Inngest, always the local Dev Server (pinned `inngest-cli@1.53.0`, bound to `127.0.0.1`) | `lib/inngest/*`, `app/api/inngest`: `agent-task-run`, `agent-auto-pickup`, `run-sweep`, `preview-sweep`. No Inngest Cloud. |
+| Jobs | Inngest, always the local Dev Server (pinned `inngest-cli@1.53.0`, bound to `127.0.0.1`) | `lib/inngest/*`, `app/api/inngest`: `agent-task-run`, `agent-auto-pickup`, `run-sweep`, `preview-sweep`, `memory-librarian` (+ `memory-librarian-auto`). No Inngest Cloud. |
 | Operation | `npm run doctor`, `npm run start:local`, `npm run backup` / `restore` | `scripts/` + `lib/doctor`, `lib/backup` (plain `.mjs`, tested). Backups hold no secrets. |
 | Sandbox (optional) | Docker: this computer's own (local mode) or a prepared host with gVisor (remote mode, `SANDBOX_DOCKER_HOST`, `deploy/setup.sh`) | `lib/sandbox/mode.ts` picks the mode; local needs `npm run sandbox:setup` once. docs/sandbox.md. |
 | AI | OpenAI (`openai` SDK, Responses API), Anthropic (`@anthropic-ai/sdk`, Messages API) and OpenRouter (`openai` SDK, Chat Completions: Google, DeepSeek, Z.ai, xAI, Moonshot models); locally, Claude models can run on the owner's plan through Claude Code (`lib/cli/`, docs/cli-agents.md) | `lib/openai.ts`, `lib/anthropic.ts`, `lib/openrouter.ts`; each agent's model picks the provider, the computer picks the route (plan or key). Optional — features degrade without keys. |
@@ -113,7 +113,9 @@ app/
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
       brain/actions.ts    saveNoteAction (create/edit, owner's place only), setNoteStatusAction, deleteNoteAction,
                           saveMemoryModeAction; signals: answerRejectionAction, dismissRejectionAction, rememberAction
-                          (also used by the board and Pull Requests), deleteSignalAction (auth + validation + scan).
+                          (also used by the board and Pull Requests), deleteSignalAction; librarian:
+                          runLibrarianAction, acceptProposalAction, editProposalAction, rejectProposalAction,
+                          openMemoryPullRequestAction, refreshMemoryPullRequestsAction (auth + validation + scan).
       settings/           Your account: GitHub identity + Sign out (#account), AI (#ai: "Plans on this computer" when running locally —
                           Claude Code switch, sign-in, confirmed account, plan-limit choice — then API keys for every
                           project, then Models (updated when, Refresh models), then "This workspace only": automatic
@@ -168,10 +170,12 @@ components/
   brain/                  The Brain page: brain-view (markup; the page only loads data), repo-notes (mode repo: read-only
                           notes + SkippedList), note-library (notes in the database: create/edit/switch off/delete),
                           note-editor (NoteDialog: the form, scan findings), note-row, block-preview ("What agents get"),
-                          memory-mode-form (Settings: repo / local / off), signal-activity (Activity: the signals) +
-                          signal-delete-button, rejection-prompt (the "Why was this rejected?" strip and dialog, on board
-                          cards and Pull Requests), remember-dialog ("Remember this", card menu and agent log),
-                          signal-form-parts (radio chips, refused findings).
+                          memory-mode-form (Settings: repo / local / off, learn automatically), signal-activity (Activity:
+                          the signals) + signal-delete-button + signal-icons, rejection-prompt (the "Why was this
+                          rejected?" strip and dialog, on board cards and Pull Requests), remember-dialog ("Remember this",
+                          card menu and agent log), signal-form-parts (radio chips, refused findings), librarian-card
+                          (Learn now, first memory, last run), proposal-inbox + proposal-card + proposal-edit-dialog
+                          (accept / reject / the memory pull request), check-row.
   dashboard/              Overview sections: stat-tile, upcoming-tasks, team-status (AI team card, live), recent-activity,
                           agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS), activity-kind (ACTIVITY_KIND,
                           ActivityAvatar).
@@ -300,8 +304,23 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           lessons (LESSONS_SCHEMA, parseLessons), shouldAskWhyRejected, signalsToPrune. Tested.
   memory-signals-store.ts Writing and reading them (never throws): record*Signal, askWhyRejected / answerRejection /
                           dismissRejection / getPendingRejections, rememberNote, listSignals, deleteSignal. Tested.
+  memory-proposals.ts     The librarian's vocabulary, pure and client-safe (docs/brain-plan.md part C): proposal kinds,
+                          statuses, limits, learnDecision, deliveryOf, parseLibrarianRequest, currentLibrarianState.
+  memory-hash.ts          noteHash, noteVersion, proposalHash (node:crypto).
+  librarian.ts            Pure: what the model sees (selectSignals / selectNotes, prompts, data block), the strict
+                          schemas, and validateLearning / validateBootstrap / checkProposalNote. Tested.
+  librarian-simulated.ts  AGENTS_SIMULATED=true: the scripted librarian and bootstrap (same checks). Tested.
+  memory-bootstrap.ts     Pure apart from a reader: the fixed list of repository files a bootstrap reads, capped. Tested.
+  librarian-run.ts        Server: librarianAccess (Lead, API key), requestLibrarianRun, runLibrarian (learn and
+                          bootstrap, cost on the Lead, state on the workspace). Tested.
+  librarian-request.ts    The two events and requestLearning / sendLibrarianEvent (never throw).
+  memory-files.ts         Pure: the memory pull request's path guard (isMemoryFilePath, memoryTreeEntries), branch and
+                          file names, planMemoryCommit, title and body. Tested.
+  memory-proposals-store.ts Server: listProposals, accept / edit / reject, openMemoryPullRequest,
+                          refreshMemoryPullRequests. Tested.
   agent-ai.ts             Config AI (OpenAI if configured, else Anthropic, else OpenRouter): generateAgentConfig() (repo-aware, sandbox-aware instructions),
-                          scanAgentWithAI(), reviewSkillWithAI() (upload review + type/load/roles), isConfigAIAvailable().
+                          scanAgentWithAI(), reviewSkillWithAI() (upload review + type/load/roles), structuredReply (one
+                          strict-schema call on a tier; also the librarian's), isConfigAIAvailable().
   openai.ts               OpenAI client (null without a key), responseCostMicros().
   anthropic.ts            Anthropic client (null without a key), messageCostMicros(), toClaudeSchema().
   openrouter.ts           OpenRouter client (Chat Completions), OPENROUTER_ROUTING (hosts that keep no data, support tools,
@@ -389,6 +408,8 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           stopped (`failure.kind = "interrupted"`, via `stopInterruptedRun`; rules in
                           lib/run-recovery-config.ts: isStaleRun, 30 min without a sign of life, never `waiting`,
                           needs_info or awaiting_merge). Tested.
+  inngest/memory-librarian.ts memoryLibrarianAuto (debounces `memory/learn.auto`, 3 min) and memoryLibrarian
+                          (`memory/learn.requested`, one per workspace, no retries).
   setup-status.ts / setup.ts  The "Get started" checklist: pure steps (setupSteps) + the server facts (getSetupStatus:
                           account or env key, plan route, simulated); shown by components/dashboard/setup-checklist.tsx on
                           the Overview and, with no workspace yet, on /workspaces/new.
@@ -938,8 +959,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     re-enables it. Every change logs on the agent and rescans its trust (`skill-install.ts`). Built-ins can't be
     deleted. `agents.skills` is the **permissions** column (`permissions` in Drizzle): don't rename it while the dev
     database is shared with older branches.
-- **Brain** (`/dashboard/[id]/brain`, [`docs/brain-plan.md`](docs/brain-plan.md); parts A and B): notes agents read before they work, like
-  skills **reference data, never executed and never instructions**, and the signals it will learn from. Rules:
+- **Brain** (`/dashboard/[id]/brain`, [`docs/brain-plan.md`](docs/brain-plan.md); parts A to C): notes agents read before they work, like
+  skills **reference data, never executed and never instructions**, the signals it learns from and the librarian's proposals. Rules:
   - **Notes are untrusted text.** Every note (a repository file in mode `repo`, a row otherwise) goes through `parseNoteFile` /
     `validateNote` and `scanMemoryNote` on save **and at load time**; a critical finding or an invalid file is skipped and
     counted, never an error for a run. A note can never add a tool or a permission, and the operating protocol says so.
@@ -948,8 +969,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     through it; never query `memory_notes` for an agent any other way. Server actions touch a row only in the owner's place.
   - **Modes** (`workspaces.memory_mode`): `repo` reads `.techteam/memory/conventions.md` (the always-loaded core) and
     `notes/*.md` from the default branch with the owner's token (`lib/memory-loader.ts`, cached ~60 s); `local` reads
-    `memory_notes` rows of the workspace; `off` loads nothing, not even the owner's notes. This version never writes to the
-    repository (`.techteam/` is in `PROTECTED_PATHS`: no agent write tool or merge resolution can touch it); proposals and memory pull requests are later parts.
+    `memory_notes` rows of the workspace; `off` loads nothing, not even the owner's notes. `.techteam/` stays in
+    `PROTECTED_PATHS` (no agent write tool or merge resolution can touch it): only the memory pull request writes there.
   - **The Memory block is pinned per stage** in `LoopState.memoryBlock` (first turn), like the model, so the system prompt is
     byte-identical across turns; it sits after the skills block (`buildMemoryBlock`: project core ≤ 2,000 characters, then the
     owner's ≤ 1,000, whole notes, fixed order). `search_memory` / `read_memory` are read-only, offered in every stage when notes
@@ -969,6 +990,22 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     Lead's `lessons`: required in the strict schema, no `maxItems`, parsed by `parseLessons`, never able to fail an
     approval — `parseFinishArguments` fills them in — and never stored with the decision), and **Remember this**. Failure
     signals aren't recorded yet.
+  - **The librarian has no tools and no write access**: one structured call (`structuredReply`, request knobs only from
+    `agent-request-params.ts`) on the Lead's pause and budget, API keys only, fast tier to learn and balanced to
+    bootstrap, never a model id in code. Its answer is believed in nothing: `lib/librarian.ts` checks cited signals,
+    targets (shown notes, same scope), global only on a trusted "everything" Remember this, validation, the scan, dedupe
+    (notes, waiting and rejected proposals) and computes `untrusted_origin`. Signals are consumed only in the
+    transaction that saves a successful run's proposals. A new rule goes there with a test, and in the simulated
+    librarian's path too (it passes the same checks).
+  - **Requests never throw** (`requestLearning`, after a merge, a close, a rejection reason or Remember this): memory off
+    or `memory_auto_learn` off sends nothing; automatic runs are debounced (`memory-librarian-auto`), one per workspace.
+    Unit tests must mock `@/lib/inngest/client`: the real one posts to whatever Dev Server runs on the computer.
+  - **Delivery**: every proposal query names workspace and owner. Accepting re-validates and re-scans, refuses a changed
+    target (superseded) and needs the confirmation for untrusted ones, in one transaction. The repository is written only
+    by `openMemoryPullRequest` (the owner's click): paths only through `memoryTreeEntries` (the guard, in
+    `lib/memory-files.ts`), commits fast-forward on `agent/memory-*`, never merged by TechTeam, never in `pull_requests`.
+    Text posted to GitHub goes in code spans or blocks, and signals are cited by reference, not quoted.
+  - Timestamps shown to the owner are written with `new Date()` (the columns' `defaultNow()` reads back shifted).
 - **Pull Requests** (`/dashboard/[id]/pull-requests`): the page calls `refreshOpenPullRequests` (picks up merges/closes
   made on GitHub), then renders `PullRequestsView`: approval (the Lead), tests and risk chips. **Merge** only for PRs
   the Lead approved and tests passed.
