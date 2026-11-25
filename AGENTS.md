@@ -250,7 +250,7 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           reasons), repoMemoryCache (~60 s, re-reads when the branch head moved). Tested on a fake repository.
   memory.ts               Server: loadMemory / loadAgentMemory (repo files, rows, the owner's notes; scan again at load;
                           visibleNotes), searchMemory / readMemory (the two tools), owner CRUD for rows (create/update/
-                          setMemoryNoteStatus/delete), noteHash, getMemoryMode.
+                          setMemoryNoteStatus/delete), loadOwnerNotes, getMemoryMode.
   sandbox/                Agent sandboxes (docs/sandbox.md). config.ts: pure, client-safe (commands, detectCommands,
                           parseSandboxCommand, sandboxReport, outputTail, the install network's constants,
                           bridgeNetworkProblem). mode.ts: pure, client-safe (SandboxMode remote/local, resolveSandboxStatus,
@@ -308,7 +308,8 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           statuses, limits, learnDecision, deliveryOf, parseLibrarianRequest, currentLibrarianState.
   memory-hash.ts          noteHash, noteVersion, proposalHash (node:crypto).
   librarian.ts            Pure: what the model sees (selectSignals / selectNotes, prompts, data block), the strict
-                          schemas, and validateLearning / validateBootstrap / checkProposalNote. Tested.
+                          schemas, validateLearning / validateBootstrap / checkProposalNote, and rememberedProposals (the
+                          only global proposals: the owner's words, without a model). Tested.
   librarian-simulated.ts  AGENTS_SIMULATED=true: the scripted librarian and bootstrap (same checks). Tested.
   memory-bootstrap.ts     Pure apart from a reader: the fixed list of repository files a bootstrap reads, capped. Tested.
   librarian-run.ts        Server: librarianAccess (Lead, API key), requestLibrarianRun, runLibrarian (learn and
@@ -990,13 +991,16 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     Lead's `lessons`: required in the strict schema, no `maxItems`, parsed by `parseLessons`, never able to fail an
     approval — `parseFinishArguments` fills them in — and never stored with the decision), and **Remember this**. Failure
     signals aren't recorded yet.
-  - **The librarian has no tools and no write access**: one structured call (`structuredReply`, request knobs only from
+  - **The librarian's model has no tools and no write access**: one structured call (`structuredReply`, request knobs only from
     `agent-request-params.ts`) on the Lead's pause and budget, API keys only, fast tier to learn and balanced to
     bootstrap, never a model id in code. Its answer is believed in nothing: `lib/librarian.ts` checks cited signals,
-    targets (shown notes, same scope), global only on a trusted "everything" Remember this, validation, the scan, dedupe
-    (notes, waiting and rejected proposals) and computes `untrusted_origin`. Signals are consumed only in the
-    transaction that saves a successful run's proposals. A new rule goes there with a test, and in the simulated
-    librarian's path too (it passes the same checks).
+    targets (project notes it was shown), validation, the scan, dedupe (notes, waiting and rejected proposals) and
+    computes `untrusted_origin`. Signals are consumed only in the transaction that saves the proposals of a successful
+    step. A new rule goes there with a test, and in the simulated librarian's path too (it passes the same checks).
+  - **The model never writes the owner's global memory.** Its schema has no scope and the server refuses one. Global
+    proposals come only from `rememberedProposals`: each trusted "Remember this" for everything (`asksForEverything`),
+    verbatim, never sent to a model, proposed at the start of a learning run before the key, pause and budget checks.
+    Don't add another source of global proposals (promotion, part D, needs its own rules).
   - **Requests never throw** (`requestLearning`, after a merge, a close, a rejection reason or Remember this): memory off
     or `memory_auto_learn` off sends nothing; automatic runs are debounced (`memory-librarian-auto`), one per workspace.
     Unit tests must mock `@/lib/inngest/client`: the real one posts to whatever Dev Server runs on the computer.

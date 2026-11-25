@@ -35,18 +35,18 @@ const NOTE: MemoryNote = {
 
 describe("the simulated librarian passes the same checks as a model", () => {
   const signals = [
-    signal(1, "remember", { text: "Keep pull requests small.", scope: "global" }, true),
+    signal(1, "remember", { text: "Keep pull requests small.", scope: "project" }, true),
     signal(2, "rework", { text: "Lint failed on unused imports.", cause: "ci", round: 0 }),
     signal(3, "answer", { text: "The dev port moved: Dev port is 9000 now." }, true),
     signal(4, "pr_rejected", { text: "", reason: "style" }, true),
   ];
   const context = { signals, notes: [NOTE], shown: selectNotes([NOTE]), history: [] };
 
-  it("adds, updates and asks globally only where the owner did", () => {
+  it("adds and updates project notes only", () => {
     const result = validateLearning(simulatedLearning({ signals, notes: context.shown }), context);
     expect(result).toMatchObject({ ok: true, dropped: [] });
     expect(result.ok && result.proposals.map((p) => [p.kind, p.scope, p.untrustedOrigin])).toEqual([
-      ["add", "global", false],
+      ["add", "project", false],
       ["add", "project", true],
       ["update", "project", false],
     ]);

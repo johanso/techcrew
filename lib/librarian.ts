@@ -1,7 +1,6 @@
 import {
   CORE_FILE,
   MEMORY_LOADS,
-  MEMORY_SCOPES,
   MEMORY_TYPES,
   NOTE_BODY_MAX,
   NOTE_FILE_MAX_BYTES,
@@ -33,8 +32,11 @@ import { REJECTION_REASON_LABEL, REWORK_CAUSE_LABEL, capText, normalizeTitle, ty
  * The librarian (docs/brain-plan.md): one structured model call, without tools or write access, that turns signals (or
  * a repository's files) into proposals. This module is everything around that call, and pure: what the model is shown,
  * the shape it answers in, and the server's own checks of the answer. Nothing it says is believed: every proposal is
- * validated, scanned and compared here, and what fails is dropped. `untrusted_origin` and the scope rules are computed
- * from the signals, never taken from the model.
+ * validated, scanned and compared here, and what fails is dropped. `untrusted_origin` is computed from the signals,
+ * never taken from the model.
+ *
+ * The model only ever proposes project notes. The owner's global memory gets proposals from one place: what they asked,
+ * in their own words, to be remembered for everything (rememberedProposals), which no model sees or rewrites.
  */
 
 // ── What the model is shown ────────────────────────────────────────────────────
@@ -80,7 +82,6 @@ function signalData(signal: LibrarianSignal) {
     id: signal.id,
     kind: signal.kind,
     typed_by_owner: signal.trusted,
-    ...(payload.scope ? { applies_to: payload.scope === "global" ? "everything" : "this project" } : {}),
     ...(payload.reason ? { reason: REJECTION_REASON_LABEL[payload.reason] } : {}),
     ...(payload.cause ? { cause: REWORK_CAUSE_LABEL[payload.cause] } : {}),
     ...(payload.type ? { suggested_type: payload.type } : {}),
@@ -154,9 +155,9 @@ const LEARN_SYSTEM = `You are the librarian of a software project's memory. You 
 
 Rules:
 - At most ${PROPOSALS_MAX} proposals. Propose only durable knowledge about how work is done in this repository or what its owner prefers: not the story of one run, not code. Most signals teach nothing lasting, and an empty list is a good answer.
-- action "add" for knowledge no note holds; "update" to correct or complete an existing note (give its key as target and the whole new note); "retire" when the signals show a note is wrong or obsolete (target, and note null). Prefer updating over adding a similar note. For "add", target is null.
-- target must be the key of a note listed in the data, and the proposal's scope must be that note's scope.
-- scope "project", unless a signal of kind "remember" that the owner typed applies to everything: only a proposal citing such a signal may be "global". A global note names no repository, path, card or customer.
+- Every proposal is about this project's notes. Notes with scope "global" are the owner's own, shown so you don't repeat them: never target them.
+- action "add" for knowledge no note holds; "update" to correct or complete a project note (give its key as target and the whole new note); "retire" when the signals show a project note is wrong or obsolete (target, and note null). Prefer updating over adding a similar note. For "add", target is null.
+- target must be the key of a project note listed in the data.
 - Do not propose what is already waiting for the owner or what the owner rejected.
 - rationale: one or two sentences saying why, for the person who reviews it.
 - signal_ids: the ids of the signals the proposal is based on. At least one, only from the data, and only the ones that really support it.
@@ -216,9 +217,9 @@ const noteProperties = {
 export const LEARN_SCHEMA = strictObject({
   proposals: {
     type: "array",
+    // No scope: the model's proposals are all about the project.
     items: strictObject({
       action: { type: "string", enum: [...PROPOSAL_KINDS] },
-      scope: { type: "string", enum: [...MEMORY_SCOPES] },
       target: orNull(TEXT),
       note: orNull(strictObject({ ...noteProperties, load: { type: "string", enum: [...MEMORY_LOADS] } })),
       rationale: TEXT,
@@ -342,29 +343,27 @@ export function evidenceOf(signal: LibrarianSignal): ProposalEvidence {
   };
 }
 
-/** A signal that lets a note apply to everything: the owner's own "Remember this", for everything. */
-const saysEverything = (signal: LibrarianSignal) => signal.kind === "remember" && signal.trusted && signal.payload.scope === "global";
-
 function checkLearned(raw: unknown, context: AnswerContext & { signals: readonly LibrarianSignal[] }): ProposalDraft | string {
   const proposal = record(raw);
   if (!proposal) return "not a proposal";
   const kind = proposal.action;
-  const scope = MEMORY_SCOPES.find((candidate) => candidate === proposal.scope);
-  if (!isProposalKind(kind) || !scope) return "unknown action or scope";
+  if (!isProposalKind(kind)) return "unknown action";
+  // Not in the schema, and never the model's to choose (not every provider holds a model to the schema).
+  if (proposal.scope !== undefined && proposal.scope !== "project") return "the model can't write the owner's global memory";
+  const scope = "project" as const;
 
   const ids = Array.isArray(proposal.signal_ids) ? [...new Set<unknown>(proposal.signal_ids)] : [];
   const cited = ids.map((id) => context.signals.find((signal) => signal.id === id));
   if (!cited.length || cited.some((signal) => !signal)) return "cites no signal, or one it wasn't given";
   const evidence = cited as LibrarianSignal[];
-  if (scope === "global" && !evidence.some(saysEverything)) return "global without the owner asking for it";
 
   const targetKey = typeof proposal.target === "string" && proposal.target.trim() ? proposal.target.trim() : null;
   let target: ProposalTarget | null = null;
   if (kind === "add") {
     if (targetKey !== null) return "an addition names a target";
   } else {
-    const shown = context.shown.find((note) => note.key === targetKey);
-    if (!shown || shown.scope !== scope) return "targets a note it wasn't shown in that scope";
+    const shown = context.shown.find((note) => note.key === targetKey && note.scope === scope);
+    if (!shown) return "targets something other than a project note it was shown";
     target = { version: shown.version, note: shown.note };
   }
 
@@ -393,7 +392,45 @@ function collect(candidates: readonly (ProposalDraft | string)[], context: Answe
   return { ok: true, proposals, dropped };
 }
 
-/** The learning answer, checked: at most PROPOSALS_MAX proposals that hold up against the signals and the memory. */
+// ── What the owner asked to remember for everything ────────────────────────────
+
+const REMEMBERED_RATIONALE = "You asked TechTeam to remember this for every project.";
+
+/** The owner's own "Remember this", for everything: the one thing the global memory is proposed from. */
+export const asksForEverything = (signal: LibrarianSignal) => signal.kind === "remember" && signal.trusted && signal.payload.scope === "global";
+
+/** The first sentence of the first line, cut to a title's length. */
+function titleOf(text: string) {
+  const line = text.split("\n")[0]!.trim();
+  return capText(/^.*?[.!?](?=\s)/.exec(line)?.[0] ?? line, NOTE_TITLE_MAX);
+}
+
+/**
+ * One global note per such request, made only of the owner's words (no model reads or rewrites them), oldest first.
+ * The same validation, scan and dedupe as any proposal; signals of any other kind are ignored.
+ */
+export function rememberedProposals(signals: readonly LibrarianSignal[], context: Pick<AnswerContext, "notes" | "history">) {
+  const oldestFirst = signals.filter(asksForEverything).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id - b.id);
+  const candidates = oldestFirst.map((signal): ProposalDraft | string => {
+    const text = signal.payload.text.trim();
+    const checked = checkProposalNote({ title: titleOf(text), type: "preference", load: "always", paths: [], body: text }, "global");
+    if (!checked.ok) return checked.reason;
+    const draft = {
+      kind: "add" as const,
+      scope: "global" as const,
+      targetKey: null,
+      target: null,
+      note: checked.note,
+      rationale: REMEMBERED_RATIONALE,
+      evidence: [evidenceOf(signal)],
+      untrustedOrigin: false,
+    };
+    return { ...draft, contentHash: proposalHash(draft) };
+  });
+  return collect(candidates, { ...context, shown: [] }, candidates.length);
+}
+
+/** The learning answer, checked: at most PROPOSALS_MAX project proposals that hold up against the signals and the memory. */
 export function validateLearning(raw: unknown, context: AnswerContext & { signals: readonly LibrarianSignal[] }): CheckedAnswer {
   const list = record(raw)?.proposals;
   if (!Array.isArray(list)) return { ok: false };

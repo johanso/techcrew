@@ -297,14 +297,18 @@ words, issue titles, repository files) and suggests memory changes, which is the
 
 - **No tools, no write access.** One structured call that returns proposals. It can't read anything but what it is
   given, can't write a note and can't touch GitHub.
+- **The model can't reach the owner's global memory**, which every project of theirs reads. Its schema has no scope, a
+  proposal naming any other than the project is dropped, and it can't update or retire a global note (it sees them only
+  to avoid repeats). A global proposal is built by server code (`rememberedProposals`) from one **Remember this** the
+  owner typed for everything, word for word: nothing untrusted or project-specific that a model chose can be mixed in.
+  Those signals are never sent to a model.
 - **Untrusted data, delimited.** Signals, notes and repository files go to the model as JSON inside one `<data>` block
   (`<` escaped, so nothing in it can close the block), and the system prompt says to ignore instructions inside it. That
   is a request, not a guarantee: the checks below don't depend on it.
 - **The server decides** (`lib/librarian.ts`, tested): cited signals must be ones it was given (at least one); an
-  update or retirement must target a note it was shown, in the same scope; a **global** note only with a trusted
-  **Remember this** for everything (the librarian never promotes project lessons); every note passes `validateNote` and
-  the memory scanner (critical: dropped), as does the rationale; repeats of notes, waiting and rejected proposals are
-  dropped; at most 5 per learning run. `untrusted_origin` is computed from the signals, never taken from the model.
+  update or retirement must target a project note it was shown; every note passes `validateNote` and the memory scanner
+  (critical: dropped), as does the rationale; repeats of notes, waiting and rejected proposals are dropped; at most 5
+  per learning run. `untrusted_origin` is computed from the signals, never taken from the model.
 - **A person approves everything.** Accepting re-validates and re-scans, refuses if the target changed, and needs an
   explicit confirmation when the proposal rests only on untrusted text (also enforced on the server).
 - **The repository is written only on the owner's click**, with the owner's token: one commit on a TechTeam branch

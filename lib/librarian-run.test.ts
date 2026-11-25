@@ -10,7 +10,7 @@ import { getAIKeys } from "@/lib/ai-keys";
 import { inngest } from "@/lib/inngest/client";
 import { librarianAccess, requestLibrarianRun, runLibrarian } from "@/lib/librarian-run";
 import { MEMORY_LEARN, MEMORY_LEARN_AUTO, requestLearning } from "@/lib/librarian-request";
-import { loadMemory } from "@/lib/memory";
+import { loadMemory, loadOwnerNotes } from "@/lib/memory";
 
 // The database is a stand-in that records every query and answers by table; no model, GitHub or job runner is reached.
 type Query = { op: string; table: string; fields: string[]; where: unknown[]; set: unknown[]; values: unknown[]; inTransaction: boolean };
@@ -68,7 +68,7 @@ vi.mock("@/lib/agents", async (importOriginal) => ({
 vi.mock("@/lib/ai-keys", () => ({ getAIKeys: vi.fn() }));
 vi.mock("@/lib/agent-ai", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/agent-ai")>()), structuredReply: vi.fn() }));
 vi.mock("@/lib/agent-simulated", () => ({ isSimulatedAgents: vi.fn(() => false) }));
-vi.mock("@/lib/memory", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/memory")>()), loadMemory: vi.fn() }));
+vi.mock("@/lib/memory", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/memory")>()), loadMemory: vi.fn(), loadOwnerNotes: vi.fn() }));
 vi.mock("@/lib/github", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/github")>()), getGithubToken: vi.fn(async () => "t") }));
 // The real client would post to whatever Inngest Dev Server runs on this computer.
 vi.mock("@/lib/inngest/client", () => ({ inngest: { send: vi.fn() } }));
@@ -89,12 +89,20 @@ const signalRow = (id: number) => ({
   number: 1,
 });
 
+/** An unused "Remember this" for everything, in the owner's words. */
+const everythingRow = (id: number, text = "Write short summaries.") => ({
+  signal: { id, workspaceId: WORKSPACE.id, kind: "remember", trusted: true, payload: { text, scope: "global" }, taskId: 1, prNumber: null, createdAt: new Date(2026, 1, id) },
+  number: 1,
+});
+
 let unconsumed = 3;
+let everything = 0;
+let rows: object[] = [];
 function answers(workspace: object = WORKSPACE) {
   fake.answer = (query) => {
     if (query.op !== "select") return [];
     if (query.table === "workspaces") return [workspace];
-    if (query.table === "memory_signals") return query.fields.includes("unconsumed") ? [{ unconsumed, trusted: 0 }] : [signalRow(1), signalRow(2), signalRow(3)];
+    if (query.table === "memory_signals") return query.fields.includes("unconsumed") ? [{ unconsumed, trusted: everything, everything }] : rows;
     if (query.table === "memory_proposals") return query.fields.includes("pending") ? [{ pending: 0 }] : [];
     return [];
   };
@@ -102,7 +110,7 @@ function answers(workspace: object = WORKSPACE) {
 
 const answer = (text: string, costMicros = 1234) => ({ text, refused: false, model: "claude-haiku-5-5", costMicros });
 const PROPOSALS = JSON.stringify({
-  proposals: [{ action: "add", scope: "project", target: null, note: { title: "Run lint", type: "pitfall", load: "on_demand", paths: [], body: "Lint first." }, rationale: "CI failed.", signal_ids: [1] }],
+  proposals: [{ action: "add", target: null, note: { title: "Run lint", type: "pitfall", load: "on_demand", paths: [], body: "Lint first." }, rationale: "CI failed.", signal_ids: [1] }],
 });
 
 const writes = (table: string) => fake.queries.filter((query) => query.table === table && query.op !== "select");
@@ -111,6 +119,9 @@ const states = () => writes("workspaces").flatMap((query) => query.set.map((set)
 
 beforeEach(() => {
   unconsumed = 3;
+  everything = 0;
+  rows = [signalRow(1), signalRow(2), signalRow(3)];
+  vi.mocked(loadOwnerNotes).mockResolvedValue([]);
   answers();
   vi.mocked(checkAgentCanRun).mockResolvedValue({ ok: true, row: lead as never });
   vi.mocked(getAIKeys).mockResolvedValue({ openai: "o", anthropic: "a", openrouter: null });
@@ -220,6 +231,98 @@ describe("a learning run", () => {
       const { params } = new PgDialect().sqlToQuery(query.where[0] as SQL);
       expect(params.includes(9) || params.includes(4242)).toBe(true);
     }
+  });
+});
+
+describe("what the owner asked to remember for everything", () => {
+  /** Nothing can call a model: no key, then a paused Lead. */
+  const blocked = [
+    ["no key", () => vi.mocked(getAIKeys).mockResolvedValue({ openai: null, anthropic: null, openrouter: null }), "API key"],
+    ["a paused Lead", () => vi.mocked(checkAgentCanRun).mockResolvedValue({ ok: false, reason: "paused", error: "" }), "paused"],
+  ] as const;
+  const proposed = () => writes("memory_proposals").flatMap((query) => query.values.flat() as { scope: string; untrustedOrigin: boolean; note: { body: string } }[]);
+  const consumed = () =>
+    writes("memory_signals").map((query) => ({ inTransaction: query.inTransaction, params: new PgDialect().sqlToQuery(query.where[0] as SQL).params }));
+
+  it("is proposed without a model, a key or the Lead, its signal used in the same transaction", async () => {
+    for (const [name, block] of blocked) {
+      fake.queries.length = 0;
+      vi.clearAllMocks();
+      block();
+      unconsumed = 1;
+      everything = 1;
+      rows = [everythingRow(8)];
+      await expect(runLibrarian(learn), name).resolves.toMatchObject({ state: "done", proposals: 1 });
+      expect(structuredReply).not.toHaveBeenCalled();
+      expect(logAgentActivity).not.toHaveBeenCalled();
+      expect(proposed()).toMatchObject([{ scope: "global", untrustedOrigin: false, note: { body: "Write short summaries." } }]);
+      expect(writes("memory_proposals")[0]).toMatchObject({ inTransaction: true });
+      expect(consumed()).toEqual([{ inTransaction: true, params: expect.arrayContaining([4242, 8]) }]);
+      expect(states().at(-1)!.message).toContain("remember one thing for every project: 1 new proposal");
+    }
+  });
+
+  it("says why the rest couldn't run, and leaves the rest unused", async () => {
+    for (const [name, block, why] of blocked) {
+      fake.queries.length = 0;
+      vi.clearAllMocks();
+      vi.mocked(checkAgentCanRun).mockResolvedValue({ ok: true, row: lead as never });
+      block();
+      everything = 1;
+      rows = [everythingRow(8), signalRow(1)];
+      await expect(runLibrarian({ ...learn, trigger: "auto" }), name).resolves.toMatchObject({ state: "done", proposals: 1 });
+      expect(structuredReply).not.toHaveBeenCalled();
+      expect(states().at(-1)!.message).toContain("The rest couldn't run:");
+      expect(states().at(-1)!.message).toContain(why);
+      expect(consumed()).toHaveLength(1);
+      expect(consumed()[0]!.params).not.toContain(1);
+    }
+  });
+
+  it("is never sent to the model, which only gets the other signals", async () => {
+    everything = 1;
+    rows = [everythingRow(8, "OWNER-ONLY-WORDS"), signalRow(1)];
+    await expect(runLibrarian(learn)).resolves.toMatchObject({ state: "done", proposals: 2 });
+    const [, request] = vi.mocked(structuredReply).mock.calls[0]!;
+    expect(request.user).toContain("Lint failed 1.");
+    expect(request.user).not.toContain("OWNER-ONLY-WORDS");
+    expect(consumed().map((write) => write.params.filter((p) => p === 8 || p === 1))).toEqual([[8], [1]]);
+  });
+
+  it("is used up when it repeats a note, and kept when the model's step fails", async () => {
+    vi.mocked(loadOwnerNotes).mockResolvedValue([
+      { key: "global/x-1", scope: "global", userId: 9, workspaceId: null, id: 1, file: null, type: "preference", title: "Write short summaries.", body: "Already.", load: "always", status: "active", paths: [], source: {}, origin: "owner" },
+    ]);
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(structuredReply).mockRejectedValueOnce(new Error("boom"));
+    everything = 1;
+    rows = [everythingRow(8), signalRow(1)];
+    await expect(runLibrarian(learn)).resolves.toMatchObject({ state: "failed", proposals: 0 });
+    expect(proposed()).toEqual([]);
+    expect(consumed()).toHaveLength(1);
+    expect(consumed()[0]!.params).toContain(8);
+    expect(states().at(-1)!.message).toMatch(/1 left out.*The rest failed:/);
+  });
+
+  it("does nothing while memory is off", async () => {
+    answers({ ...WORKSPACE, memoryMode: "off" });
+    everything = 1;
+    rows = [everythingRow(8)];
+    await runLibrarian(learn);
+    expect(writes("memory_proposals")).toEqual([]);
+    expect(writes("memory_signals")).toEqual([]);
+  });
+
+  it("lets Learn now through without a key or the Lead, but not the bootstrap", async () => {
+    vi.mocked(getAIKeys).mockResolvedValue({ openai: null, anthropic: null, openrouter: null });
+    everything = 1;
+    await expect(requestLibrarianRun(WORKSPACE as never, "learn")).resolves.toEqual({ ok: true });
+    await expect(requestLibrarianRun(WORKSPACE as never, "bootstrap")).resolves.toMatchObject({ ok: false });
+    everything = 0;
+    await expect(requestLibrarianRun(WORKSPACE as never, "learn")).resolves.toMatchObject({ ok: false });
+    everything = 1;
+    await expect(requestLibrarianRun({ ...WORKSPACE, memoryMode: "off" } as never, "learn")).resolves.toMatchObject({ ok: false });
   });
 });
 

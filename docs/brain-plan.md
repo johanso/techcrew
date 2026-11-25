@@ -98,10 +98,11 @@ Everything becomes a **signal** first (`memory_signals`), then the librarian tur
    contributing notes, lint, TypeScript and formatter configuration, the CI workflow, the `package.json` scripts and the
    test layout, and proposes a first `conventions.md`.
 
-**The librarian** is one structured model call (a cheap model, on the Lead's budget, honoring pause and spend limits)
-that runs after a merge or a close, a rejection reason or a **Remember this**, once there is enough to learn from, or on
-**Learn now**. It dedupes against existing notes and updates instead of adding; marking notes whose files no longer
-exist as `stale` is part D.
+**The librarian** runs after a merge or a close, a rejection reason or a **Remember this**, once there is enough to
+learn from, or on **Learn now**. What the owner asked to remember for everything is proposed in their words, without a
+model; the rest goes to one structured model call (a cheap model, on the Lead's budget, honoring pause and spend limits)
+that proposes project notes. It dedupes against existing notes and updates instead of adding; marking notes whose files
+no longer exist as `stale` is part D.
 
 **How a proposal arrives**
 
@@ -202,6 +203,13 @@ Choices made while building C:
   on the **Lead** (activity kind `memory`, honoring pause and budget), and runs with **API keys only** (no Claude plan
   route yet): the company of the Lead's model if it has a key, else OpenAI, Anthropic, OpenRouter; the company's fast
   model to learn (low effort where listed), its balanced one to bootstrap.
+- **A model never writes the owner's global memory.** The model proposes project notes only (its schema has no scope,
+  and the server refuses one); it sees global notes just to avoid repeating them. A global proposal exists only for a
+  **Remember this** the owner typed for everything: server code turns it into one new note of their words (title: the
+  first line or sentence; type preference; always loaded), with the same validation, scan and dedupe. That signal is
+  never sent to a model, and the step needs no key and no budget: it runs first in a learning run, so a paused Lead or
+  a missing key only stops the rest. **Remember this** saved with someone else's text unchanged goes to the model like
+  any signal and can only become a project proposal. Promotion from project lessons stays in part D.
 - **Only the owner's click opens the memory pull request** (*Open memory pull request*, with the chosen proposals);
   there is no dedicated `propose_memory` tool and nothing is pushed on its own. While it is open, the next click adds a
   commit to its branch (fast-forward only). It isn't a row of `pull_requests`; its state is read when the Brain page
@@ -213,7 +221,7 @@ Choices made while building C:
   exists.
 - At most 5 proposals per learning run; the bootstrap, one conventions note and up to 5 more. Automatic runs wait for a
   quiet 3 minutes (15 at most) and need 3 unused signals or one the owner typed, and fewer than 20 waiting proposals;
-  **Learn now** takes any unused signal. A successful run uses its signals up even when it proposes nothing.
+  **Learn now** takes any unused signal. A successful step uses its signals up even when it proposes nothing.
 - A repeat is the same note title (in its scope) or text, a second change to a note with one waiting, or something
   rejected before (an addition also by title). `untrusted_origin` is true when no cited signal was typed by the owner:
   one trusted signal among them clears it, so each evidence item still shows its own mark.

@@ -11,8 +11,10 @@ import { GithubError, getBranchSha, getGithubToken, listRepoFiles } from "@/lib/
 import {
   BOOTSTRAP_SCHEMA,
   LEARN_SCHEMA,
+  asksForEverything,
   bootstrapPrompt,
   learnPrompt,
+  rememberedProposals,
   selectNotes,
   selectSignals,
   validateBootstrap,
@@ -24,28 +26,31 @@ import {
 } from "@/lib/librarian";
 import { sendLibrarianEvent, MEMORY_LEARN } from "@/lib/librarian-request";
 import { simulatedBootstrap, simulatedLearning } from "@/lib/librarian-simulated";
-import { getMemoryMode, loadMemory, repoReader } from "@/lib/memory";
+import { getMemoryMode, loadMemory, loadOwnerNotes, repoReader } from "@/lib/memory";
 import { readRepositoryFacts } from "@/lib/memory-bootstrap";
 import {
-  LEARN_SIGNALS_MAX,
   PROPOSAL_STATUSES,
   currentLibrarianState,
   isProposalKind,
   learnDecision,
   librarianBusy,
+  type LearnFacts,
   type LibrarianJob,
   type LibrarianRequest,
   type LibrarianState,
+  type LibrarianTrigger,
   type ProposalOrigin,
 } from "@/lib/memory-proposals";
 import { isSignalKind } from "@/lib/memory-signals";
 import { modelProvider } from "@/lib/model-catalog-config";
 
 /**
- * The librarian's run (docs/brain-plan.md): one structured model call without tools or write access, turned into
- * proposals by lib/librarian.ts. It runs on the Lead's budget (paused or spent: no run) with an API key, the company of
- * the Lead's model first; the owner's Claude plan isn't used. Signals are marked used only when a run succeeds, in the
- * same transaction as its proposals. With AGENTS_SIMULATED=true a script stands in for the model.
+ * The librarian's run (docs/brain-plan.md). Learning starts without a model: what the owner asked to remember for
+ * everything becomes proposals for their global memory (lib/librarian.ts). The rest is one structured model call
+ * without tools or write access, turned into project proposals: it runs on the Lead's budget (paused or spent: no call)
+ * with an API key, the company of the Lead's model first; the owner's Claude plan isn't used. Signals are marked used
+ * only by a step that succeeds, in the same transaction as its proposals. With AGENTS_SIMULATED=true a script stands in
+ * for the model.
  */
 
 export type LibrarianAccess = { ok: true; leadId: number; ai: ConfigAI | null } | { ok: false; reason: string; needsKey?: boolean };
@@ -66,11 +71,18 @@ export async function librarianAccess(workspace: Pick<Workspace, "id" | "memoryM
   return { ok: true, leadId: lead.row.id, ai };
 }
 
-/** What there is to learn from, and how full the inbox is. */
+/**
+ * What there is to learn from, and how full the inbox is. `everything`: how many of the unused signals ask to be
+ * remembered for every project (asksForEverything), which a run proposes without a model.
+ */
 export async function librarianFacts(workspaceId: number) {
   const [[signals], [pending]] = await Promise.all([
     db
-      .select({ unconsumed: count(), trusted: sql<number>`count(*) filter (where ${memorySignals.trusted})::int` })
+      .select({
+        unconsumed: count(),
+        trusted: sql<number>`count(*) filter (where ${memorySignals.trusted})::int`,
+        everything: sql<number>`count(*) filter (where ${memorySignals.kind} = 'remember' and ${memorySignals.trusted} and ${memorySignals.payload} ->> 'scope' = 'global')::int`,
+      })
       .from(memorySignals)
       .where(and(eq(memorySignals.workspaceId, workspaceId), isNull(memorySignals.consumedAt))),
     db
@@ -78,7 +90,16 @@ export async function librarianFacts(workspaceId: number) {
       .from(memoryProposals)
       .where(and(eq(memoryProposals.workspaceId, workspaceId), eq(memoryProposals.status, "pending"))),
   ]);
-  return { unconsumed: signals?.unconsumed ?? 0, trusted: signals?.trusted ?? 0, pending: pending?.pending ?? 0 };
+  return { unconsumed: signals?.unconsumed ?? 0, trusted: signals?.trusted ?? 0, everything: signals?.everything ?? 0, pending: pending?.pending ?? 0 };
+}
+
+/** learnDecision's facts for a workspace. */
+function learnFacts(
+  workspace: Pick<Workspace, "memoryMode" | "memoryAutoLearn">,
+  trigger: LibrarianTrigger,
+  { unconsumed, trusted, pending }: Awaited<ReturnType<typeof librarianFacts>>
+): LearnFacts {
+  return { trigger, mode: getMemoryMode(workspace), autoLearn: workspace.memoryAutoLearn, unconsumed, trusted, pending };
 }
 
 async function setState(workspaceId: number, state: Omit<LibrarianState, "at">) {
@@ -93,11 +114,17 @@ const idle = { proposals: 0, costMicros: 0 };
 /** "Learn now" and "Build a first memory": checks, marks the run as queued and asks the job runner for it. */
 export async function requestLibrarianRun(workspace: Workspace, job: LibrarianJob): Promise<{ ok: true } | { ok: false; message: string }> {
   if (librarianBusy(currentLibrarianState(workspace.memoryLibrarian, new Date()))) return { ok: false, message: "The librarian is already working." };
-  const access = await librarianAccess(workspace);
-  if (!access.ok) return { ok: false, message: access.reason };
+  let needsModel = true;
   if (job === "learn") {
-    const decision = learnDecision({ trigger: "manual", mode: getMemoryMode(workspace), autoLearn: workspace.memoryAutoLearn, ...(await librarianFacts(workspace.id)) });
+    const facts = await librarianFacts(workspace.id);
+    const decision = learnDecision(learnFacts(workspace, "manual", facts));
     if (!decision.run) return { ok: false, message: decision.reason };
+    // What the owner asked to remember for everything needs no model, so no key or budget is asked for first.
+    needsModel = !facts.everything;
+  }
+  if (needsModel) {
+    const access = await librarianAccess(workspace);
+    if (!access.ok) return { ok: false, message: access.reason };
   }
   const request = { workspaceId: workspace.id, job, trigger: "manual" as const };
   await setState(workspace.id, { state: "queued", job, trigger: "manual", message: "", ...idle });
@@ -171,15 +198,14 @@ async function proposalHistory(workspace: Pick<Workspace, "id" | "ownerId">): Pr
   });
 }
 
-/** The workspace's newest unused signals, with their card keys. */
+/** The workspace's unused signals (it keeps a few hundred at most), newest first, with their card keys. */
 async function unusedSignals(workspace: Pick<Workspace, "id" | "name">): Promise<LibrarianSignal[]> {
   const rows = await db
     .select({ signal: memorySignals, number: tasks.number })
     .from(memorySignals)
     .leftJoin(tasks, and(eq(tasks.id, memorySignals.taskId), eq(tasks.workspaceId, memorySignals.workspaceId)))
     .where(and(eq(memorySignals.workspaceId, workspace.id), isNull(memorySignals.consumedAt)))
-    .orderBy(desc(memorySignals.createdAt), desc(memorySignals.id))
-    .limit(LEARN_SIGNALS_MAX);
+    .orderBy(desc(memorySignals.createdAt), desc(memorySignals.id));
   const prefix = taskKeyPrefix(workspace.name);
   return rows.flatMap(({ signal, number }): LibrarianSignal[] => {
     if (!isSignalKind(signal.kind)) return [];
@@ -228,11 +254,25 @@ const proposalsNoun = (n: number) => `${n} new proposal${n === 1 ? "" : "s"}`;
 const outcome = (read: string, proposals: number, dropped: number) =>
   `${read}: ${proposals ? `${proposalsNoun(proposals)} to review` : "nothing new worth proposing"}${dropped ? ` (${dropped} left out: already known or not allowed)` : ""}.`;
 
-async function learn(run: Run) {
+const nothingProposed = { proposals: 0, message: "" };
+
+/**
+ * The first step of a learning run, without a model: what the owner asked to remember for everything becomes proposals
+ * for their global memory, in their own words. It costs nothing, so it needs no key and no budget.
+ */
+async function proposeRemembered(workspace: Workspace, requests: readonly LibrarianSignal[], readAt: Date) {
+  if (!requests.length) return nothingProposed;
+  const [notes, history] = await Promise.all([loadOwnerNotes(workspace), proposalHistory(workspace)]);
+  const result = checked(rememberedProposals(requests, { notes, history }));
+  await save(workspace, result.proposals, "agent", { ids: requests.map((signal) => signal.id), readAt });
+  const read = `You asked to remember ${requests.length === 1 ? "one thing" : `${requests.length} things`} for every project`;
+  return { proposals: result.proposals.length, message: outcome(read, result.proposals.length, result.dropped.length) };
+}
+
+/** The model's step of a learning run: project proposals from the other signals. */
+async function learn(run: Run, signals: LibrarianSignal[], readAt: Date) {
   const { workspace } = run;
   const memory = await currentMemory(workspace, await getGithubToken(workspace.ownerId).catch(() => null));
-  const readAt = new Date();
-  const signals = selectSignals(await unusedSignals(workspace));
   const answer = await ask(run, "learn", { ...learnPrompt({ signals, notes: memory.shown, history: memory.history }), name: "memory_proposals", schema: LEARN_SCHEMA }, () =>
     simulatedLearning({ signals, notes: memory.shown })
   );
@@ -272,35 +312,57 @@ function failureMessage(error: unknown, ai: ConfigAI | null) {
 
 /**
  * One run, from the job runner (one at a time per workspace). An automatic request that has nothing to do ends without
- * a trace; everything else leaves its outcome on the workspace. A failed run uses up no signal.
+ * a trace; everything else leaves its outcome on the workspace. A learning run first proposes what the owner asked to
+ * remember for everything; only the other signals go to a model, and a failed step uses none of them up.
  */
 export async function runLibrarian({ workspaceId, job, trigger }: LibrarianRequest) {
   const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, workspaceId));
   if (!workspace) return { skipped: "The workspace is gone." };
-  const finish = async (state: "done" | "failed", message: string, proposals = 0, costMicros = 0) => {
-    await setState(workspaceId, { state, job, trigger, message, proposals, costMicros });
-    return { state, message, proposals };
+  // What the step without a model did: every outcome starts with it.
+  let remembered = nothingProposed;
+  const spent: Run["spent"] = { costMicros: 0, activityId: null };
+  const finish = async (state: "done" | "failed", message: string, proposals = 0) => {
+    const outcomeState = {
+      state,
+      message: [remembered.message, message].filter(Boolean).join(" "),
+      proposals: remembered.proposals + proposals,
+    };
+    await setState(workspaceId, { ...outcomeState, job, trigger, costMicros: spent.costMicros });
+    return outcomeState;
   };
 
   if (job === "learn") {
-    const decision = learnDecision({ trigger, mode: getMemoryMode(workspace), autoLearn: workspace.memoryAutoLearn, ...(await librarianFacts(workspaceId)) });
+    const decision = learnDecision(learnFacts(workspace, trigger, await librarianFacts(workspaceId)));
     if (!decision.run) return trigger === "manual" ? finish("done", decision.reason) : { skipped: decision.reason };
   }
-  const access = await librarianAccess(workspace);
-  if (!access.ok) return finish("failed", access.reason);
 
   await setState(workspaceId, { state: "running", job, trigger, message: "", ...idle });
-  const run: Run = { workspace, access, spent: { costMicros: 0, activityId: null } };
   const record = async (title: string, detail: string) => {
-    if (run.spent.activityId !== null) await updateAgentActivity(run.spent.activityId, { title, detail });
+    if (spent.activityId !== null) await updateAgentActivity(spent.activityId, { title, detail });
   };
+  let ai: ConfigAI | null = null;
   try {
-    const result = job === "learn" ? await learn(run) : await bootstrap(run);
+    const readAt = new Date();
+    let signals: LibrarianSignal[] = [];
+    if (job === "learn") {
+      const unused = await unusedSignals(workspace);
+      remembered = await proposeRemembered(workspace, unused.filter(asksForEverything), readAt);
+      // Never sent to a model: the rest is what it learns from.
+      signals = selectSignals(unused.filter((signal) => !asksForEverything(signal)));
+      if (!signals.length) return await finish("done", remembered.message ? "" : "There is nothing new to learn from.");
+    }
+    const access = await librarianAccess(workspace);
+    if (!access.ok) {
+      return await (remembered.message ? finish("done", `The rest couldn't run: ${access.reason}`) : finish("failed", access.reason));
+    }
+    ai = access.ai;
+    const run: Run = { workspace, access, spent };
+    const result = job === "learn" ? await learn(run, signals, readAt) : await bootstrap(run);
     await record(result.proposals ? `Librarian: ${proposalsNoun(result.proposals)}` : "Librarian: nothing new to propose", result.message);
-    return finish("done", result.message, result.proposals, run.spent.costMicros);
+    return await finish("done", result.message, result.proposals);
   } catch (error) {
-    const message = failureMessage(error, access.ai);
+    const message = failureMessage(error, ai);
     await record("Librarian: the run failed", message);
-    return finish("failed", message, 0, run.spent.costMicros);
+    return finish("failed", remembered.message ? `The rest failed: ${message}` : message);
   }
 }

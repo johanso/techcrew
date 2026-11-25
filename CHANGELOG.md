@@ -35,7 +35,9 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   conventions note and a few more from the README, configuration, CI and file layout. Your own notes and `local` projects
   are accepted, edited or rejected on the page; repository projects go in a separate **TechTeam memory** pull request that
   only your click opens, changes only `.techteam/memory/` and is never merged by TechTeam. Proposals resting only on
-  agent, CI or repository text need a confirmation, and rejected ones aren't made again. Migration `0023` adds
+  agent, CI or repository text need a confirmation, and rejected ones aren't made again. The model proposes project
+  notes only: **Your memory** gets proposals just from what you ask to remember for everything, in your own words,
+  without a model, key or budget. Migration `0023` adds
   `memory_proposals`, `workspaces.memory_auto_learn` and `memory_librarian` (included in backups): run
   `npm run db:migrate` (`npm run dev` applies it at start).
 

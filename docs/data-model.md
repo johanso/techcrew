@@ -437,7 +437,7 @@ include the table. Rows are never deleted by the app: a rejected one keeps the s
 | --- | --- | --- | --- | --- |
 | `id` | serial | no | | Primary key. |
 | `user_id` | integer | no | | → `users.id`, cascade. The owner; every query is scoped by it and the workspace. |
-| `workspace_id` | integer | no | | → `workspaces.id`, cascade. Where it was learned, also for a global proposal. |
+| `workspace_id` | integer | no | | → `workspaces.id`, cascade. Where it was learned, also for a global proposal (which only a **Remember this** for everything makes). |
 | `kind` | text | no | | `add` \| `update` \| `retire`. |
 | `scope` | text | no | | `project` \| `global`. |
 | `target_key` | text | yes | | Update and retire: the note's key (`project/<name>`, `global/<name>-<id>`). |

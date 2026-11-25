@@ -553,15 +553,21 @@ The **librarian** reads what was collected and proposes changes to the notes. It
 write access: it is one structured model call whose answer TechTeam checks (the signals it may cite, the notes it may
 change, the limits, the security scan, repeats) and drops what fails. Nothing it says reaches an agent without you.
 
+- **The model only proposes project notes.** It never writes **Your memory**: that gets proposals only from a
+  **Remember this** you typed for everything, each as one new note in your own words (title: its first line or sentence;
+  preference; always loaded), still checked, scanned, deduped and waiting for you. These need no model, so they appear
+  without an API key and with the Lead paused or out of budget; the run says why the rest couldn't run. A **Remember
+  this** saved with someone else's text unchanged can only become a project proposal.
+
 - **When it runs.** **Learn now** (any unused signal). On its own (Brain → Settings → **Learn automatically**, on by
   default) a few minutes after a pull request is merged or closed, a rejection reason or a **Remember this**, once there
   are at least 3 unused signals or one you typed, and fewer than 20 proposals wait. One run at a time per project; the
   card says it is waiting or running, and how the last run ended (what it read, how many proposals, what it left out,
-  the cost). A failed run uses no signal up.
-- **Who pays.** The Lead's budget (a paused Lead or a spent budget stops it; the spend shows in the Lead's panel as
-  *Memory (librarian)* and in Activity), with an **API key**: the company of the Lead's model if it has a key, else
-  OpenAI, Anthropic, OpenRouter; the company's **fast** model to learn, its **balanced** model to read a repository. Your
-  Claude plan isn't used. Without a key the card says so. In simulated mode a script stands in and nothing is spent.
+  the cost). A failed step uses none of its signals up.
+- **Who pays.** The Lead's budget (a paused Lead or a spent budget stops the model's call; the spend shows in the Lead's
+  panel as *Memory (librarian)* and in Activity), with an **API key**: the company of the Lead's model if it has a key,
+  else OpenAI, Anthropic, OpenRouter; the company's **fast** model to learn, its **balanced** model to read a repository.
+  Your Claude plan isn't used. Without a key the card says so. In simulated mode a script stands in and nothing is spent.
 - **Build a first memory from this repository.** Reads, from the default branch with your GitHub connection, only the
   README, contributing notes, `AGENTS.md` / `CLAUDE.md`, the `package.json` scripts, TypeScript, ESLint and Prettier
   configuration, up to four CI workflows, the top-level tree and where the tests are (about 40,000 characters at most,
@@ -570,8 +576,8 @@ change, the limits, the security scan, repeats) and drops what fails. Nothing it
 - **A proposal** shows what it does (new note, update, retire), where (This project / Everything), the proposed note next
   to the current one for an update or a retirement, why, and what it is based on (each signal with **Trusted** or **From
   an agent**, its card, pull request and entry in Activity; or the repository's files). One **based only on text from
-  agents, CI or the repository** says so and needs a box ticked before it can be accepted or sent. At most five per
-  learning run; **Everything** only when one of your own **Remember this** notes for everything supports it.
+  agents, CI or the repository** says so and needs a box ticked before it can be accepted or sent. The model makes at
+  most five per learning run; your requests for everything aren't limited by that.
 - **Your memory and projects in mode On this computer**: **Accept**, **Edit then accept** or **Reject**. Accepting writes
   the note (checked and scanned again); a retirement switches the note off. If the note changed since the proposal was
   made, nothing is written and the proposal is marked superseded.

@@ -29,13 +29,15 @@ export type LibrarianCardProps = {
   /** Why it can't run now, or where it runs. */
   access: { ok: true; runsOn: string } | { ok: false; reason: string; needsKey?: boolean };
   unconsumed: number;
+  /** How many of those ask to be remembered for every project: proposed without a model (0 while memory is off). */
+  everything: number;
   autoLearn: boolean;
   /** ISO date of the last bootstrap, or null when the memory was never built from the repository. */
   bootstrappedAt: string | null;
 };
 
 /** Brain → Librarian: "Learn now", the first memory from the repository, and what the last run did. */
-export function LibrarianCard({ workspaceId, state, access, unconsumed, autoLearn, bootstrappedAt }: LibrarianCardProps) {
+export function LibrarianCard({ workspaceId, state, access, unconsumed, everything, autoLearn, bootstrappedAt }: LibrarianCardProps) {
   const router = useRouter();
   const [message, setMessage] = useState<string | undefined>();
   const [asked, setAsked] = useState<LibrarianJob | null>(null);
@@ -57,6 +59,7 @@ export function LibrarianCard({ workspaceId, state, access, unconsumed, autoLear
     });
 
   const disabled = pending || busy || !access.ok;
+  const canLearn = !pending && !busy && unconsumed > 0 && (access.ok || everything > 0);
   const starting = (job: LibrarianJob) => pending && asked === job;
 
   return (
@@ -81,7 +84,7 @@ export function LibrarianCard({ workspaceId, state, access, unconsumed, autoLear
               : "Automatic learning is off: it runs only when you ask."}{" "}
             It has no tools, writes nothing on its own, and is paid from the Lead&apos;s budget.{access.ok ? ` ${access.runsOn}` : ""}
           </p>
-          <Button type="button" variant="outline" className="h-9 shrink-0" disabled={disabled || !unconsumed} onClick={() => run("learn")}>
+          <Button type="button" variant="outline" className="h-9 shrink-0" disabled={!canLearn} onClick={() => run("learn")}>
             {starting("learn") ? <Spinner /> : <WandSparklesIcon data-icon="inline-start" />}
             {starting("learn") ? "Starting…" : "Learn now"}
           </Button>
@@ -91,7 +94,10 @@ export function LibrarianCard({ workspaceId, state, access, unconsumed, autoLear
           <div className="flex flex-col items-start gap-3 rounded-lg border border-border/70 bg-muted/60 p-3 sm:flex-row sm:items-center">
             <p className="flex min-w-0 flex-1 items-start gap-2 text-sm">
               <InfoIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-              {access.reason}
+              <span>
+                {access.reason}
+                {everything > 0 && " “Learn now” still proposes what you asked to remember for every project."}
+              </span>
             </p>
             {access.needsKey && (
               <Link href={`/dashboard/${workspaceId}/settings#ai`} className={buttonVariants({ variant: "outline", className: "h-9" })}>

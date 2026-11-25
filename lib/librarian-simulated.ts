@@ -9,8 +9,8 @@ import { capText } from "@/lib/memory-signals";
  * and the memory pull request can be tried without a key or spend. Deterministic, and its answer goes through the same
  * checks as a model's. Pure.
  *
- * Learning, one proposal per signal with text, newest first: a signal that names an existing note retires it when it
- * says "no longer", else updates it; anything else becomes a new note ("Remember this" in the scope the owner chose).
+ * Learning, one project proposal per signal with text, newest first: a signal that names a project note retires it when
+ * it says "no longer", else updates it; anything else becomes a new note.
  */
 
 const firstLine = (text: string) => text.split("\n")[0]!.trim();
@@ -20,7 +20,6 @@ const PREFIX: Partial<Record<LibrarianSignal["kind"], string>> = { answer: "Deci
 
 type Answer = {
   action: ProposalKind;
-  scope: "project" | "global";
   target: string | null;
   note: ProposalNote | null;
   rationale: string;
@@ -31,13 +30,11 @@ function proposalFor(signal: LibrarianSignal, notes: readonly ShownNote[]): Answ
   const { payload } = signal;
   const text = payload.text.trim();
   if (!text) return null;
-  const scope = signal.kind === "remember" && payload.scope === "global" ? "global" : "project";
-  const base: Pick<Answer, "scope" | "rationale" | "signal_ids"> = {
-    scope,
+  const base: Pick<Answer, "rationale" | "signal_ids"> = {
     rationale: `Simulated librarian: signal ${signal.id} (${signal.kind}) said it.`,
     signal_ids: [signal.id],
   };
-  const named = notes.find((shown) => shown.scope === scope && text.toLowerCase().includes(shown.note.title.toLowerCase()));
+  const named = notes.find((shown) => shown.scope === "project" && text.toLowerCase().includes(shown.note.title.toLowerCase()));
   if (named) {
     if (/no longer/i.test(text)) return { ...base, action: "retire", target: named.key, note: null };
     return { ...base, action: "update", target: named.key, note: { ...named.note, body: capText(`${named.note.body}\n${firstLine(text)}`, 600) } };

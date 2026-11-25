@@ -195,6 +195,11 @@ export async function loadMemory(workspace: MemoryWorkspace, token: string | nul
   };
 }
 
+/** The owner's global notes alone, checked like any load and without reading the repository. */
+export async function loadOwnerNotes(workspace: Pick<MemoryWorkspace, "id" | "ownerId">) {
+  return visibleNotes(checkedRows(await selectRows(workspace.ownerId, null)).notes, { userId: workspace.ownerId, workspaceId: workspace.id });
+}
+
 /** The notes an agent of this workspace works with: visible, scanned, active. A repository that can't be read is no notes. */
 export async function loadAgentMemory(workspace: MemoryWorkspace, token: string | null) {
   const loaded = await loadMemory(workspace, token);

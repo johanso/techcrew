@@ -182,8 +182,10 @@ Brain page: Learn now, Build first memory ────────────�
 - **`memory-librarian`**: event data `{ workspaceId, job: "learn" | "bootstrap", trigger: "auto" | "manual" }`,
   checked by `parseLibrarianRequest`; **concurrency 1 per workspace**; **no retries** (a retry would pay for the model
   again); one step. An automatic run that has nothing to do (`learnDecision`) ends without a trace. Otherwise the state
-  goes to `workspaces.memory_librarian` (`running`, then `done` or `failed`), the cost to the Lead's `memory` activity,
-  and, only on success, the proposals are saved and the signals marked used in one transaction.
+  goes to `workspaces.memory_librarian` (`running`, then `done` or `failed`). A learning run first proposes what the
+  owner asked to remember for everything (no model, no key or budget), then calls the model with the other signals if
+  the Lead and a key allow it; the cost goes to the Lead's `memory` activity. Each of the two steps saves its proposals
+  and marks its signals used in one transaction, only when it succeeds.
 - **Manual requests** mark the state `queued` first; if the event can't be sent the action reports it and the state says
   so. A queued state older than 10 minutes, or a running one older than 15 (the app stopped mid-run), reads as failed;
   nothing needs sweeping, since no signal was used.

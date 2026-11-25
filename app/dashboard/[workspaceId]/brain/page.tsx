@@ -56,6 +56,8 @@ export default async function BrainPage({ params, searchParams }: PageProps<"/da
         state: currentLibrarianState(workspace.memoryLibrarian, new Date()),
         access: access.ok ? { ok: true, runsOn } : access,
         unconsumed: facts.unconsumed,
+        // Requests to remember for everything are proposed without a model, whatever stops the rest.
+        everything: memory.mode === "off" ? 0 : facts.everything,
         autoLearn: workspace.memoryAutoLearn,
         bootstrappedAt: workspace.memoryBootstrappedAt?.toISOString() ?? null,
       }}
