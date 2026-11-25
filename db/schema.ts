@@ -8,6 +8,7 @@ import type { RunWaiting } from "@/lib/cli-agents-config";
 import type { TrustReport } from "@/lib/agent-trust";
 import type { CiResult } from "@/lib/ci-gate";
 import type { PendingMerge } from "@/lib/merge-config";
+import type { RejectionPromptState, SignalPayload } from "@/lib/memory-signals";
 import type { Effort, ModelPricing } from "@/lib/model-catalog-config";
 import type { RunPreview, StoredSandboxCommands } from "@/lib/sandbox/config";
 
@@ -584,6 +585,9 @@ export const pullRequests = pgTable(
     mergeError: text("merge_error"),
     // Card the tester filed for a failed merge.
     followUpTaskId: integer("follow_up_task_id").references(() => tasks.id, { onDelete: "set null" }),
+    // Closed without merging: what became of the question "Why was this rejected?" (REJECTION_PROMPTS in
+    // lib/memory-signals.ts: "pending" | "answered" | "dismissed"). Null: never asked. Once set, never asked again.
+    rejectionPrompt: text("rejection_prompt").$type<RejectionPromptState>(),
     mergedAt: timestamp("merged_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -698,3 +702,38 @@ export const memoryNotes = pgTable(
 );
 
 export type MemoryNoteRow = typeof memoryNotes.$inferSelect;
+
+/**
+ * What happened that the Brain could learn from (lib/memory-signals.ts, docs/brain-plan.md): a rejected pull request, a
+ * rework round, the owner's answer to the Analyst, a lesson the Lead suggested, "Remember this". Raw material only:
+ * agents never read it, and nothing becomes memory without a review. `trusted` is true only for words the owner typed
+ * in the app; the texts are capped and scanned and hold no secrets, so backups include it. At most 500 per workspace.
+ * Cards are only marked removed, never deleted, so `task_id` keeps pointing at a removed card.
+ */
+export const memorySignals = pgTable(
+  "memory_signals",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    // SIGNAL_KINDS: "pr_rejected" | "rework" | "answer" | "failure" | "lesson" | "remember".
+    kind: text("kind").notNull(),
+    // What it came from, e.g. "pr:12" or "run:41:round:0:lead": a retried step or a second sync can't record it twice.
+    sourceKey: text("source_key").notNull(),
+    runId: integer("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+    prNumber: integer("pr_number"),
+    taskId: integer("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    payload: jsonb("payload").$type<SignalPayload>().notNull(),
+    trusted: boolean("trusted").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    // When the librarian (a later version) used it. Null: not yet.
+    consumedAt: timestamp("consumed_at"),
+  },
+  (table) => [
+    unique("memory_signals_source_unique").on(table.workspaceId, table.kind, table.sourceKey),
+    index("memory_signals_workspace_created_idx").on(table.workspaceId, table.createdAt),
+  ]
+);
+
+export type MemorySignalRow = typeof memorySignals.$inferSelect;

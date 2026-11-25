@@ -475,8 +475,8 @@ export type RunLogStage = {
   turns: number;
   costMicros: number;
   steps: RunLogStep[];
-  /** How the stage ended — a result, a question for the owner (analysis, needs info) or a stop — and in what words; null while it's still working. */
-  end: { kind: "result" | "question" | "stopped"; summary: string | null } | null;
+  /** How the stage ended — a result, a question for the owner (analysis, needs info) or a stop — and in what words (`id`: its log row); null while it's still working. */
+  end: { id: number; kind: "result" | "question" | "stopped"; summary: string | null } | null;
   /** Files written, edited or deleted, in order, without repeats. */
   filesChanged: string[];
 };
@@ -542,7 +542,7 @@ export async function getTaskRunLog(workspaceId: number, taskId: number): Promis
     if (row.tool === "result" || row.tool === "stopped") {
       // A run ends in needs_info only from its analysis, so that stage's result is the question.
       const question = row.tool === "result" && row.stage === "analysis" && run.status === "needs_info";
-      group.end = { kind: question ? "question" : row.tool === "result" ? "result" : "stopped", summary: row.summary };
+      group.end = { id: row.id, kind: question ? "question" : row.tool === "result" ? "result" : "stopped", summary: row.summary };
       group.costMicros = row.costMicros;
       continue;
     }

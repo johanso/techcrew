@@ -29,7 +29,10 @@ export function BoardColumn({
   onMergeCard,
   onAnswerCard,
   onViewLog,
+  onRememberCard,
   onRemoveCard,
+  workspaceId,
+  onRejectionResolved,
 }: {
   column: (typeof BOARD_COLUMNS)[number];
   /** Cards to render (already filtered, and cut to the preview while the column is collapsed). */
@@ -54,7 +57,11 @@ export function BoardColumn({
   onMergeCard: (card: BoardCard) => void;
   onAnswerCard: (card: BoardCard) => void;
   onViewLog: (card: BoardCard) => void;
+  onRememberCard: (card: BoardCard) => void;
   onRemoveCard: (card: BoardCard) => void;
+  workspaceId: number;
+  /** A card's "Why was this rejected?" was answered or dismissed. */
+  onRejectionResolved: (card: BoardCard) => void;
 }) {
   // The column itself is a drop target, so empty columns accept cards too.
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
@@ -118,7 +125,10 @@ export function BoardColumn({
               onMerge={() => onMergeCard(card)}
               onAnswer={() => onAnswerCard(card)}
               onViewLog={() => onViewLog(card)}
+              onRemember={() => onRememberCard(card)}
               onRemove={() => onRemoveCard(card)}
+              workspaceId={workspaceId}
+              onRejectionResolved={() => onRejectionResolved(card)}
             />
           ))}
           {cards.length === 0 && (

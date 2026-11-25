@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { format, formatDistanceStrict, formatDistanceToNowStrict } from "date-fns";
 import {
+  BookmarkPlusIcon,
   BookOpenTextIcon,
   CircleAlertIcon,
   CircleCheckIcon,
@@ -36,6 +37,7 @@ import {
 import { getRunLogAction } from "@/app/dashboard/[workspaceId]/board/actions";
 import { AgentPortrait } from "@/components/ai-team/agent-visuals";
 import { AgentRunStatus } from "@/components/board/agent-run-status";
+import { RememberDialog, type RememberTarget } from "@/components/brain/remember-dialog";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -46,6 +48,7 @@ import type { RunLog, RunLogStage, RunLogStep } from "@/lib/agent-runs";
 type RunLogEnd = NonNullable<RunLogStage["end"]>;
 import type { BoardCard } from "@/lib/board-config";
 import { ciForRound, ciSummary, type CiResult, type CiState } from "@/lib/ci-gate";
+import { stepRememberText } from "@/lib/memory-signals";
 import { cn } from "@/lib/utils";
 
 // While the agents work, the log follows them.
@@ -85,7 +88,26 @@ const TOOL_ICON: Record<string, LucideIcon> = {
 // why a stage took the API key although the owner's plan is on.
 const SHOW_SUMMARY = new Set(["browse_preview", "merge_default_branch", "finish_merge", "route"]);
 
-function Step({ step, runId }: { step: RunLogStep; runId: number }) {
+/** An entry of the log the owner can ask the Brain to remember: its row id and the text the dialog starts with. */
+type OnRemember = (entry: { stepId: number; text: string }) => void;
+
+function RememberButton({ label, onClick, className }: { label: string; onClick: () => void; className?: string }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      onClick={onClick}
+      aria-label={`Remember this: ${label}`}
+      title="Remember this"
+      className={cn("size-6 shrink-0 text-muted-foreground hover:bg-muted hover:text-brand-emphasis", className)}
+    >
+      <BookmarkPlusIcon />
+    </Button>
+  );
+}
+
+function Step({ step, runId, onRemember }: { step: RunLogStep; runId: number; onRemember: OnRemember }) {
   const meta = { label: TOOL_LABEL[step.tool] ?? step.tool, icon: TOOL_ICON[step.tool] ?? WrenchIcon };
   const screenshot = `/api/runs/${runId}/steps/${step.id}/screenshot`;
   return (
@@ -121,11 +143,16 @@ function Step({ step, runId }: { step: RunLogStep; runId: number }) {
       <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums" title={`Turn ${step.turn}`}>
         T{step.turn}
       </span>
+      <RememberButton
+        label={[meta.label, step.target].filter(Boolean).join(" ")}
+        onClick={() => onRemember({ stepId: step.id, text: stepRememberText(step) })}
+        className="-mt-1"
+      />
     </li>
   );
 }
 
-function StageBlock({ stage, live, runId }: { stage: RunLogStage; live: boolean; runId: number }) {
+function StageBlock({ stage, live, runId, onRemember }: { stage: RunLogStage; live: boolean; runId: number; onRemember: OnRemember }) {
   const role = AGENT_ROLES[stage.agent];
   const end = stage.end ? STAGE_END[stage.end.kind] : null;
   return (
@@ -150,11 +177,18 @@ function StageBlock({ stage, live, runId }: { stage: RunLogStage; live: boolean;
         )}
       </div>
 
-      {end ? (
-        <p className={cn("flex items-start gap-2 rounded-lg px-3 py-2 text-xs ring-1", end.box)}>
+      {end && stage.end ? (
+        <div className={cn("flex items-start gap-2 rounded-lg px-3 py-2 text-xs ring-1", end.box)}>
           <end.icon aria-hidden className={cn("mt-px size-3.5 shrink-0", end.tone)} />
-          <span className="line-clamp-4">{stage.end?.summary}</span>
-        </p>
+          <p className="line-clamp-4 min-w-0 flex-1 wrap-anywhere">{stage.end.summary}</p>
+          {stage.end.summary && (
+            <RememberButton
+              label={`how ${STAGE_META[stage.stage].label.toLowerCase()} ended`}
+              onClick={() => stage.end && onRemember({ stepId: stage.end.id, text: stepRememberText({ tool: "result", target: null, summary: stage.end.summary }) })}
+              className="-my-1 -mr-1.5"
+            />
+          )}
+        </div>
       ) : (
         live && (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -185,7 +219,7 @@ function StageBlock({ stage, live, runId }: { stage: RunLogStage; live: boolean;
           </summary>
           <ol className="mt-1 flex flex-col">
             {stage.steps.map((step) => (
-              <Step key={step.id} step={step} runId={runId} />
+              <Step key={step.id} step={step} runId={runId} onRemember={onRemember} />
             ))}
           </ol>
         </details>
@@ -258,17 +292,21 @@ function CiBlock({ ci }: { ci: CiResult }) {
  */
 export function RunLogSheet({
   workspaceId,
+  memoryOff,
   card,
   onOpenChange,
   onAnswer,
 }: {
   workspaceId: number;
+  /** The project's memory is off ("Remember this" says so). */
+  memoryOff: boolean;
   card: BoardCard | null;
   onOpenChange: (open: boolean) => void;
   /** Opens the answer dialog for a card whose analyst waits on a question. */
   onAnswer: (card: BoardCard) => void;
 }) {
   const [log, setLog] = useState<{ cardId: string; data: RunLog | null } | null>(null);
+  const [rememberTarget, setRememberTarget] = useState<RememberTarget | null>(null);
   const cardId = card?.id ?? null;
   const live = card?.run ? isActiveRun(card.run.status) : false;
 
@@ -294,7 +332,14 @@ export function RunLogSheet({
   const run = data?.run;
 
   return (
-    <Sheet open={card !== null} onOpenChange={onOpenChange}>
+    <Sheet
+      open={card !== null}
+      onOpenChange={(open) => {
+        // A note left open doesn't come back the next time the log opens.
+        if (!open) setRememberTarget(null);
+        onOpenChange(open);
+      }}
+    >
       <SheetContent side="right" className="gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-lg">
         <div className="flex items-start gap-3 border-b border-border/70 px-5 py-4 pr-12">
           <span className="icon-tile size-9 text-brand-emphasis [&_svg]:size-4">
@@ -363,6 +408,8 @@ export function RunLogSheet({
                   <StageBlock
                     stage={stage}
                     runId={data.run.id}
+                    // Everything in the log is an agent's words, so saved unchanged it stays untrusted.
+                    onRemember={(entry) => card && setRememberTarget({ cardId: card.id, cardKey: card.key, ...entry, someoneElses: true })}
                     // Two blocks can be live at once: Reviewer and Security work the review phase in parallel.
                     live={
                       isActiveRun(data.run.status) &&
@@ -377,6 +424,8 @@ export function RunLogSheet({
             })
           )}
         </div>
+        {/* Inside the sheet, so it opens over the log and closing it returns there. */}
+        <RememberDialog workspaceId={workspaceId} memoryOff={memoryOff} target={rememberTarget} onClose={() => setRememberTarget(null)} />
       </SheetContent>
     </Sheet>
   );

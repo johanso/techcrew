@@ -48,6 +48,7 @@ import { BoardToolbar } from "@/components/board/board-toolbar";
 import { AnswerDialog, type AnswerSubmit } from "@/components/board/answer-dialog";
 import { CardDialog, type CardDialogMode, type CardDialogSubmit } from "@/components/board/card-dialog";
 import { CreditNotice } from "@/components/board/credit-notice";
+import { RememberDialog, type RememberTarget } from "@/components/brain/remember-dialog";
 import { RunLogSheet } from "@/components/board/run-log-sheet";
 import { GithubSyncButton, GithubSyncNotice } from "@/components/board/github-sync-controls";
 import { useGithubSync } from "@/components/board/use-github-sync";
@@ -84,6 +85,7 @@ import {
 } from "@/lib/board-config";
 import type { AgentProvider, ProviderStatus } from "@/lib/agent-config";
 import { isActiveRun } from "@/lib/agent-run-config";
+import { cardRememberText } from "@/lib/memory-signals";
 import { reconnectHref } from "@/lib/safe-redirect";
 import { cn } from "@/lib/utils";
 
@@ -97,8 +99,11 @@ export function KanbanBoard({
   ai,
   openLogFor,
   linksEnabled,
+  memoryOff,
 }: {
   workspaceId: number;
+  /** The project's memory is off ("Remember this" says so). */
+  memoryOff: boolean;
   /** Whether the server has file storage for card references. */
   /** Whether the server can capture links (a sandbox host). */
   linksEnabled: boolean;
@@ -135,6 +140,8 @@ export function KanbanBoard({
   const [retryingCredit, setRetryingCredit] = useState(false);
   const [logCardId, setLogCardId] = useState<string | null>(openLogFor);
   const [answerCardId, setAnswerCardId] = useState<string | null>(null);
+  // "Remember this" from a card's menu.
+  const [rememberTarget, setRememberTarget] = useState<RememberTarget | null>(null);
   // The card the remove confirmation is about; kept while the dialog animates out.
   const [removal, setRemoval] = useState<{ open: boolean; card: BoardCard | null; pending: boolean }>({
     open: false,
@@ -228,8 +235,16 @@ export function KanbanBoard({
     const result = await updateCardAction(workspaceId, dialog.mode.card.id, input);
     if (!result.ok) return result.error;
     const { card } = result;
-    // The edit response doesn't carry the agent run or the reference count; keep what the board already shows.
-    setCards((prev) => ({ ...prev, [card.id]: { ...card, run: prev[card.id]?.run ?? card.run, references: prev[card.id]?.references ?? card.references } }));
+    // The edit response doesn't carry the agent run, the reference count or the rejection question; keep what the board shows.
+    setCards((prev) => ({
+      ...prev,
+      [card.id]: {
+        ...card,
+        run: prev[card.id]?.run ?? card.run,
+        references: prev[card.id]?.references ?? card.references,
+        rejection: prev[card.id]?.rejection ?? card.rejection,
+      },
+    }));
     // A status change from the form appends the card to its new column (same as the server).
     setColumns((prev) => {
       const from = BOARD_COLUMNS.find((c) => prev[c.id].includes(card.id))?.id;
@@ -625,7 +640,14 @@ export function KanbanBoard({
                 onMergeCard={(card) => void mergeCard(card)}
                 onAnswerCard={(card) => setAnswerCardId(card.id)}
                 onViewLog={(card) => setLogCardId(card.id)}
+                onRememberCard={(card) =>
+                  setRememberTarget({ cardId: card.id, cardKey: card.key, stepId: null, text: cardRememberText(card.title), someoneElses: card.github !== null })
+                }
                 onRemoveCard={(card) => setRemoval({ open: true, card, pending: false })}
+                workspaceId={workspaceId}
+                onRejectionResolved={(card) =>
+                  setCards((prev) => (prev[card.id]?.rejection ? { ...prev, [card.id]: { ...prev[card.id]!, rejection: null } } : prev))
+                }
               />
             );
           })}
@@ -662,8 +684,11 @@ export function KanbanBoard({
         onSubmit={answerCard}
       />
 
+      <RememberDialog workspaceId={workspaceId} memoryOff={memoryOff} target={rememberTarget} onClose={() => setRememberTarget(null)} />
+
       <RunLogSheet
         workspaceId={workspaceId}
+        memoryOff={memoryOff}
         card={logCardId ? (cards[logCardId] ?? null) : null}
         // One modal at a time: the log closes, then the answer dialog opens.
         onAnswer={(card) => {

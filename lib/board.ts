@@ -6,6 +6,7 @@ import { db, tasks, workspaces, type Task, type Workspace } from "@/db";
 import type { BoardCardRun } from "@/lib/agent-run-config";
 import { getLatestRuns } from "@/lib/agent-runs";
 import { getAgent, taskKeyPrefix, type AgentId } from "@/lib/agents";
+import { getPendingRejections } from "@/lib/memory-signals-store";
 import { deleteTaskReferences, getReferenceCounts } from "@/lib/references";
 import {
   DESCRIPTION_MAX,
@@ -32,7 +33,13 @@ type BoardWorkspace = Pick<Workspace, "id" | "name">;
 /** Cards of this workspace that are still on the board. */
 const onBoard = (workspace: BoardWorkspace) => and(eq(tasks.workspaceId, workspace.id), isNull(tasks.removedAt));
 
-function toBoardCard(task: Task, workspace: BoardWorkspace, run: BoardCardRun | null = null, references = 0): BoardCard {
+function toBoardCard(
+  task: Task,
+  workspace: BoardWorkspace,
+  run: BoardCardRun | null = null,
+  references = 0,
+  rejection: BoardCard["rejection"] = null
+): BoardCard {
   return {
     id: String(task.id),
     key: `${taskKeyPrefix(workspace.name)}-${task.number}`,
@@ -51,21 +58,23 @@ function toBoardCard(task: Task, workspace: BoardWorkspace, run: BoardCardRun | 
         ? { number: task.githubIssueNumber, url: task.githubIssueUrl, state: task.githubIssueState === "closed" ? "closed" : "open" }
         : null,
     references,
+    rejection,
   };
 }
 
 
 export async function getBoardData(workspace: BoardWorkspace): Promise<BoardData> {
-  const [rows, runs, references] = await Promise.all([
+  const [rows, runs, references, rejections] = await Promise.all([
     db.select().from(tasks).where(onBoard(workspace)).orderBy(asc(tasks.position), asc(tasks.id)),
     getLatestRuns(workspace.id),
     getReferenceCounts(workspace.id),
+    getPendingRejections(workspace.id),
   ]);
 
   const cards: BoardData["cards"] = {};
   const columns = emptyColumns();
   for (const row of rows) {
-    const card = toBoardCard(row, workspace, runs.get(row.id) ?? null, references.get(row.id) ?? 0);
+    const card = toBoardCard(row, workspace, runs.get(row.id) ?? null, references.get(row.id) ?? 0, rejections.get(row.id) ?? null);
     cards[card.id] = card;
     // Rows with an unknown status (e.g. a renamed column) fall back to Todo instead of disappearing.
     columns[isBoardColumnId(row.status) ? row.status : "todo"].push(card.id);
@@ -276,8 +285,8 @@ export async function getBoardCard(workspace: BoardWorkspace, taskId: number) {
     .from(tasks)
     .where(and(eq(tasks.id, taskId), onBoard(workspace)));
   if (!row) return null;
-  const [runs, references] = await Promise.all([getLatestRuns(workspace.id), getReferenceCounts(workspace.id)]);
-  return toBoardCard(row, workspace, runs.get(taskId) ?? null, references.get(taskId) ?? 0);
+  const [runs, references, rejections] = await Promise.all([getLatestRuns(workspace.id), getReferenceCounts(workspace.id), getPendingRejections(workspace.id)]);
+  return toBoardCard(row, workspace, runs.get(taskId) ?? null, references.get(taskId) ?? 0, rejections.get(taskId) ?? null);
 }
 
 /**

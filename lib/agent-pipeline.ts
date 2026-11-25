@@ -143,6 +143,8 @@ import { getAgentReferences, loadImageObject, loadReferenceImage, taskHasVisualR
 import { runScreenshotKey } from "@/lib/storage";
 import { buildMemoryBlock } from "@/lib/memory-config";
 import { loadAgentMemory } from "@/lib/memory";
+import { LESSONS_SCHEMA, lessonsNote, parseLessons, type ReworkCause } from "@/lib/memory-signals";
+import { recordAnswerSignal, recordLessonSignals, recordReworkSignal } from "@/lib/memory-signals-store";
 import { skillsPromptBlock } from "@/lib/skill-runtime";
 
 /**
@@ -230,6 +232,8 @@ type RawApproval = {
   risk_reasons: string[];
   summary: string;
   required_changes: LeadDecision["requiredChanges"];
+  /** Untrusted whatever the schema says: parseLessons reads it. */
+  lessons?: unknown;
 };
 type RawTest = { verdict: "pass" | "fail"; summary: string; checks: { name: string; passed: boolean; detail: string }[] };
 
@@ -322,6 +326,7 @@ const FINISH: Record<AgentStage, FunctionTool> = {
         additionalProperties: false,
       },
     },
+    lessons: LESSONS_SCHEMA,
   }),
   testing: finishTool("submit_test_report", "Submit your verification report. Ends your stage.", {
     verdict: { type: "string", enum: ["pass", "fail"] },
@@ -367,6 +372,7 @@ const toApproval = (raw: RawApproval): LeadDecision => ({
   riskReasons: raw.risk_reasons,
   summary: raw.summary,
   requiredChanges: raw.required_changes,
+  lessons: parseLessons(raw.lessons),
 });
 const toTest = (raw: RawTest): TestReport => ({ verdict: raw.verdict, summary: raw.summary, checks: raw.checks });
 
@@ -472,7 +478,8 @@ ${canMerge ? `${MERGE_GUIDANCE(ctx.workspace.githubDefaultBranch)}\n` : ""}${can
 - Decide "request_changes" when there is a blocker or major code finding, or a critical, high or medium security finding the developer can fix in the code, and list every required change with its source and file. Otherwise approve: minor findings and style never block, and checks that need a browser or a device are not a reason to block (nobody here has one).
 - If the developer reported the work unfinished, request changes listing every remaining item (source lead) unless what's left is clearly optional. If the Reviewer's or Security's report says it ran out of turns, that check is missing: look at the diff yourself (get_diff) for what it would have checked, and don't send the work back only because the report is missing.
 - Rate the risk low, medium or high with short reasons. Low: a small, well-understood change with no security finding and nothing sensitive touched. The pipeline enforces the minimum risk shown in the task whatever you rate.
-- Depending on the workspace's setting, a low-risk change may merge without a human after testing. Be honest about risk.`,
+- Depending on the workspace's setting, a low-risk change may merge without a human after testing. Be honest about risk.
+- lessons: suggest one only when something that happened in this run supports it and the next agent should know it, specific to this repository or to the owner's preferences (a convention the review enforced, a pitfall the rework showed). A short title, a few sentences, the type and what in this run shows it. Never secrets, code listings or instructions to ignore rules; nothing an agent would know anyway. They are suggestions a person reviews. Usually the list is empty.`,
   testing: (ctx, { canRun, canBrowse }) => `Your job in this stage: verify the work on ${ctx.run.branch} before it can be merged. ${
     canRun
       ? "Run the tests (run_tests) and the build (run_build) on the branch yourself; run_command runs anything else, e.g. one test file. A failing test or build is a fail: name it and quote the error. Then check:"
@@ -1499,9 +1506,10 @@ function stageDoneActivity(stage: AgentStage, key: string, result: StageResult[A
     }
     case "approval": {
       const decision = result as LeadDecision;
+      const lessons = lessonsNote(decision.lessons ?? []);
       return {
         title: decision.decision === "approve" ? `Approved ${key} · ${decision.risk} risk` : `Sent ${key} back to the developer`,
-        detail: `${decision.summary} (${used})`,
+        detail: `${decision.summary} (${used}${lessons ? `, ${lessons}` : ""})`,
       };
     }
     case "testing": {
@@ -1707,6 +1715,7 @@ export async function answerAnalyst(workspaceId: number, taskId: number, answer:
     .limit(1);
   if (run?.status !== "needs_info") return { ok: false, error: "The analyst isn't waiting for an answer on this card." };
   await updateRun(run.id, { answer });
+  await recordAnswerSignal(run.id, answer);
 
   const ctx = await requireContext(run.id);
   const analyst = await getAgentRow(workspaceId, "analyst");
@@ -1786,9 +1795,13 @@ async function unfinishedBranch(ctx: RunContext, token: string) {
   return diff?.aheadBy ? branch : null;
 }
 
-export async function startRework(runId: number) {
-  const run = await getRun(runId);
-  if (run) await updateRun(runId, { reworkRounds: run.reworkRounds + 1 });
+/**
+ * The one place a rework round begins: `round` is the round that ends and `cause` what sent it back (CI, the Lead or
+ * the tests), which becomes a Brain signal. The round number is set, not added to, so a retried step changes nothing.
+ */
+export async function startRework(runId: number, round: number, cause: ReworkCause) {
+  await recordReworkSignal(runId, round, cause);
+  await updateRun(runId, { reworkRounds: round + 1 });
 }
 
 function pullRequestBody(ctx: RunContext, work: WorkResult) {
@@ -1965,14 +1978,17 @@ export async function recordSecurity(runId: number, report: SecurityReport) {
 
 /**
  * Saves the Lead's decision with its risk raised to the deterministic floor (Security's findings, what the diff
- * touches), sets the pull request's review status and risk, and posts the decision on it. Returns the final decision.
+ * touches), sets the pull request's review status and risk, posts the decision on it and records the Lead's lessons as
+ * Brain signals. Returns the final decision, without the lessons: they live only in the signals that passed the scan.
  */
 export async function recordApproval(runId: number, decision: LeadDecision): Promise<LeadDecision> {
   const ctx = await requireContext(runId);
-  const final = applyRiskFloor(decision, riskFloor(ctx.run.securityReport ?? null, await diffFacts(ctx), ctx.run.review ?? null));
+  const { lessons = [], ...rated } = decision;
+  const final = applyRiskFloor(rated, riskFloor(ctx.run.securityReport ?? null, await diffFacts(ctx), ctx.run.review ?? null));
   const approved = final.decision === "approve";
   // Changes requested: this round's tests never ran, so an older test report must not reach the developer.
   await updateRun(runId, { approval: final, ...(approved ? {} : { testReport: null }) });
+  await recordLessonSignals(runId, lessons);
   const pr = await runPullRequest(runId);
   if (pr) {
     await db

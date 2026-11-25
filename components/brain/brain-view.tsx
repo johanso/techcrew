@@ -4,26 +4,34 @@ import { BlockPreview } from "@/components/brain/block-preview";
 import { MemoryModeForm } from "@/components/brain/memory-mode-form";
 import { NoteLibrary } from "@/components/brain/note-library";
 import { RepoNotes, SkippedList } from "@/components/brain/repo-notes";
+import { SignalActivity } from "@/components/brain/signal-activity";
 import { PageHeader, SurfaceHeader } from "@/components/dashboard/page-header";
 import { SurfaceEmpty } from "@/components/dashboard/section-empty";
 import type { LoadedMemory } from "@/lib/memory";
 import { MEMORY_DIR, type MemoryBlock } from "@/lib/memory-config";
+import { collectsSignals } from "@/lib/memory-signals";
+import type { SignalView } from "@/lib/memory-signals-store";
 
 const tile = (icon: React.ReactNode) => <span className="icon-tile text-brand-emphasis">{icon}</span>;
 
-/** The Brain page's markup: this project's notes, the owner's own, what agents get, and the settings. */
+/** The Brain page's markup: this project's notes, the owner's own, what agents get, the activity and the settings. */
 export function BrainView({
   workspaceId,
   repoName,
   repoPrivate,
   memory,
   block,
+  signals,
+  olderSignalsHref,
 }: {
   workspaceId: number;
   repoName: string;
   repoPrivate: boolean;
   memory: LoadedMemory;
   block: MemoryBlock;
+  /** The newest signals for Activity, and the link to a longer list when there are more. */
+  signals: SignalView[];
+  olderSignalsHref: string | null;
 }) {
   const inRepository = (file: string) => file.startsWith(`${MEMORY_DIR}/`);
   // Notes stored by TechTeam that the scan refused when they were read back (a rule may have grown since they were saved).
@@ -81,6 +89,7 @@ export function BrainView({
       )}
 
       <BlockPreview block={block} />
+      <SignalActivity workspaceId={workspaceId} signals={signals} olderHref={olderSignalsHref} paused={!collectsSignals(memory.mode)} />
       <MemoryModeForm workspaceId={workspaceId} mode={memory.mode} repoPrivate={repoPrivate} />
     </>
   );

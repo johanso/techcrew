@@ -271,8 +271,8 @@ Full rules and limits: [github-integration.md](github-integration.md#issue-sync)
 
 ## Card actions: Run, Merge, agent log and Remove
 
-Each card has a **▶** button and a **⋯** menu (**Run** or **Stop agents**, **View agent log** once it has run, and
-**Remove task**). In **Done**, ▶ is replaced by a green check (a
+Each card has a **▶** button and a **⋯** menu (**Run** or **Stop agents**, **View agent log** once it has run,
+**Remember this** and **Remove task**; see [Signals](#signals-what-it-learns-from)). In **Done**, ▶ is replaced by a green check (a
 status, not a button); **Run again** stays in the ⋯ menu. When the card's pull
 request is ready for a manual merge ("PR #n ready to merge"), ▶ becomes a green **Merge** button and the menu adds
 **Merge PR #n** and **View PR on GitHub**. Merging runs the same checks as the Pull Requests page; the board then
@@ -304,7 +304,9 @@ card's drag area, so using them never starts a drag or opens the dialog.
   ended (its result in green, or why it stopped in red), the **files changed**, and the list of tool calls (read,
   listed, searched, wrote, edited, deleted, checked the diff, checked CI), with failed calls and their error in red.
   It follows a running card every 5 s. Notifications link straight to it (`/board?log=<card>`). Runs from before the
-  log existed show "Nothing logged".
+  log existed show "Nothing logged". Each tool call and each stage's ending has a **Remember this** bookmark.
+- A card whose pull request was closed without merging shows **Why was PR #n rejected?** below it
+  ([Signals](#signals-what-it-learns-from)).
 
 Locally, Run needs the Inngest Dev Server (`npm run dev` starts it with the app); otherwise it shows an error saying so.
 
@@ -517,8 +519,9 @@ never executed. Not to be confused with **permissions**, which decide what an ag
 
 ## Brain
 
-`/dashboard/[workspaceId]/brain` (sidebar **Brain**): the notes agents read before they work, and where they live
-([brain-plan.md](brain-plan.md); this is part A, the foundation: notes by hand, no learning yet).
+`/dashboard/[workspaceId]/brain` (sidebar **Brain**): the notes agents read before they work, where they live, and
+what TechTeam has collected to learn from ([brain-plan.md](brain-plan.md); parts A and B: notes by hand and signals,
+nothing turns a signal into a note yet).
 
 - **A note** is a short Markdown summary (≤ 2,000 characters) with a title, a type (convention, decision, pitfall,
   command, preference, lesson), when it loads (**always**: in every prompt; **on demand**: found by search), optional
@@ -542,8 +545,35 @@ never executed. Not to be confused with **permissions**, which decide what an ag
   exist, every agent also gets read-only `search_memory` (ranked like skills, boosted by the files it names) and
   `read_memory`; they appear in the agent log by key only. The Reviewer checks the change against the notes and reports
   a violation as a finding. Memory never adds a tool or a permission, and no agent can write to `.techteam/`.
-- **Not yet**: signals from rejected pull requests, the librarian, proposals and memory pull requests, promotion to your
-  memory (parts B, C and D of the plan).
+- **Not yet**: the librarian, proposals and memory pull requests, bootstrap from a repository, promotion to your memory
+  (parts C and D of the plan).
+
+### Signals: what it learns from
+
+TechTeam writes down what you reject and correct. A **signal** is raw material: agents never read it, and nothing becomes
+a note without a review (a later version). Every text is capped and passes the memory scanner; a refused text isn't
+stored. At most 500 per workspace (used ones, then the oldest, go first).
+
+**With memory off** (Brain → Settings), TechTeam collects nothing on its own and asks nothing: no rework, answer or
+lesson signals, and no "Why was this rejected?" (one still pending from before is hidden and comes back when memory is
+turned on; a pull request closed while it is off is never asked about). **Remember this** stays available, and its dialog
+says the note is kept for when memory is turned on. Activity still lists what was collected and says collection is paused.
+
+| Signal | When | What is kept |
+| --- | --- | --- |
+| **Pull request rejected** | You answer "Why was PR #n rejected?" | The reason (Not what I asked, Wrong approach, Style or conventions, Too big, Not needed, Other) and your note. Trusted. |
+| **Rework** | A run goes back to the Developer: failing CI, the Lead's requested changes or a failed test | The Lead's summary and required changes, the failed checks, or the failing CI checks. From an agent or CI. |
+| **Your answer** | You answer the Analyst's question | Your answer (trusted) with the question (from the agent). |
+| **Lesson** | The Lead suggests up to three with its decision, only when something in the run supports one | Title, text, type and evidence; one per title. From an agent. The agent log says how many were suggested. |
+| **Remember this** | The card's ⋯ menu, or the bookmark on an agent log entry | A note of up to 600 characters and where it applies (This project / Everything). Trusted when you wrote it: a GitHub issue's title or a log entry saved unchanged is kept as someone else's words. |
+
+- **The question** appears once, on the card (below it) and on its Pull Requests row, when a pull request was closed on
+  GitHub without merging. Not when another pull request of the agents took its place (a later one from the same branch,
+  the same card or its follow-up card), and never for a merged one; a rerun that takes a pull request over leaves it
+  open. **✕** or **Don't ask** dismisses it for good; closing the dialog leaves it for later.
+- **Activity** (on the Brain page): the signals, newest first, 20 at a time (**Show more**): the kind, the reason, cause or
+  title, the text, **Trusted** or **From an agent**, the card and pull request, whether it was used (not yet), when, and
+  delete.
 
 ## Live process
 
@@ -586,7 +616,8 @@ Security), Approval (Lead), Testing, Merge (automatic, no agent).
   Lead) and Tests verdicts, the Lead's **Risk** (low, medium, high), merge error if the last merge was blocked, and
   **Merge** once the Lead approved and tests passed (manual mode; same
   checks and follow-up rules as auto-merge). Opening the page picks up merges and closes done directly on GitHub
-  (cards move to Done). Empty state: "No agent pull requests yet". **View on GitHub** opens the repo's `/pulls`.
+  (cards move to Done). A pull request closed without merging asks **Why was PR #n rejected?** once
+  ([Signals](#signals-what-it-learns-from)). Empty state: "No agent pull requests yet". **View on GitHub** opens the repo's `/pulls`.
 - **Activity** — the workspace timeline, newest first, grouped by day: everything the agents logged (assignments,
   each pipeline stage with its result and cost, pull requests opened and merged, follow-up issues, configuration,
   pauses, trust scans, provider switches) plus what people did on the board ("You" for your own): cards created, moved to

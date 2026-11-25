@@ -91,6 +91,7 @@ function finishResult(finish: string, ctx: ToolContext): unknown {
         risk_reasons: ["Simulated run: one note file under agent-simulations/."],
         summary: "Simulated approval: both reviews passed, so the change goes on to testing.",
         required_changes: [],
+        lessons: [],
       };
     default:
       return {

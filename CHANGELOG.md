@@ -19,6 +19,16 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   them on load. The page shows what loaded, what was skipped and why, and the exact block agents get with its size.
   Migration `0021` adds `memory_notes` and `workspaces.memory_mode` / `memory_bootstrapped_at` (included in backups).
   Nothing learns or writes to your repository yet: see [docs/brain-plan.md](docs/brain-plan.md).
+- **The Brain, part B (signals)**: TechTeam now writes down what you reject and correct, to learn from later. A pull
+  request closed without merging asks **Why was this rejected?** once, on its card and on the Pull Requests page
+  (dismissible; never for one TechTeam replaced with another, or a merged one). Rework rounds (CI, the Lead, tests), your
+  answers to the Analyst, up to three **lessons** the Lead suggests with its decision, and **Remember this** (card menu
+  and agent log) are recorded too. The Brain page's new **Activity** lists them, marked *Trusted* only for words you
+  typed, and you can delete any. Every text is capped and scanned (a refused one isn't stored), at most 500 per
+  workspace, and agents can't read them. With memory **off**, nothing is collected or asked on its own; only
+  **Remember this** still saves. Migration `0022` adds `memory_signals` and `pull_requests.rejection_prompt`
+  (included in backups): run `npm run db:migrate` (`npm run dev` applies it at start). Nothing turns a signal into a note
+  yet.
 
 ### Fixed
 - **An open redirect after sign-in.** A `next` such as `/<tab>/evil.example` passed the check, and browsers drop the tab

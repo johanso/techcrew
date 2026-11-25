@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  BookmarkPlusIcon,
   CircleCheckIcon,
   CircleStopIcon,
   EllipsisIcon,
@@ -20,6 +21,7 @@ import {
 import { GitHubIcon } from "@/components/auth/brand-icons";
 import { AgentRunStatus } from "@/components/board/agent-run-status";
 import { DueDate, IssueTypePill, PriorityBadge } from "@/components/board/issue-meta";
+import { RejectionPrompt } from "@/components/brain/rejection-prompt";
 import { AgentAvatar } from "@/components/dashboard/agent-avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -113,6 +115,7 @@ function CardActions({
   onMerge,
   onAnswer,
   onViewLog,
+  onRemember,
   onRemove,
 }: {
   card: BoardCard;
@@ -124,6 +127,7 @@ function CardActions({
   onMerge: () => void;
   onAnswer: () => void;
   onViewLog: () => void;
+  onRemember: () => void;
   onRemove: () => void;
 }) {
   // The agents are on it: Run would start a second pass, so it waits until the run ends (or is stopped).
@@ -258,6 +262,10 @@ function CardActions({
               View agent log
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem onClick={onRemember} className="gap-2 py-1.5">
+            <BookmarkPlusIcon />
+            Remember this
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={onRemove} className="gap-2 py-1.5">
             <Trash2Icon />
@@ -286,7 +294,10 @@ export function SortableBoardCard({
   onMerge,
   onAnswer,
   onViewLog,
+  onRemember,
   onRemove,
+  workspaceId,
+  onRejectionResolved,
 }: {
   card: BoardCard;
   done: boolean;
@@ -299,7 +310,11 @@ export function SortableBoardCard({
   onMerge: () => void;
   onAnswer: () => void;
   onViewLog: () => void;
+  onRemember: () => void;
   onRemove: () => void;
+  workspaceId: number;
+  /** The card's "Why was this rejected?" was answered or dismissed. */
+  onRejectionResolved: () => void;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging, node } = useSortable({
     id: card.id,
@@ -336,6 +351,16 @@ export function SortableBoardCard({
         aria-roledescription="Draggable card"
         aria-label={`${card.key}: ${card.title}`}
       />
+      {/* Beside the card, like its actions: its buttons never start a drag or open the card. */}
+      {card.rejection && !isDragging && (
+        <RejectionPrompt
+          key={card.rejection.pullRequestId}
+          workspaceId={workspaceId}
+          pullRequest={{ id: card.rejection.pullRequestId, number: card.rejection.number }}
+          onResolved={onRejectionResolved}
+          className="mt-1.5"
+        />
+      )}
       {!isDragging && (
         <CardActions
           card={card}
@@ -347,6 +372,7 @@ export function SortableBoardCard({
           onMerge={onMerge}
           onAnswer={onAnswer}
           onViewLog={onViewLog}
+          onRemember={onRemember}
           onRemove={onRemove}
         />
       )}
