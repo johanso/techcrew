@@ -2,6 +2,7 @@ import type { AgentKey, AgentProvider } from "@/lib/agent-config";
 import type { BoardColumnId } from "@/lib/board-config";
 import type { CiState } from "@/lib/ci-gate";
 import type { CliKind, RunWaiting } from "@/lib/cli-agents-config";
+import type { Lesson } from "@/lib/memory-signals";
 
 /**
  * Agent pipeline vocabulary shared by the server (runtime, persistence) and the client (board, PR page, live process).
@@ -200,6 +201,11 @@ export type LeadDecision = {
   riskReasons: string[];
   summary: string;
   requiredChanges: RequiredChange[];
+  /**
+   * What the Lead suggests the next agent should know, as its finish tool reported it. They become Brain signals
+   * (recordApproval) and are never stored with the decision: a refused one must not be kept anywhere.
+   */
+  lessons?: Lesson[];
 };
 
 export type TestCheck = { name: string; passed: boolean; detail: string };

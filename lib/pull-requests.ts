@@ -8,6 +8,7 @@ import { createRun, finishRun, placeTask, replaceWaitingRuns, runningPreviewUrl 
 import { getAgentRow, logAgentActivity, taskKeyPrefix } from "@/lib/agents";
 import { createAgentTask } from "@/lib/board";
 import { GithubError, createIssue, getCommitChecks, getGithubToken, getPullRequest, mergePullRequest } from "@/lib/github";
+import { askWhyRejected } from "@/lib/memory-signals-store";
 import { pickContinuedPullRequest } from "@/lib/merge-config";
 import { notify } from "@/lib/notifications";
 import { stopPullRequestPreviews } from "@/lib/sandbox/preview";
@@ -106,8 +107,13 @@ async function completeMerge(workspace: PrWorkspace, pr: PullRequestRow) {
   }
 }
 
+/**
+ * A pull request closed on GitHub without merging (TechTeam never closes one itself): its run ends, and the owner is
+ * asked why once, unless another pull request already took its place (askWhyRejected).
+ */
 async function closeWithoutMerge(pr: PullRequestRow) {
   await db.update(pullRequests).set({ state: "closed", updatedAt: new Date() }).where(eq(pullRequests.id, pr.id));
+  await askWhyRejected(pr.id);
   await stopPullRequestPreviews(pr.workspaceId, pr.number, "The pull request was closed.");
   if (pr.runId) {
     const [run] = await db.select({ status: agentRuns.status }).from(agentRuns).where(eq(agentRuns.id, pr.runId));
@@ -346,6 +352,8 @@ export type PullRequestView = {
   mergeError: string | null;
   /** Merge is offered once the Lead approved and tests passed. */
   canMerge: boolean;
+  /** Closed without merging and the owner hasn't said why (or dismissed the question). */
+  askWhyRejected: boolean;
   task: { key: string; title: string } | null;
   runStatus: RunStatus | null;
   /** The public URL of the run's preview while it's running, else null. */
@@ -377,6 +385,7 @@ export async function listPullRequests(workspace: Pick<Workspace, "id" | "name">
     testStatus: pr.testStatus as PullRequestView["testStatus"],
     mergeError: pr.mergeError,
     canMerge: pr.state === "open" && pr.reviewStatus === "approved" && pr.testStatus === "passed",
+    askWhyRejected: pr.state === "closed" && pr.mergedAt === null && pr.rejectionPrompt === "pending",
     task: taskNumber !== null && taskTitle !== null ? { key: `${prefix}-${taskNumber}`, title: taskTitle } : null,
     runStatus: (runStatus as RunStatus | null) ?? null,
     previewUrl: pr.state === "open" ? runningPreviewUrl(preview) : null,

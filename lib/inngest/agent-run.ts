@@ -216,7 +216,7 @@ export const agentTaskRun = inngest.createFunction(
           );
           return { stopped: "ci" };
         }
-        await step.run(`rework-after-ci-${round}`, () => startRework(runId));
+        await step.run(`rework-after-ci-${round}`, () => startRework(runId, round, "ci"));
         continue;
       }
 
@@ -241,7 +241,7 @@ export const agentTaskRun = inngest.createFunction(
           );
           return { stopped: "approval" };
         }
-        await step.run(`rework-after-approval-${round}`, () => startRework(runId));
+        await step.run(`rework-after-approval-${round}`, () => startRework(runId, round, "lead"));
         continue;
       }
 
@@ -255,7 +255,7 @@ export const agentTaskRun = inngest.createFunction(
           );
           return { stopped: "testing" };
         }
-        await step.run(`rework-after-tests-${round}`, () => startRework(runId));
+        await step.run(`rework-after-tests-${round}`, () => startRework(runId, round, "tests"));
         continue;
       }
       break;
