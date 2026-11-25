@@ -57,6 +57,9 @@ export function completionCostMicros(pricing: ModelPricing | null, usage: ChatUs
   return Math.round(usd * MICROS_PER_USD);
 }
 
+// Fields a finish call may leave out, with what stands in: a stage never fails over them (an approval over its lessons).
+const FINISH_DEFAULTS: Record<string, unknown> = { lessons: [] };
+
 /** The finish call's result, or why it can't be used: hosts don't all enforce strict schemas, so it's checked here. */
 export function parseFinishArguments(raw: string, finish: FunctionTool): { ok: true; value: unknown } | { ok: false; error: string } {
   let value: unknown;
@@ -69,9 +72,10 @@ export function parseFinishArguments(raw: string, finish: FunctionTool): { ok: t
     return { ok: false, error: `Error: ${finish.name} takes a JSON object. Call it again.` };
   }
   const required = Array.isArray(finish.parameters?.required) ? (finish.parameters.required as string[]) : [];
-  const missing = required.filter((field) => !(field in value));
+  const absent = required.filter((field) => !(field in value));
+  const missing = absent.filter((field) => !(field in FINISH_DEFAULTS));
   if (missing.length) return { ok: false, error: `Error: ${finish.name} is missing ${missing.join(", ")}. Call it again with every field.` };
-  return { ok: true, value };
+  return { ok: true, value: { ...Object.fromEntries(absent.map((field) => [field, FINISH_DEFAULTS[field]])), ...value } };
 }
 
 /** The `metadata.limit_source` of an OpenRouter 402, when it has one. */
