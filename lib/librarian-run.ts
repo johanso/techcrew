@@ -48,11 +48,11 @@ import { modelProvider } from "@/lib/model-catalog-config";
  * same transaction as its proposals. With AGENTS_SIMULATED=true a script stands in for the model.
  */
 
-export type LibrarianAccess = { ok: true; leadId: number; ai: ConfigAI | null } | { ok: false; reason: string };
+export type LibrarianAccess = { ok: true; leadId: number; ai: ConfigAI | null } | { ok: false; reason: string; needsKey?: boolean };
 
 /** Whether the librarian can run for a workspace now, and on what (`ai` null: simulated, no model is called). */
 export async function librarianAccess(workspace: Pick<Workspace, "id" | "memoryMode">): Promise<LibrarianAccess> {
-  const no = (reason: string) => ({ ok: false as const, reason });
+  const no = (reason: string, needsKey?: boolean) => ({ ok: false as const, reason, needsKey });
   if (getMemoryMode(workspace) === "off") return no("Memory is off for this project. Turn it on in the settings below.");
   const lead = await checkAgentCanRun(workspace.id, "lead");
   if (!lead.ok) {
@@ -62,7 +62,7 @@ export async function librarianAccess(workspace: Pick<Workspace, "id" | "memoryM
   }
   if (isSimulatedAgents()) return { ok: true, leadId: lead.row.id, ai: null };
   const ai = configAI(await getAIKeys(workspace.id), modelProvider(activeAgentModel(lead.row)) ?? "openai");
-  if (!ai) return no("Add an API key in Settings → AI. The librarian uses API keys, not your Claude plan.");
+  if (!ai) return no("Add an API key in Settings → AI. The librarian uses API keys, not your Claude plan.", true);
   return { ok: true, leadId: lead.row.id, ai };
 }
 

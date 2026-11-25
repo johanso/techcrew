@@ -6,6 +6,7 @@ import { BanIcon, CircleCheckIcon, ExternalLinkIcon, GitPullRequestIcon, InboxIc
 import { openMemoryPullRequestAction, refreshMemoryPullRequestsAction } from "@/app/dashboard/[workspaceId]/brain/actions";
 import { FormMessage } from "@/components/auth/form-parts";
 import { ProposalCard, proposalTitle } from "@/components/brain/proposal-card";
+import type { Notice } from "@/components/brain/proposal-edit-dialog";
 import { SurfaceHeader } from "@/components/dashboard/page-header";
 import { SurfaceEmpty } from "@/components/dashboard/section-empty";
 import { Button } from "@/components/ui/button";
@@ -19,8 +20,6 @@ const toggled = (set: ReadonlySet<number>, id: number, on: boolean) => {
   else next.delete(id);
   return next;
 };
-
-type Notice = { ok: boolean; message?: string };
 
 /**
  * Brain → Proposals: what the librarian suggests, waiting for the owner. Accepted here, or (project notes in mode `repo`)
@@ -139,6 +138,7 @@ export function ProposalInbox({ workspaceId, mode, proposals }: { workspaceId: n
               onConfirm={(on) => confirm(proposal, on)}
               selected={selected.has(proposal.id)}
               onSelect={(on) => setSelected((current) => toggled(current, proposal.id, on))}
+              onNotice={setNotice}
             />
           ))}
         </ul>

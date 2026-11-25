@@ -4,10 +4,10 @@ import { useCallback, useState, useTransition } from "react";
 import Link from "next/link";
 import { CheckIcon, ExternalLinkIcon, FolderGitIcon, PencilIcon, ShieldAlertIcon, TriangleAlertIcon, UserCheckIcon, BotIcon, XIcon } from "lucide-react";
 
-import { acceptProposalAction, rejectProposalAction } from "@/app/dashboard/[workspaceId]/brain/actions";
+import { acceptProposalAction, rejectProposalAction, type ProposalFormState } from "@/app/dashboard/[workspaceId]/brain/actions";
 import { FormMessage } from "@/components/auth/form-parts";
 import { CheckRow } from "@/components/brain/check-row";
-import { ProposalEditDialog } from "@/components/brain/proposal-edit-dialog";
+import { ProposalEditDialog, type Notice } from "@/components/brain/proposal-edit-dialog";
 import { SIGNAL_ICON } from "@/components/brain/signal-icons";
 import { Pill } from "@/components/skills/skill-badges";
 import { Button } from "@/components/ui/button";
@@ -113,6 +113,7 @@ export function ProposalCard({
   onConfirm,
   selected,
   onSelect,
+  onNotice,
 }: {
   workspaceId: number;
   proposal: ProposalView;
@@ -121,6 +122,7 @@ export function ProposalCard({
   onConfirm: (confirmed: boolean) => void;
   selected: boolean;
   onSelect: (selected: boolean) => void;
+  onNotice: (notice: Notice) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [message, setMessage] = useState<string | undefined>();
@@ -132,16 +134,13 @@ export function ProposalCard({
     startTransition(async () => {
       setAction(kind);
       setMessage(undefined);
-      const failed = "Something went wrong. Please try again.";
-      if (kind === "reject") {
-        const result = await rejectProposalAction(workspaceId, proposal.id).catch(() => ({ ok: false, message: failed }));
-        if (!result.ok) setMessage(result.message);
-        return;
-      }
       const data = new FormData();
       if (confirmed) data.set("confirmed", "on");
-      const result = await acceptProposalAction(workspaceId, proposal.id, {}, data).catch(() => ({ ok: false, message: failed }));
-      if (!result.ok) setMessage(result.message);
+      const request = kind === "reject" ? rejectProposalAction(workspaceId, proposal.id) : acceptProposalAction(workspaceId, proposal.id, {}, data);
+      const result: ProposalFormState = await request.catch(() => ({ message: "Something went wrong. Please try again." }));
+      // A decided proposal leaves the list, card and all: the inbox says what happened.
+      if (result.ok || result.gone) onNotice({ ok: Boolean(result.ok), message: result.message });
+      else setMessage(result.message);
     });
 
   const blocked = proposal.untrustedOrigin && !confirmed;
@@ -207,7 +206,8 @@ export function ProposalCard({
           )}
           <div className="flex flex-wrap gap-2">
             {delivery === "inbox" && (
-              <Button type="button" className="h-9" disabled={pending || blocked} onClick={() => run("accept")}>
+              // Outline, tinted: a long inbox must not be a column of primary buttons.
+              <Button type="button" variant="outline" className="h-9 border-brand/40 text-brand-emphasis" disabled={pending || blocked} onClick={() => run("accept")}>
                 {pending && action === "accept" ? <Spinner /> : <CheckIcon data-icon="inline-start" />}
                 {pending && action === "accept" ? "Accepting…" : proposal.kind === "retire" ? "Accept and retire" : "Accept"}
               </Button>
@@ -232,6 +232,7 @@ export function ProposalCard({
           accepts={delivery === "inbox"}
           confirmed={confirmed}
           onConfirm={onConfirm}
+          onNotice={onNotice}
           open={editing}
           onClose={closeEditor}
         />

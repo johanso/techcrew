@@ -125,13 +125,14 @@ async function cardKeys(workspace: Pick<Workspace, "id" | "name">, rows: readonl
 
 export type ProposalWrite =
   | { ok: true; message?: string }
-  | { ok: false; message: string; errors?: Partial<Record<keyof ProposalNote, string>>; findings?: MemoryScanFinding[] };
+  /** `gone`: the proposal left the inbox all the same, so its card can't be where the answer shows. */
+  | { ok: false; message: string; gone?: boolean; errors?: Partial<Record<keyof ProposalNote, string>>; findings?: MemoryScanFinding[] };
 
 const refuse = (message: string, extra: Omit<Extract<ProposalWrite, { ok: false }>, "ok" | "message"> = {}): ProposalWrite => ({ ok: false, message, ...extra });
 
-const DECIDED = "That proposal isn't waiting any more. Reload the page.";
 const OFF = "Memory is off for this project. Turn it on to decide on proposals.";
 const CONFIRM = "This is based only on text from agents, CI or the repository. Confirm that you checked it before accepting.";
+const decided = () => refuse("That proposal isn't waiting any more.", { gone: true });
 
 /** Rolls the transaction back with an answer for the owner. */
 class Refusal extends Error {
@@ -168,7 +169,7 @@ async function writeNote(tx: Executor, place: NotePlace, proposal: Proposal, edi
     const current = await getMemoryNote(place, noteId, tx);
     if (!current || noteVersion(current) !== proposal.target?.version) {
       await decide(tx, proposal.id, "superseded");
-      return refuse("The note changed since this was proposed, so nothing was written. The proposal is marked as superseded.");
+      return refuse("The note changed since this was proposed, so nothing was written. The proposal is marked as superseded.", { gone: true });
     }
   }
   if (proposal.kind === "retire") {
@@ -196,7 +197,7 @@ export async function acceptProposal(workspace: ProposalWorkspace, id: number, {
   try {
     return await db.transaction(async (tx) => {
       const proposal = await lockPending(tx, workspace, id);
-      if (!proposal) return refuse(DECIDED);
+      if (!proposal) return decided();
       const delivery = deliveryOf(proposal.scope, mode);
       if (!delivery) return refuse(OFF);
       if (delivery !== "inbox") return refuse("Project notes go to the repository in this mode: select the proposal and open the memory pull request.");
@@ -215,7 +216,8 @@ export async function editProposal(workspace: ProposalWorkspace, id: number, edi
   const mode = getMemoryMode(workspace);
   return db.transaction(async (tx) => {
     const proposal = await lockPending(tx, workspace, id);
-    if (!proposal || proposal.kind === "retire") return refuse(DECIDED);
+    // A retirement has no text to edit.
+    if (!proposal || proposal.kind === "retire") return decided();
     if (!deliveryOf(proposal.scope, mode)) return refuse(OFF);
     const checked = checkProposalNote(edit, proposal.scope);
     if (!checked.ok) return refuse("The note can't be saved as it is.", { errors: checked.errors, findings: checked.findings });
@@ -227,13 +229,13 @@ export async function editProposal(workspace: ProposalWorkspace, id: number, edi
 /** Rejects a proposal; the librarian won't make it again. */
 export async function rejectProposal(workspace: ProposalWorkspace, id: number): Promise<ProposalWrite> {
   if (getMemoryMode(workspace) === "off") return refuse(OFF);
-  if (!Number.isSafeInteger(id) || id <= 0) return refuse(DECIDED);
+  if (!Number.isSafeInteger(id) || id <= 0) return decided();
   const rows = await db
     .update(memoryProposals)
     .set({ status: "rejected", updatedAt: new Date() })
     .where(and(owned(workspace), eq(memoryProposals.id, id), eq(memoryProposals.status, "pending")))
     .returning({ id: memoryProposals.id });
-  return rows.length ? { ok: true } : refuse(DECIDED);
+  return rows.length ? { ok: true, message: "Rejected. It won't be proposed again." } : decided();
 }
 
 // ── The memory pull request ────────────────────────────────────────────────────

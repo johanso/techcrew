@@ -179,6 +179,8 @@ export async function runLibrarianAction(workspaceId: number, job: LibrarianJob)
 export type ProposalFormState = {
   ok?: boolean;
   message?: string;
+  /** The proposal left the inbox though the request was refused (superseded, or decided elsewhere). */
+  gone?: boolean;
   errors?: Partial<Record<NoteField, string>>;
   findings?: MemoryScanFinding[];
 };
@@ -196,7 +198,7 @@ function editOf(formData: FormData) {
 }
 
 const proposalState = (result: ProposalWrite): ProposalFormState =>
-  result.ok ? { ok: true, message: result.message } : { message: result.message, errors: result.errors, findings: result.findings };
+  result.ok ? { ok: true, message: result.message } : { message: result.message, gone: result.gone, errors: result.errors, findings: result.findings };
 
 /** Accepts a proposal into the notes, with the owner's edit if the form carries one. */
 export async function acceptProposalAction(workspaceId: number, proposalId: number, _prev: ProposalFormState, formData: FormData): Promise<ProposalFormState> {
@@ -216,12 +218,12 @@ export async function editProposalAction(workspaceId: number, proposalId: number
   return proposalState(result);
 }
 
-export async function rejectProposalAction(workspaceId: number, proposalId: number): Promise<NoteActionResult> {
+export async function rejectProposalAction(workspaceId: number, proposalId: number): Promise<ProposalFormState> {
   const owned = await authorize(workspaceId);
-  if (!owned) return { ok: false, message: "Workspace not found." };
+  if (!owned) return { message: "Workspace not found." };
   const result = await rejectProposal(owned.workspace, proposalId);
   refresh(workspaceId);
-  return result;
+  return proposalState(result);
 }
 
 /** "Open memory pull request": the chosen proposals, with the untrusted ones the owner confirmed. */

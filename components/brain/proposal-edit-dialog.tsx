@@ -20,8 +20,13 @@ type Props = {
   accepts: boolean;
   confirmed: boolean;
   onConfirm: (confirmed: boolean) => void;
+  /** What became of the proposal once it left the inbox: its card can't say it. */
+  onNotice: (notice: Notice) => void;
   onClose: () => void;
 };
+
+/** What the inbox says about the last thing done. */
+export type Notice = { ok: boolean; message?: string };
 
 /** Edit a proposal's note: "Edit then accept" in the inbox, or save the edit before the memory pull request. */
 export function ProposalEditDialog({ open, ...props }: Props & { open: boolean }) {
@@ -40,15 +45,19 @@ export function ProposalEditDialog({ open, ...props }: Props & { open: boolean }
   );
 }
 
-function EditForm({ workspaceId, proposal, accepts, confirmed, onConfirm, onClose }: Props) {
+function EditForm({ workspaceId, proposal, accepts, confirmed, onConfirm, onNotice, onClose }: Props) {
   const action = accepts ? acceptProposalAction : editProposalAction;
-  const [state, formAction, pending] = useActionState<ProposalFormState, FormData>(action.bind(null, workspaceId, proposal.id), {});
+  const [state, formAction, pending] = useActionState<ProposalFormState, FormData>(async (previous, data) => {
+    const result = await action(workspaceId, proposal.id, previous, data);
+    if (result.ok || result.gone) onNotice({ ok: Boolean(result.ok), message: result.message });
+    return result;
+  }, {});
   const { errorFor, onChange } = useFieldErrors(state);
   // The note the proposal would write, as it was opened.
   const [note] = useState(proposal.note);
 
   useEffect(() => {
-    if (state.ok) onClose();
+    if (state.ok || state.gone) onClose();
   }, [state, onClose]);
 
   const needsConfirm = accepts && proposal.untrustedOrigin;

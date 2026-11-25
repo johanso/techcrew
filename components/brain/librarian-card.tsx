@@ -27,7 +27,7 @@ export type LibrarianCardProps = {
   /** The run asked for or going, or how the last one ended. */
   state: LibrarianState | null;
   /** Why it can't run now, or where it runs. */
-  access: { ok: true; runsOn: string } | { ok: false; reason: string };
+  access: { ok: true; runsOn: string } | { ok: false; reason: string; needsKey?: boolean };
   unconsumed: number;
   autoLearn: boolean;
   /** ISO date of the last bootstrap, or null when the memory was never built from the repository. */
@@ -68,24 +68,24 @@ export function LibrarianCard({ workspaceId, state, access, unconsumed, autoLear
           </span>
         }
         title="Librarian"
-        description="Turns what was collected into proposals you review."
-        actions={
-          <Button type="button" variant="outline" className="h-9" disabled={disabled || !unconsumed} onClick={() => run("learn")}>
+        description="Proposes, you decide."
+      />
+      <div className="flex flex-col gap-4 p-6">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:justify-between">
+          <p className="min-w-0 text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground tabular-nums">
+              {unconsumed} new signal{unconsumed === 1 ? "" : "s"}.
+            </span>{" "}
+            {autoLearn
+              ? `It runs on its own a few minutes after ${AUTO_MIN_SIGNALS} new signals, or one you typed.`
+              : "Automatic learning is off: it runs only when you ask."}{" "}
+            It has no tools, writes nothing on its own, and is paid from the Lead&apos;s budget.{access.ok ? ` ${access.runsOn}` : ""}
+          </p>
+          <Button type="button" variant="outline" className="h-9 shrink-0" disabled={disabled || !unconsumed} onClick={() => run("learn")}>
             {starting("learn") ? <Spinner /> : <WandSparklesIcon data-icon="inline-start" />}
             {starting("learn") ? "Starting…" : "Learn now"}
           </Button>
-        }
-      />
-      <div className="flex flex-col gap-4 p-6">
-        <p className="text-sm text-muted-foreground">
-          <span className="font-semibold text-foreground tabular-nums">
-            {unconsumed} new signal{unconsumed === 1 ? "" : "s"}.
-          </span>{" "}
-          {autoLearn
-            ? `It runs on its own a few minutes after ${AUTO_MIN_SIGNALS} new signals, or one you typed.`
-            : "Automatic learning is off: it runs only when you ask."}{" "}
-          It has no tools, writes nothing on its own, and is paid from the Lead&apos;s budget.{access.ok ? ` ${access.runsOn}` : ""}
-        </p>
+        </div>
 
         {!access.ok && (
           <div className="flex flex-col items-start gap-3 rounded-lg border border-border/70 bg-muted/60 p-3 sm:flex-row sm:items-center">
@@ -93,7 +93,7 @@ export function LibrarianCard({ workspaceId, state, access, unconsumed, autoLear
               <InfoIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
               {access.reason}
             </p>
-            {access.reason.includes("API key") && (
+            {access.needsKey && (
               <Link href={`/dashboard/${workspaceId}/settings#ai`} className={buttonVariants({ variant: "outline", className: "h-9" })}>
                 Add a key
               </Link>
