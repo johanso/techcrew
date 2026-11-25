@@ -6,6 +6,8 @@ import { requireUser } from "@/lib/current-user";
 import { createMemoryNote, deleteMemoryNote, setMemoryNoteStatus, updateMemoryNote, type NotePlace } from "@/lib/memory";
 import { isMemoryMode, type NoteField } from "@/lib/memory-config";
 import type { MemoryScanFinding } from "@/lib/memory-scan";
+import type { SignalField } from "@/lib/memory-signals";
+import { answerRejection, deleteSignal, dismissRejection, rememberNote, type SignalWrite } from "@/lib/memory-signals-store";
 import { getOwnedWorkspace, updateMemoryMode } from "@/lib/workspaces";
 
 /**
@@ -81,6 +83,66 @@ export async function deleteNoteAction(workspaceId: number, scope: MemoryScopeNa
   if (!isScope(scope)) return { ok: false, message: "Choose where the note belongs." };
   const deleted = await deleteMemoryNote(placeOf(owned.user.id, workspaceId, scope), noteId);
   if (!deleted) return { ok: false, message: "Note not found." };
+  refresh(workspaceId);
+  return { ok: true };
+}
+
+// ── Signals ────────────────────────────────────────────────────────────────────
+// Used by the Brain page's Activity, the board and the Pull Requests page (lib/memory-signals-store.ts validates and
+// scans; every id is looked up inside the owner's workspace).
+
+export type SignalFormState = {
+  ok?: boolean;
+  /** Saved as the owner's own words (Remember this). */
+  trusted?: boolean;
+  message?: string;
+  errors?: Partial<Record<SignalField, string>>;
+  /** What the security scan found when it refused the text. */
+  findings?: MemoryScanFinding[];
+};
+
+const toFormState = (result: SignalWrite): SignalFormState =>
+  result.ok ? { ok: true, trusted: result.trusted } : { message: result.message, errors: result.errors, findings: result.findings };
+
+/** A closed question changes the board, the Pull Requests page and the Brain's Activity. */
+function refreshSignals(workspaceId: number) {
+  refresh(workspaceId);
+  revalidatePath(`/dashboard/${workspaceId}/pull-requests`);
+}
+
+/** "Why was this rejected?": a reason and an optional note about a pull request closed without merging. */
+export async function answerRejectionAction(workspaceId: number, pullRequestId: number, _prev: SignalFormState, formData: FormData): Promise<SignalFormState> {
+  const owned = await authorize(workspaceId);
+  if (!owned) return { message: "Workspace not found." };
+  const result = await answerRejection(owned.workspace.id, pullRequestId, { reason: formData.get("reason"), note: formData.get("text") });
+  if (result.ok) refreshSignals(workspaceId);
+  return toFormState(result);
+}
+
+/** Closes the question for good, without a reason. */
+export async function dismissRejectionAction(workspaceId: number, pullRequestId: number): Promise<NoteActionResult> {
+  const owned = await authorize(workspaceId);
+  if (!owned) return { ok: false, message: "Workspace not found." };
+  const dismissed = await dismissRejection(owned.workspace.id, pullRequestId);
+  if (!dismissed) return { ok: false, message: "We couldn't dismiss the question. Reload the page and try again." };
+  refreshSignals(workspaceId);
+  return { ok: true };
+}
+
+/** "Remember this" on a board card (`stepId` null) or on an entry of its agent log. */
+export async function rememberAction(workspaceId: number, cardId: string, stepId: number | null, _prev: SignalFormState, formData: FormData): Promise<SignalFormState> {
+  const owned = await authorize(workspaceId);
+  if (!owned) return { message: "Workspace not found." };
+  const result = await rememberNote(owned.workspace.id, { taskId: Number(cardId), stepId }, { text: formData.get("text"), scope: formData.get("scope") });
+  if (result.ok) refresh(workspaceId);
+  return toFormState(result);
+}
+
+export async function deleteSignalAction(workspaceId: number, signalId: number): Promise<NoteActionResult> {
+  const owned = await authorize(workspaceId);
+  if (!owned) return { ok: false, message: "Workspace not found." };
+  const deleted = await deleteSignal(owned.workspace.id, signalId);
+  if (!deleted) return { ok: false, message: "That entry isn't there any more." };
   refresh(workspaceId);
   return { ok: true };
 }

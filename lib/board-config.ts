@@ -45,6 +45,8 @@ export type BoardCard = {
   github: { number: number; url: string; state: "open" | "closed" } | null;
   /** How many references (files for the agents) the card has. */
   references: number;
+  /** A pull request of this card that was closed without merging and still waits for the owner's reason, or null. */
+  rejection: { pullRequestId: number; number: number } | null;
 };
 
 /** Fields a user can set when creating or editing a card. */

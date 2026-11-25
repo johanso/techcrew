@@ -16,6 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { RejectionPrompt } from "@/components/brain/rejection-prompt";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { SectionEmpty } from "@/components/dashboard/section-empty";
 import { MergeButton } from "@/components/pull-requests/merge-button";
@@ -123,6 +124,7 @@ function PullRequestRow({ pr, workspaceId }: { pr: PullRequestView; workspaceId:
             <span className="line-clamp-2">{pr.mergeError}</span>
           </p>
         )}
+        {pr.askWhyRejected && <RejectionPrompt workspaceId={workspaceId} pullRequest={{ id: pr.id, number: pr.number }} className="w-full max-w-xs" />}
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
