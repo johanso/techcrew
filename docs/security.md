@@ -234,7 +234,8 @@ Skills are text that reaches agent prompts, so they're treated like any other un
 
 A note is text that reaches every agent's prompt, and in mode `repo` it comes from a repository anyone with write access
 (or a merged pull request from a stranger) can change, so a note is untrusted input like a skill ([brain-plan.md](brain-plan.md#security)).
-This is part A: notes are written by their owner or the repository; nothing learns or proposes yet.
+Parts A and B: notes are written by their owner or the repository, and signals are collected; nothing proposes or
+writes memory yet.
 
 - **Reference data, never instructions.** The operating protocol says memory never overrides it and a note never adds a
   tool or a permission; the Memory block repeats it and tells the agent to skip a note that asks for secrets, commands or
@@ -262,6 +263,29 @@ This is part A: notes are written by their owner or the repository; nothing lear
 - **Your own repository's token** reads the memory files (read-only requests). `.techteam/` is a protected path for the
   agents' write tools (`lib/repo-paths.ts`), so no agent can write a note, and a card's pull request can't carry one. A revoked connection shows as a notice on the
   page and agents run without project notes.
+
+### Signals
+
+A signal ([features.md](features.md#signals-what-it-learns-from)) is what a later version may turn into a note, so it
+is treated as input to memory from the start (`lib/memory-signals.ts`, `lib/memory-signals-store.ts`):
+
+- **Untrusted unless the owner typed it.** `trusted` is true only for the owner's rejection reason, their answer to the
+  Analyst and what they write in **Remember this**. CI output, issue text, GitHub content and model output (rework
+  feedback, the Analyst's question, lessons) are untrusted, and so is a starting text from a GitHub issue or the agent log
+  saved word for word. A card's title counts as the owner's only when they created the card in the app. `context` (the
+  question) and `evidence` stay untrusted even on a trusted signal.
+- **Scanned, and nothing refused is stored.** Every text goes through the memory scanner. A lesson, an answer or an
+  owner's note with a critical finding is dropped (the owner sees why; the pipeline logs a count); rework feedback loses
+  only the refused items; a refused question is left out of the answer's signal. Warnings are kept. The Lead's decision is
+  stored without its lessons. The finish call itself, lessons included, still passes through the job's step output and,
+  for a plan stage, `agent_runs.cli_results` until the run ends, as every stage result does.
+- **Agents can't read them.** No tool, prompt or MCP endpoint reads `memory_signals`; the Brain page is the only reader.
+- **Never a way to break a run.** Recording catches its own errors and logs one line with the database's message, never
+  the query or the text.
+- **Capped.** Texts ≤ 2,000 characters (a note to remember ≤ 600, a lesson title ≤ 120, evidence ≤ 500), 500 signals per
+  workspace, three lessons per Lead decision.
+- **Owner-scoped.** Every action loads the workspace for the signed-in owner; the pull request, card, log entry and
+  signal ids in a request are looked up inside that workspace, and anything else is "not there".
 
 ## Card references
 

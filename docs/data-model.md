@@ -13,6 +13,7 @@ Identity is GitHub's: a `users` row is found by its GitHub id (`users.github_use
 - [agents](#agents)
 - [agent_skills, agent_skill_files, agent_skill_assignments](#agent_skills)
 - [memory_notes](#memory_notes)
+- [memory_signals](#memory_signals)
 - [agent_activity](#agent_activity)
 - [agent_runs](#agent_runs)
 - [agent_run_messages](#agent_run_messages)
@@ -55,6 +56,9 @@ erDiagram
     users |o--o{ agent_skills : "uploaded (nullable)"
     users ||--o{ memory_notes : "owner's notes"
     workspaces |o--o{ memory_notes : "a project's notes (null = global)"
+    workspaces ||--o{ memory_signals : "what to learn from"
+    agent_runs |o--o{ memory_signals : "from (nullable)"
+    tasks |o--o{ memory_signals : "about (nullable)"
 
     users {
         serial id PK
@@ -159,7 +163,7 @@ erDiagram
 
 Every foreign key to `users` / `workspaces` is `ON DELETE CASCADE`, as are `agent_runs.task_id` and the skill tables'
 foreign keys to `agent_skills` / `agents`. `SET NULL`: `agent_skills.created_by_id`, `tasks.created_by_id`, `agent_activity.task_id`, `agent_runs.created_by_id`, `pull_requests.task_id` / `run_id` /
-`follow_up_task_id`.
+`follow_up_task_id`, `memory_signals.run_id` / `task_id`.
 
 ## users
 
@@ -390,7 +394,32 @@ exported by the schema-driven [backup registry](../lib/backup/registry.mjs), and
 Indexes: `memory_notes_user_idx` (`user_id`, `scope`), `memory_notes_workspace_idx`, and two partial unique indexes that stop
 the same text twice in one place: `memory_notes_global_unique` (`user_id`, `content_hash` where `workspace_id` is null) and
 `memory_notes_project_unique` (`user_id`, `workspace_id`, `content_hash` where it is not). At most 200 notes per place
-(checked on create). `memory_proposals` and `memory_signals` come with the later parts of the Brain.
+(checked on create). `memory_proposals` comes with a later part of the Brain.
+
+## memory_signals
+
+What happened that the Brain could learn from ([brain-plan.md](brain-plan.md#how-it-learns), migration
+`0022_brain_signals`): raw material for the librarian of a later version, never read by agents. Written only by
+`lib/memory-signals-store.ts` from what `lib/memory-signals.ts` builds: every text capped and passed through the memory
+scanner (a refused text is not stored). No secret column: backups include the table.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `id` | serial | no | | Primary key. |
+| `workspace_id` | integer | no | | → `workspaces.id`, cascade. Every query is scoped by it (the workspace by its owner). |
+| `kind` | text | no | | `pr_rejected` \| `rework` \| `answer` \| `lesson` \| `remember`; `failure` is reserved (nothing records it yet). |
+| `source_key` | text | no | | What it came from. **Unique with `workspace_id` and `kind`**, so a retried step or a second sync adds nothing: `pr:<number>`, `run:<id>:round:<n>:<cause>`, `run:<id>`, `title:<normalized lesson title>`, `note:<hash of the note>`. |
+| `run_id` | integer | yes | | → `agent_runs.id`, `SET NULL`. |
+| `pr_number` | integer | yes | | The GitHub pull request number (not a foreign key). |
+| `task_id` | integer | yes | | → `tasks.id`, `SET NULL`. Cards are only marked removed, so a removed card's signals keep pointing at it. |
+| `payload` | jsonb | no | | `SignalPayload`: `text` (≤ 2,000), and by kind `title` (≤ 120), `context` (the Analyst's question), `reason`, `cause`, `round`, `type`, `evidence` (≤ 500), `scope` (`project` \| `global`). |
+| `trusted` | boolean | no | `false` | True only when `title` / `text` are words the owner typed in the app. `context` and `evidence` are untrusted whatever this says. |
+| `created_at` | timestamp | no | `now()` | Newest first on the Brain page. An owner's input saved again with new words moves up. |
+| `consumed_at` | timestamp | yes | | When the librarian used it (later part; always null for now). |
+
+Indexes: `memory_signals_source_unique` (`workspace_id`, `kind`, `source_key`) and
+`memory_signals_workspace_created_idx` (`workspace_id`, `created_at`). At most **500 per workspace**: after an insert the
+oldest used ones are deleted first, then the oldest (`signalsToPrune`). The owner can delete any of them.
 
 ## task_events
 
@@ -567,6 +596,7 @@ Pull requests the Developer opened. One per run; rework rounds push to the same 
 | `test_status` | text | no | `pending` | `pending`, `passed`, `failed`. |
 | `merge_error` | text | yes | | Why the last merge attempt was blocked; kept when a run takes the PR over (its brief says why), cleared once that run pushes its work and on merge. |
 | `follow_up_task_id` | integer | yes | | → `tasks.id`, `SET NULL`. The Tester's card for a blocked merge (one per PR). Running it continues on this PR; the merge moves it to Done with `task_id`'s card. |
+| `rejection_prompt` | text | yes | | Migration `0022`. The question "Why was this rejected?" about a PR closed without merging: `pending`, `answered` or `dismissed` (`REJECTION_PROMPTS`). Null: never asked. Set once, never asked again. |
 | `merged_at`, `created_at`, `updated_at` | timestamp | yes / no / no | | |
 
 ## Value vocabularies
@@ -581,7 +611,8 @@ Agent ids (`assignee_agent_id`, `agents.key`) are the role keys in `AGENT_KEYS`
 as unassigned. `skills` (permissions) are validated against `PERMISSIONS` by `parseAgentConfigInput`; `model` by its shape
 there (`isModelId`), and a new model must be one the catalog offers now (`saveAgentAction`).
 Skill `type`, `load` and `source` values live in [`lib/agent-skills-config.ts`](../lib/agent-skills-config.ts); note `type`,
-`load`, `status`, `origin` and the memory modes in [`lib/memory-config.ts`](../lib/memory-config.ts).
+`load`, `status`, `origin` and the memory modes in [`lib/memory-config.ts`](../lib/memory-config.ts); signal `kind`, the
+rejection reasons, rework causes, scopes and the question's states in [`lib/memory-signals.ts`](../lib/memory-signals.ts).
 
 ## Behaviors worth knowing
 

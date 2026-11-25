@@ -112,7 +112,8 @@ app/
                           removeCardReferenceAction (auth + validation).
       pull-requests/actions.ts  mergePullRequestAction (manual merge, via mergeManually).
       brain/actions.ts    saveNoteAction (create/edit, owner's place only), setNoteStatusAction, deleteNoteAction,
-                          saveMemoryModeAction (auth + validation + scan).
+                          saveMemoryModeAction; signals: answerRejectionAction, dismissRejectionAction, rememberAction
+                          (also used by the board and Pull Requests), deleteSignalAction (auth + validation + scan).
       settings/           Your account: GitHub identity + Sign out (#account), AI (#ai: "Plans on this computer" when running locally —
                           Claude Code switch, sign-in, confirmed account, plan-limit choice — then API keys for every
                           project, then Models (updated when, Refresh models), then "This workspace only": automatic
@@ -167,7 +168,10 @@ components/
   brain/                  The Brain page: brain-view (markup; the page only loads data), repo-notes (mode repo: read-only
                           notes + SkippedList), note-library (notes in the database: create/edit/switch off/delete),
                           note-editor (NoteDialog: the form, scan findings), note-row, block-preview ("What agents get"),
-                          memory-mode-form (Settings: repo / local / off).
+                          memory-mode-form (Settings: repo / local / off), signal-activity (Activity: the signals) +
+                          signal-delete-button, rejection-prompt (the "Why was this rejected?" strip and dialog, on board
+                          cards and Pull Requests), remember-dialog ("Remember this", card menu and agent log),
+                          signal-form-parts (radio chips, refused findings).
   dashboard/              Overview sections: stat-tile, upcoming-tasks, team-status (AI team card, live), recent-activity,
                           agent-avatar (AgentAvatar, UserInitial, AGENT_TONE_CLASS), activity-kind (ACTIVITY_KIND,
                           ActivityAvatar).
@@ -291,6 +295,11 @@ lib/                      Server logic. Files that touch secrets/DB start with `
                           drizzle.config.ts and scripts/local-db.mjs. local-stack-config.mjs: start:local's ports, the
                           pinned Inngest version and the build decision.
   db-errors.ts            Pure: isUniqueViolation (createRun's one-run-per-card guard).
+  memory-signals.ts       Brain signals (docs/brain-plan.md part B), pure and client-safe: kinds, rejection reasons,
+                          rework causes, limits, the builders (capped, scanned, dedupe key, trusted flag), the Lead's
+                          lessons (LESSONS_SCHEMA, parseLessons), shouldAskWhyRejected, signalsToPrune. Tested.
+  memory-signals-store.ts Writing and reading them (never throws): record*Signal, askWhyRejected / answerRejection /
+                          dismissRejection / getPendingRejections, rememberNote, listSignals, deleteSignal. Tested.
   agent-ai.ts             Config AI (OpenAI if configured, else Anthropic, else OpenRouter): generateAgentConfig() (repo-aware, sandbox-aware instructions),
                           scanAgentWithAI(), reviewSkillWithAI() (upload review + type/load/roles), isConfigAIAvailable().
   openai.ts               OpenAI client (null without a key), responseCostMicros().
@@ -929,8 +938,8 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     re-enables it. Every change logs on the agent and rescans its trust (`skill-install.ts`). Built-ins can't be
     deleted. `agents.skills` is the **permissions** column (`permissions` in Drizzle): don't rename it while the dev
     database is shared with older branches.
-- **Brain** (`/dashboard/[id]/brain`, [`docs/brain-plan.md`](docs/brain-plan.md); part A): notes agents read before they work, like
-  skills **reference data, never executed and never instructions**. Rules:
+- **Brain** (`/dashboard/[id]/brain`, [`docs/brain-plan.md`](docs/brain-plan.md); parts A and B): notes agents read before they work, like
+  skills **reference data, never executed and never instructions**, and the signals it will learn from. Rules:
   - **Notes are untrusted text.** Every note (a repository file in mode `repo`, a row otherwise) goes through `parseNoteFile` /
     `validateNote` and `scanMemoryNote` on save **and at load time**; a critical finding or an invalid file is skipped and
     counted, never an error for a run. A note can never add a tool or a permission, and the operating protocol says so.
@@ -946,6 +955,17 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     owner's ≤ 1,000, whole notes, fixed order). `search_memory` / `read_memory` are read-only, offered in every stage when notes
     exist, listed in `READ_TOOLS`, logged by key. New limits live in `lib/memory-config.ts` only.
   - Brain actions need the same care as other forms: field errors per field, the scan's findings returned for the dialog.
+  - **Signals never throw into a run, a sync or an action** (`lib/memory-signals-store.ts`): every writer catches, warns
+    once with the database's message (never the query or the text) and returns; add new sources through it, with a builder
+    in `lib/memory-signals.ts` (capped, scanned, a dedupe key so a retried step or a second sync adds nothing, and
+    `trusted` only for words the owner typed in the app). Nothing the scan refuses is stored. **Agents get no tool that
+    reads signals.**
+  - Sources, one hook each: `closeWithoutMerge` → `askWhyRejected` (`shouldAskWhyRejected`: never for a merged or
+    replaced pull request; `pull_requests.rejection_prompt` makes it once), `startRework(runId, round, cause)` (the only
+    place a rework round begins; it sets the round, so a retry changes nothing), `answerAnalyst`, `recordApproval` (the
+    Lead's `lessons`: required in the strict schema, no `maxItems`, parsed by `parseLessons`, never able to fail an
+    approval — `parseFinishArguments` fills them in — and never stored with the decision), and **Remember this**. Failure
+    signals aren't recorded yet.
 - **Pull Requests** (`/dashboard/[id]/pull-requests`): the page calls `refreshOpenPullRequests` (picks up merges/closes
   made on GitHub), then renders `PullRequestsView`: approval (the Lead), tests and risk chips. **Merge** only for PRs
   the Lead approved and tests passed.

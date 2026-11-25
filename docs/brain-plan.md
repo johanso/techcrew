@@ -178,7 +178,7 @@ request with a reason, and watch the proposal appear.
 | Part | State | What exists | What does not |
 | --- | --- | --- | --- |
 | **A. Foundation** | Built, in review | Migration `0021` (`memory_notes`, `workspaces.memory_mode` and `memory_bootstrapped_at`), the note format and parser (`lib/memory-config.ts`), the scanner (`lib/memory-scan.ts`), the loader (repository files in `repo` mode through `lib/memory-loader.ts`, rows in `local` mode and for the owner's notes, `lib/memory.ts`), the Memory block pinned per stage, `search_memory` / `read_memory`, the Reviewer's check, the Brain page (notes, your memory, what agents get, settings), tests, backup coverage | No `memory_proposals` or `memory_signals` tables, no signals, no librarian, no proposals inbox, no memory pull request (the page says to edit the files in the repository), no bootstrap from a repository, no promotion, no stale detection, no usage counters, no "Brain" line in a run's header; not yet exercised by a full live or simulated pipeline run |
-| **B. Signals** | Not started | | |
+| **B. Signals** | Built, in review | Migration `0022` (`memory_signals`, `pull_requests.rejection_prompt`), the builders, lessons parser and retention (`lib/memory-signals.ts`), the writer that never throws (`lib/memory-signals-store.ts`), signals from rejected pull requests (the one question on the card and the Pull Requests page), rework rounds, answers to the Analyst, the Lead's `lessons` and **Remember this** (card menu and agent log), the Brain page's Activity with delete, tests, backup coverage | No `failure` signals (they wait for the classification of v0.12), nothing consumes a signal (`consumed_at` stays empty), no librarian, proposals or memory pull requests; the Lead's `lessons` not yet exercised with a real model (the simulated Lead suggests none) |
 | **C. The librarian** | Not started | | |
 | **D. Promotion and release** | Not started | | |
 
@@ -186,6 +186,12 @@ Choices made while building A: a note's key is `project/<name>` or `global/<name
 files and `on_demand` in the database (both read); links are limited to github.com and docs.github.com (loopback is
 allowed); with mode `off` the owner's notes are not loaded either; notes written on the page keep their status when
 edited (switch off and on are separate actions).
+
+Choices made while building B: the question is a column on the pull request, not a signal (a signal exists only once the
+owner answers); a pull request isn't asked about when a later one from the same branch, card or follow-up card exists;
+signals are collected in every memory mode (the mode decides what agents read); a lesson refused by the scan is dropped
+whole, rework feedback loses only the refused items; **Remember this** saved with someone else's starting text unchanged
+is untrusted; signals have no `status` and are deleted by the owner or by the limit of 500.
 
 ## Risks
 
