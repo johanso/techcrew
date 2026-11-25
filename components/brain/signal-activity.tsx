@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { format, formatDistanceToNowStrict } from "date-fns";
 import {
+  BanIcon,
   BookmarkIcon,
   BotIcon,
   ChevronDownIcon,
@@ -118,8 +119,11 @@ function SignalRow({ workspaceId, signal }: { workspaceId: number; signal: Signa
   );
 }
 
-/** Brain → Activity: what has been collected to learn from, newest first. `olderHref` links to a longer list. */
-export function SignalActivity({ workspaceId, signals, olderHref }: { workspaceId: number; signals: SignalView[]; olderHref: string | null }) {
+/**
+ * Brain → Activity: what has been collected to learn from, newest first. `olderHref` links to a longer list; `paused`
+ * while memory is off (what was collected stays listed).
+ */
+export function SignalActivity({ workspaceId, signals, olderHref, paused }: { workspaceId: number; signals: SignalView[]; olderHref: string | null; paused: boolean }) {
   return (
     <section id="activity" className="surface flex min-w-0 flex-col" aria-label="Activity">
       <SurfaceHeader
@@ -131,6 +135,12 @@ export function SignalActivity({ workspaceId, signals, olderHref }: { workspaceI
         title="Activity"
         description="What the Brain has collected to learn from. Agents don't read this list."
       />
+      {paused && (
+        <p className="flex items-start gap-2 border-b border-border/70 bg-muted/60 px-6 py-3 text-sm">
+          <BanIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          Collection is paused while memory is off. Only what you save with “Remember this” is added.
+        </p>
+      )}
       {signals.length ? (
         <ul className="flex flex-col divide-y divide-border/70">
           {signals.map((signal) => (

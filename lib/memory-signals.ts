@@ -58,6 +58,15 @@ export const SIGNALS_PAGE_SIZE = 20;
 // Text beyond this is never looked at, so it is never stored either: it bounds what the scanner reads.
 const SCAN_INPUT_MAX = 20_000;
 
+// ── When ───────────────────────────────────────────────────────────────────────
+
+/**
+ * Whether TechTeam collects signals on its own, and asks about rejected pull requests, for a workspace's memory mode
+ * (workspaces.memory_mode): never when it is `off`, or when there is no mode to read. "Remember this" doesn't ask this:
+ * it is the owner's own action and always available.
+ */
+export const collectsSignals = (memoryMode: string | null | undefined) => typeof memoryMode === "string" && memoryMode !== "off";
+
 // ── The signal ─────────────────────────────────────────────────────────────────
 
 export type SignalPayload = {

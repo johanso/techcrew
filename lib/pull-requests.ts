@@ -8,6 +8,7 @@ import { createRun, finishRun, placeTask, replaceWaitingRuns, runningPreviewUrl 
 import { getAgentRow, logAgentActivity, taskKeyPrefix } from "@/lib/agents";
 import { createAgentTask } from "@/lib/board";
 import { GithubError, createIssue, getCommitChecks, getGithubToken, getPullRequest, mergePullRequest } from "@/lib/github";
+import { collectsSignals } from "@/lib/memory-signals";
 import { askWhyRejected } from "@/lib/memory-signals-store";
 import { pickContinuedPullRequest } from "@/lib/merge-config";
 import { notify } from "@/lib/notifications";
@@ -352,7 +353,7 @@ export type PullRequestView = {
   mergeError: string | null;
   /** Merge is offered once the Lead approved and tests passed. */
   canMerge: boolean;
-  /** Closed without merging and the owner hasn't said why (or dismissed the question). */
+  /** Closed without merging and the owner hasn't said why (or dismissed the question). Never while memory is off. */
   askWhyRejected: boolean;
   task: { key: string; title: string } | null;
   runStatus: RunStatus | null;
@@ -362,7 +363,7 @@ export type PullRequestView = {
   mergedAt: string | null;
 };
 
-export async function listPullRequests(workspace: Pick<Workspace, "id" | "name">): Promise<PullRequestView[]> {
+export async function listPullRequests(workspace: Pick<Workspace, "id" | "name" | "memoryMode">): Promise<PullRequestView[]> {
   const rows = await db
     .select({ pr: pullRequests, taskNumber: tasks.number, taskTitle: tasks.title, runStatus: agentRuns.status, preview: agentRuns.preview })
     .from(pullRequests)
@@ -385,7 +386,7 @@ export async function listPullRequests(workspace: Pick<Workspace, "id" | "name">
     testStatus: pr.testStatus as PullRequestView["testStatus"],
     mergeError: pr.mergeError,
     canMerge: pr.state === "open" && pr.reviewStatus === "approved" && pr.testStatus === "passed",
-    askWhyRejected: pr.state === "closed" && pr.mergedAt === null && pr.rejectionPrompt === "pending",
+    askWhyRejected: collectsSignals(workspace.memoryMode) && pr.state === "closed" && pr.mergedAt === null && pr.rejectionPrompt === "pending",
     task: taskNumber !== null && taskTitle !== null ? { key: `${prefix}-${taskNumber}`, title: taskTitle } : null,
     runStatus: (runStatus as RunStatus | null) ?? null,
     previewUrl: pr.state === "open" ? runningPreviewUrl(preview) : null,

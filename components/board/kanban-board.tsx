@@ -99,8 +99,11 @@ export function KanbanBoard({
   ai,
   openLogFor,
   linksEnabled,
+  memoryOff,
 }: {
   workspaceId: number;
+  /** The project's memory is off ("Remember this" says so). */
+  memoryOff: boolean;
   /** Whether the server has file storage for card references. */
   /** Whether the server can capture links (a sandbox host). */
   linksEnabled: boolean;
@@ -681,10 +684,11 @@ export function KanbanBoard({
         onSubmit={answerCard}
       />
 
-      <RememberDialog workspaceId={workspaceId} target={rememberTarget} onClose={() => setRememberTarget(null)} />
+      <RememberDialog workspaceId={workspaceId} memoryOff={memoryOff} target={rememberTarget} onClose={() => setRememberTarget(null)} />
 
       <RunLogSheet
         workspaceId={workspaceId}
+        memoryOff={memoryOff}
         card={logCardId ? (cards[logCardId] ?? null) : null}
         // One modal at a time: the log closes, then the answer dialog opens.
         onAnswer={(card) => {

@@ -5,6 +5,7 @@ import { normalizeFallbackOrder } from "@/lib/agent-config";
 import { teamProviders } from "@/lib/agents";
 import { getAIKeys, keyStatus } from "@/lib/ai-keys";
 import { getBoardData } from "@/lib/board";
+import { collectsSignals } from "@/lib/memory-signals";
 import { linkCaptureAvailable } from "@/lib/sandbox/capture";
 import { getDashboardContext } from "@/lib/workspaces";
 
@@ -25,6 +26,7 @@ export default async function BoardPage({ params, searchParams }: PageProps<"/da
       ai={{ inUse, connected: keyStatus(keys), fallbackOrder: normalizeFallbackOrder(workspace.aiFallbackOrder) }}
       openLogFor={openLogFor}
       linksEnabled={linkCaptureAvailable()}
+      memoryOff={!collectsSignals(workspace.memoryMode)}
     />
   );
 }

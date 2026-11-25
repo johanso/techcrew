@@ -9,6 +9,7 @@ import { PageHeader, SurfaceHeader } from "@/components/dashboard/page-header";
 import { SurfaceEmpty } from "@/components/dashboard/section-empty";
 import type { LoadedMemory } from "@/lib/memory";
 import { MEMORY_DIR, type MemoryBlock } from "@/lib/memory-config";
+import { collectsSignals } from "@/lib/memory-signals";
 import type { SignalView } from "@/lib/memory-signals-store";
 
 const tile = (icon: React.ReactNode) => <span className="icon-tile text-brand-emphasis">{icon}</span>;
@@ -88,7 +89,7 @@ export function BrainView({
       )}
 
       <BlockPreview block={block} />
-      <SignalActivity workspaceId={workspaceId} signals={signals} olderHref={olderSignalsHref} />
+      <SignalActivity workspaceId={workspaceId} signals={signals} olderHref={olderSignalsHref} paused={!collectsSignals(memory.mode)} />
       <MemoryModeForm workspaceId={workspaceId} mode={memory.mode} repoPrivate={repoPrivate} />
     </>
   );

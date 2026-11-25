@@ -17,6 +17,7 @@ import {
   buildReworkSignal,
   capText,
   cardRememberText,
+  collectsSignals,
   lessonsNote,
   normalizeTitle,
   parseLessons,
@@ -49,6 +50,16 @@ describe("capText", () => {
     const cut = capText(`ab${"😀".repeat(4)}`, 4);
     expect(cut).toBe("ab…");
     expect(cut.isWellFormed()).toBe(true);
+  });
+});
+
+describe("when signals are collected", () => {
+  it("collects in the repository and local modes, and in a mode it doesn't know (read as the default)", () => {
+    for (const mode of ["repo", "local", "something-newer"]) expect(collectsSignals(mode)).toBe(true);
+  });
+
+  it("collects nothing when memory is off, or when there is no mode to read", () => {
+    for (const mode of ["off", null, undefined]) expect(collectsSignals(mode)).toBe(false);
   });
 });
 

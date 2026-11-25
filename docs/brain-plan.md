@@ -189,7 +189,8 @@ edited (switch off and on are separate actions).
 
 Choices made while building B: the question is a column on the pull request, not a signal (a signal exists only once the
 owner answers); a pull request isn't asked about when a later one from the same branch, card or follow-up card exists;
-signals are collected in every memory mode (the mode decides what agents read); a lesson refused by the scan is dropped
+with memory `off` nothing is collected or asked on its own (a pending question is hidden until memory is back on;
+**Remember this** stays available), and nothing is recorded when the mode can't be read; a lesson refused by the scan is dropped
 whole, rework feedback loses only the refused items; **Remember this** saved with someone else's starting text unchanged
 is untrusted; signals have no `status` and are deleted by the owner or by the limit of 500.
 

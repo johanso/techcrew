@@ -292,11 +292,14 @@ function CiBlock({ ci }: { ci: CiResult }) {
  */
 export function RunLogSheet({
   workspaceId,
+  memoryOff,
   card,
   onOpenChange,
   onAnswer,
 }: {
   workspaceId: number;
+  /** The project's memory is off ("Remember this" says so). */
+  memoryOff: boolean;
   card: BoardCard | null;
   onOpenChange: (open: boolean) => void;
   /** Opens the answer dialog for a card whose analyst waits on a question. */
@@ -422,7 +425,7 @@ export function RunLogSheet({
           )}
         </div>
         {/* Inside the sheet, so it opens over the log and closing it returns there. */}
-        <RememberDialog workspaceId={workspaceId} target={rememberTarget} onClose={() => setRememberTarget(null)} />
+        <RememberDialog workspaceId={workspaceId} memoryOff={memoryOff} target={rememberTarget} onClose={() => setRememberTarget(null)} />
       </SheetContent>
     </Sheet>
   );

@@ -25,7 +25,8 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   answers to the Analyst, up to three **lessons** the Lead suggests with its decision, and **Remember this** (card menu
   and agent log) are recorded too. The Brain page's new **Activity** lists them, marked *Trusted* only for words you
   typed, and you can delete any. Every text is capped and scanned (a refused one isn't stored), at most 500 per
-  workspace, and agents can't read them. Migration `0022` adds `memory_signals` and `pull_requests.rejection_prompt`
+  workspace, and agents can't read them. With memory **off**, nothing is collected or asked on its own; only
+  **Remember this** still saves. Migration `0022` adds `memory_signals` and `pull_requests.rejection_prompt`
   (included in backups): run `npm run db:migrate` (`npm run dev` applies it at start). Nothing turns a signal into a note
   yet.
 

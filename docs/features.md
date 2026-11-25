@@ -552,7 +552,12 @@ nothing turns a signal into a note yet).
 
 TechTeam writes down what you reject and correct. A **signal** is raw material: agents never read it, and nothing becomes
 a note without a review (a later version). Every text is capped and passes the memory scanner; a refused text isn't
-stored. At most 500 per workspace (used ones, then the oldest, go first). Signals are collected in every memory mode.
+stored. At most 500 per workspace (used ones, then the oldest, go first).
+
+**With memory off** (Brain → Settings), TechTeam collects nothing on its own and asks nothing: no rework, answer or
+lesson signals, and no "Why was this rejected?" (one still pending from before is hidden and comes back when memory is
+turned on; a pull request closed while it is off is never asked about). **Remember this** stays available, and its dialog
+says the note is kept for when memory is turned on. Activity still lists what was collected and says collection is paused.
 
 | Signal | When | What is kept |
 | --- | --- | --- |

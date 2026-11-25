@@ -279,6 +279,9 @@ is treated as input to memory from the start (`lib/memory-signals.ts`, `lib/memo
   only the refused items; a refused question is left out of the answer's signal. Warnings are kept. The Lead's decision is
   stored without its lessons. The finish call itself, lessons included, still passes through the job's step output and,
   for a plan stage, `agent_runs.cli_results` until the run ends, as every stage result does.
+- **Off means off.** With the workspace's memory off, nothing is collected or asked on its own (`collectsSignals`), and
+  nothing is recorded when the mode can't be read. Only the owner's explicit **Remember this** still saves. What was
+  collected earlier is kept until the owner deletes it.
 - **Agents can't read them.** No tool, prompt or MCP endpoint reads `memory_signals`; the Brain page is the only reader.
 - **Never a way to break a run.** Recording catches its own errors and logs one line with the database's message, never
   the query or the text.

@@ -80,9 +80,65 @@ describe("signals never throw into a run, a sync or an action", () => {
     expect(JSON.stringify(warn.mock.calls)).not.toContain("THE-OWNERS-WORDS");
   });
 
+  it("records and asks nothing when the memory mode can't be read, warning once each", async () => {
+    fake.failing = true;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await recordReworkSignal(1, 0, "ci");
+    await askWhyRejected(1);
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(fake.queries.map((query) => query.op)).toEqual(["select", "select"]);
+  });
+
   it("records no lesson without asking the database", async () => {
     await expect(recordLessonSignals(1, [])).resolves.toBe(0);
     expect(fake.queries).toEqual([]);
+  });
+});
+
+describe("memory off", () => {
+  const run = { id: 1, workspaceId: 10, taskId: 7, brief: null, error: "Which port?", approval: { summary: "Fix it.", requiredChanges: [] } };
+  const closed = { id: 5, workspaceId: 10, state: "closed", mergedAt: null, taskId: 7, followUpTaskId: null, headBranch: "agent/x", rejectionPrompt: null };
+  const ops = () => fake.queries.map((query) => query.op);
+
+  it("records no rework, answer or lesson, without a warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fake.results.push([{ run, memoryMode: "off" }], [{ run, memoryMode: "off" }], [{ run, memoryMode: "off" }]);
+    await expect(recordReworkSignal(1, 0, "lead")).resolves.toBe(false);
+    await expect(recordAnswerSignal(1, "Port 8080.")).resolves.toBe(false);
+    await expect(recordLessonSignals(1, [{ title: "T", body: "B", type: "lesson", evidence: "" }])).resolves.toBe(0);
+    expect(ops()).toEqual(["select", "select", "select"]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("records them again once memory is on", async () => {
+    fake.results.push([{ run, memoryMode: "local" }], [{ number: 3 }], [{ id: 1 }], [{ count: 1 }]);
+    await expect(recordReworkSignal(1, 0, "lead")).resolves.toBe(true);
+    expect(fake.queries[2]).toMatchObject({ op: "insert", values: [{ workspaceId: 10, kind: "rework", prNumber: 3 }] });
+  });
+
+  it("doesn't ask why a pull request was rejected, and asks when memory is on", async () => {
+    fake.results.push([{ pr: closed, memoryMode: "off" }]);
+    await expect(askWhyRejected(5)).resolves.toBe(false);
+    expect(ops()).toEqual(["select"]);
+    fake.queries.length = 0;
+    fake.results.push([{ pr: closed, memoryMode: "repo" }], [], [{ id: 5 }]);
+    await expect(askWhyRejected(5)).resolves.toBe(true);
+    expect(ops()).toEqual(["select", "select", "update"]);
+  });
+
+  it("hides a question left pending, without rewriting it, and shows it again when memory is on", async () => {
+    const pending = { id: 5, number: 3, taskId: 7 };
+    fake.results.push([{ ...pending, memoryMode: "off" }], [{ ...pending, memoryMode: "local" }]);
+    await expect(getPendingRejections(10)).resolves.toEqual(new Map());
+    await expect(getPendingRejections(10)).resolves.toEqual(new Map([[7, { pullRequestId: 5, number: 3 }]]));
+    expect(ops()).toEqual(["select", "select"]);
+  });
+
+  it("still saves what the owner asks to remember", async () => {
+    // No mode is looked up: "Remember this" is the owner's own action.
+    fake.results.push([{ id: 7, title: "Card", githubIssueId: null, createdById: 1 }], [{ id: 1 }], [{ count: 1 }]);
+    await expect(rememberNote(10, { taskId: 7, stepId: null }, { text: "Keep it small.", scope: "project" })).resolves.toEqual({ ok: true, trusted: true });
+    expect(ops()).toEqual(["select", "insert", "select"]);
   });
 });
 

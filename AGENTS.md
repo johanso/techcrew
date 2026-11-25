@@ -960,6 +960,9 @@ and `font-heading`. Base size **14 px** (`text-sm`); `h1`–`h4` get tight track
     in `lib/memory-signals.ts` (capped, scanned, a dedupe key so a retried step or a second sync adds nothing, and
     `trusted` only for words the owner typed in the app). Nothing the scan refuses is stored. **Agents get no tool that
     reads signals.**
+  - **With memory `off`, nothing is collected or asked on its own** (`collectsSignals` in `lib/memory-signals.ts`, the
+    one rule; a new automatic source checks it): pending questions are hidden, not rewritten. **Remember this** doesn't:
+    it is the owner's own action.
   - Sources, one hook each: `closeWithoutMerge` → `askWhyRejected` (`shouldAskWhyRejected`: never for a merged or
     replaced pull request; `pull_requests.rejection_prompt` makes it once), `startRework(runId, round, cause)` (the only
     place a rework round begins; it sets the round, so a retry changes nothing), `answerAnalyst`, `recordApproval` (the

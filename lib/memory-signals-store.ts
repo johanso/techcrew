@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 
-import { agentRunSteps, agentRuns, db, memorySignals, pullRequests, tasks, type PullRequestRow, type Workspace } from "@/db";
+import { agentRunSteps, agentRuns, db, memorySignals, pullRequests, tasks, workspaces, type PullRequestRow, type Workspace } from "@/db";
 import { taskKeyPrefix } from "@/lib/agents";
 import { ciForRound, ciSummary } from "@/lib/ci-gate";
 import type { MemoryScanFinding } from "@/lib/memory-scan";
@@ -13,6 +13,7 @@ import {
   buildRememberSignal,
   buildReworkSignal,
   cardRememberText,
+  collectsSignals,
   isSignalKind,
   shouldAskWhyRejected,
   signalsToPrune,
@@ -32,6 +33,7 @@ import {
  * The Brain's signals on the server (docs/brain-plan.md): writing them from the pipeline, the pull request sync and the
  * owner's actions, the "Why was this rejected?" question, and the Activity list. One rule above all: nothing here
  * throws into a run, a sync or an action. A signal that can't be recorded costs one warning, never the work it came from.
+ * With memory off nothing is collected or asked on its own (collectsSignals), nor when the mode can't be read.
  * Callers authorize the workspace; agents have no way to read any of this.
  */
 
@@ -113,10 +115,15 @@ async function keep(workspaceId: number, refs: SignalRefs, built: BuiltSignal, w
   return insertSignal(workspaceId, refs, built.draft);
 }
 
-/** A run's workspace, card, pull request number and stored results. */
-async function runFacts(runId: number) {
-  const [run] = await db.select().from(agentRuns).where(eq(agentRuns.id, runId));
-  if (!run) return null;
+/** A run's workspace, card, pull request number and stored results, or null when there is nothing to collect from it. */
+async function collectingRun(runId: number) {
+  const [row] = await db
+    .select({ run: agentRuns, memoryMode: workspaces.memoryMode })
+    .from(agentRuns)
+    .innerJoin(workspaces, eq(workspaces.id, agentRuns.workspaceId))
+    .where(eq(agentRuns.id, runId));
+  if (!row || !collectsSignals(row.memoryMode)) return null;
+  const { run } = row;
   const [pr] = await db
     .select({ number: pullRequests.number })
     .from(pullRequests)
@@ -145,7 +152,7 @@ function reworkFeedback(run: Run, round: number, cause: ReworkCause): string[] {
 /** A rework round starts: what sent the work back (untrusted), once per run, round and cause. */
 export function recordReworkSignal(runId: number, round: number, cause: ReworkCause) {
   return quietly("record a rework round", false, async () => {
-    const facts = await runFacts(runId);
+    const facts = await collectingRun(runId);
     if (!facts) return false;
     const built = buildReworkSignal({ runId, round, cause, feedback: reworkFeedback(facts.run, round, cause) });
     return keep(facts.run.workspaceId, facts.refs, built, `rework of run ${runId}`);
@@ -155,7 +162,7 @@ export function recordReworkSignal(runId: number, round: number, cause: ReworkCa
 /** The owner answered the Analyst's question on this run: the question (untrusted) and the answer. */
 export function recordAnswerSignal(runId: number, answer: string) {
   return quietly("record the answer", false, async () => {
-    const facts = await runFacts(runId);
+    const facts = await collectingRun(runId);
     if (!facts) return false;
     const question = facts.run.brief?.question || facts.run.error || "";
     return keep(facts.run.workspaceId, facts.refs, buildAnswerSignal({ runId, question, answer }), `answer on run ${runId}`);
@@ -166,7 +173,7 @@ export function recordAnswerSignal(runId: number, answer: string) {
 export function recordLessonSignals(runId: number, lessons: readonly Lesson[]) {
   return quietly("record the Lead's lessons", 0, async () => {
     if (!lessons.length) return 0;
-    const facts = await runFacts(runId);
+    const facts = await collectingRun(runId);
     if (!facts) return 0;
     let stored = 0;
     for (const lesson of lessons) {
@@ -181,8 +188,13 @@ export function recordLessonSignals(runId: number, lessons: readonly Lesson[]) {
 /** After a pull request was found closed without merging: asks the owner why, once (shouldAskWhyRejected). */
 export function askWhyRejected(pullRequestId: number) {
   return quietly("ask why a pull request was rejected", false, async () => {
-    const [pr] = await db.select().from(pullRequests).where(eq(pullRequests.id, pullRequestId));
-    if (!pr) return false;
+    const [row] = await db
+      .select({ pr: pullRequests, memoryMode: workspaces.memoryMode })
+      .from(pullRequests)
+      .innerJoin(workspaces, eq(workspaces.id, pullRequests.workspaceId))
+      .where(eq(pullRequests.id, pullRequestId));
+    if (!row || !collectsSignals(row.memoryMode)) return false;
+    const { pr } = row;
     const later = await db
       .select({ id: pullRequests.id, taskId: pullRequests.taskId, headBranch: pullRequests.headBranch })
       .from(pullRequests)
@@ -200,15 +212,21 @@ export function askWhyRejected(pullRequestId: number) {
 
 const waitingForReason = and(eq(pullRequests.state, "closed"), isNull(pullRequests.mergedAt), eq(pullRequests.rejectionPrompt, "pending"));
 
-/** The question each board card shows (its newest rejected pull request still waiting for a reason), by task id. */
+/**
+ * The question each board card shows (its newest rejected pull request still waiting for a reason), by task id. None
+ * while memory is off: the pending ones are only hidden, and show again when it is turned on.
+ */
 export function getPendingRejections(workspaceId: number) {
   return quietly("list the rejected pull requests", new Map<number, { pullRequestId: number; number: number }>(), async () => {
     const rows = await db
-      .select({ id: pullRequests.id, number: pullRequests.number, taskId: pullRequests.taskId })
+      .select({ id: pullRequests.id, number: pullRequests.number, taskId: pullRequests.taskId, memoryMode: workspaces.memoryMode })
       .from(pullRequests)
+      .innerJoin(workspaces, eq(workspaces.id, pullRequests.workspaceId))
       .where(and(eq(pullRequests.workspaceId, workspaceId), waitingForReason))
       .orderBy(pullRequests.id);
-    return new Map(rows.flatMap((row) => (row.taskId === null ? [] : [[row.taskId, { pullRequestId: row.id, number: row.number }] as const])));
+    return new Map(
+      rows.flatMap((row) => (row.taskId === null || !collectsSignals(row.memoryMode) ? [] : [[row.taskId, { pullRequestId: row.id, number: row.number }] as const]))
+    );
   });
 }
 

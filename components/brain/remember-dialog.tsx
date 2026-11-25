@@ -2,7 +2,7 @@
 
 import { startTransition, useActionState, useState } from "react";
 import Link from "next/link";
-import { CircleCheckIcon } from "lucide-react";
+import { BanIcon, CircleCheckIcon } from "lucide-react";
 
 import { rememberAction, type SignalFormState } from "@/app/dashboard/[workspaceId]/brain/actions";
 import { FormMessage } from "@/components/auth/form-parts";
@@ -28,7 +28,18 @@ export type RememberTarget = {
 };
 
 /** Remember this: the owner edits a short note and where it applies; it is saved as a Brain signal. */
-export function RememberDialog({ workspaceId, target, onClose }: { workspaceId: number; target: RememberTarget | null; onClose: () => void }) {
+export function RememberDialog({
+  workspaceId,
+  memoryOff,
+  target,
+  onClose,
+}: {
+  workspaceId: number;
+  /** The project's memory is off: the note is still saved, and the dialog says it waits. */
+  memoryOff: boolean;
+  target: RememberTarget | null;
+  onClose: () => void;
+}) {
   return (
     <Dialog open={target !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-lg">
@@ -38,6 +49,12 @@ export function RememberDialog({ workspaceId, target, onClose }: { workspaceId: 
             {target ? `From ${target.cardKey}. ` : ""}It is collected in the Brain to learn from; agents don&apos;t read it as it is.
           </DialogDescription>
         </DialogHeader>
+        {memoryOff && (
+          <p className="flex items-start gap-2 rounded-lg border border-border/70 bg-muted/60 p-3 text-sm">
+            <BanIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            Memory is off for this project, so this is kept for when it is turned on.
+          </p>
+        )}
         {/* The popup unmounts when closed; keying by the source also resets the form when it changes. */}
         {target && <RememberForm key={`${target.cardId}:${target.stepId}`} workspaceId={workspaceId} target={target} onClose={onClose} />}
       </DialogContent>
