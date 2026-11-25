@@ -1,8 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { callTool, toolStep, toolsFor, type ToolContext } from "@/lib/agent-tools";
-import { agentBlock, getMemoryMode, noteHash, readMemory, searchMemory, type AgentMemory } from "@/lib/memory";
+import { GithubError, getBranchSha } from "@/lib/github";
+import { agentBlock, getMemoryMode, loadMemory, noteHash, readMemory, searchMemory, type AgentMemory } from "@/lib/memory";
 import { activeNotes, buildMemoryBlock, memoryPromptBlock, visibleNotes, type MemoryNote } from "@/lib/memory-config";
+
+// loadMemory without a database (no rows) and without GitHub (each test says how the branch lookup fails).
+vi.mock("@/db", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/db")>()),
+  db: { select: () => ({ from: () => ({ where: () => ({ orderBy: async () => [] }) }) }) },
+}));
+vi.mock("@/lib/github", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/github")>()), getBranchSha: vi.fn() }));
 
 // Two owners, each with two workspaces: everything the database could hold, as loaded notes.
 const mk = (key: string, over: Partial<MemoryNote>): MemoryNote => ({
@@ -209,5 +217,45 @@ describe("helpers", () => {
     expect(getMemoryMode({ memoryMode: "local" })).toBe("local");
     expect(getMemoryMode({ memoryMode: "off" })).toBe("off");
     expect(getMemoryMode({ memoryMode: "weird" })).toBe("repo");
+  });
+});
+
+describe("a repository that can't be read", () => {
+  const workspaceOf = (ownerId: number, id: number) => ({
+    id,
+    ownerId,
+    githubRepoFullName: "acme/app",
+    githubDefaultBranch: "main",
+    memoryMode: "repo",
+  });
+  const spies = () => ({
+    warn: vi.spyOn(console, "warn").mockImplementation(() => {}),
+    error: vi.spyOn(console, "error").mockImplementation(() => {}),
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("asks to reconnect on a 401 and warns once per owner, without console.error", async () => {
+    const { warn, error } = spies();
+    vi.mocked(getBranchSha).mockRejectedValue(new GithubError("Bad credentials", 401));
+
+    for (const workspace of [workspaceOf(71, 701), workspaceOf(71, 701), workspaceOf(71, 702)]) {
+      expect((await loadMemory(workspace, "token")).problem).toBe("reconnect");
+    }
+    expect(warn).toHaveBeenCalledTimes(1);
+    await loadMemory(workspaceOf(72, 703), "token");
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("keeps console.error for every unexpected failure", async () => {
+    const { warn, error } = spies();
+    vi.mocked(getBranchSha).mockRejectedValue(new GithubError("Server Error", 502));
+
+    for (let visit = 0; visit < 2; visit++) expect((await loadMemory(workspaceOf(73, 704), "token")).problem).toBe("unavailable");
+    expect(error).toHaveBeenCalledTimes(2);
+    expect(warn).not.toHaveBeenCalled();
   });
 });
