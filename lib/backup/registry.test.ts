@@ -104,6 +104,23 @@ describe("schema coverage", () => {
     expect(workspace?.find((column) => column.name === "memory_bootstrapped_at")).toMatchObject({ kind: "timestamp", notNull: false });
   });
 
+  it("exports the Brain's signals whole: no secret column, its foreign keys and the pull request's question", () => {
+    expect(EXCLUDED_TABLES).not.toHaveProperty("memory_signals");
+    expect(SECRET_COLUMNS).not.toHaveProperty("memory_signals");
+    const tables = new Map(exportTables().map((table) => [table.name, table]));
+    const signals = tables.get("memory_signals");
+    expect(signals?.columns.map((column) => column.name)).toEqual([
+      "id", "workspace_id", "kind", "source_key", "run_id", "pr_number", "task_id", "payload", "trusted", "created_at", "consumed_at",
+    ]);
+    expect(signals?.columns.find((column) => column.name === "payload")?.kind).toBe("jsonb");
+    expect(signals?.foreignKeys).toEqual([
+      { column: "workspace_id", references: "workspaces", nullable: false },
+      { column: "run_id", references: "agent_runs", nullable: true },
+      { column: "task_id", references: "tasks", nullable: true },
+    ]);
+    expect(tables.get("pull_requests")?.columns.find((column) => column.name === "rejection_prompt")).toMatchObject({ kind: "text", notNull: false });
+  });
+
   it("has `id` as the primary key of every table with a serial column", () => {
     for (const table of exportTables()) {
       if (table.serialColumns.length > 0) expect(table.primaryKey, table.name).toBe("id");
