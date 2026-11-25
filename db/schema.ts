@@ -8,6 +8,7 @@ import type { RunWaiting } from "@/lib/cli-agents-config";
 import type { TrustReport } from "@/lib/agent-trust";
 import type { CiResult } from "@/lib/ci-gate";
 import type { PendingMerge } from "@/lib/merge-config";
+import type { LibrarianState, ProposalEvidence, ProposalNote, ProposalTarget } from "@/lib/memory-proposals";
 import type { RejectionPromptState, SignalPayload } from "@/lib/memory-signals";
 import type { Effort, ModelPricing } from "@/lib/model-catalog-config";
 import type { RunPreview, StoredSandboxCommands } from "@/lib/sandbox/config";
@@ -90,8 +91,13 @@ export const workspaces = pgTable(
     // Brain → Settings: where the project's memory lives ("repo" | "local" | "off", MEMORY_MODES). `repo`: files under
     // .techteam/memory/ in the repository; `local`: memory_notes rows of this workspace; `off`: no memory at all.
     memoryMode: text("memory_mode").default("repo").notNull(),
-    // When the Brain was first built from the repository (bootstrap, a later version). Null: never.
+    // When the Brain was last built from the repository (bootstrap, lib/librarian-run.ts). Null: never.
     memoryBootstrappedAt: timestamp("memory_bootstrapped_at"),
+    // Brain → Settings: the librarian turns new signals into proposals on its own (after a merge, a rejection or
+    // "Remember this"). Off: only "Learn now". Nothing runs in memory mode `off`.
+    memoryAutoLearn: boolean("memory_auto_learn").default(true).notNull(),
+    // The librarian's run in progress, or how the last one ended. Null: it never ran.
+    memoryLibrarian: jsonb("memory_librarian").$type<LibrarianState>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -727,7 +733,7 @@ export const memorySignals = pgTable(
     payload: jsonb("payload").$type<SignalPayload>().notNull(),
     trusted: boolean("trusted").notNull().default(false),
     createdAt: timestamp("created_at").defaultNow().notNull(),
-    // When the librarian (a later version) used it. Null: not yet.
+    // When a successful librarian run used it. Null: not yet.
     consumedAt: timestamp("consumed_at"),
   },
   (table) => [
@@ -737,3 +743,55 @@ export const memorySignals = pgTable(
 );
 
 export type MemorySignalRow = typeof memorySignals.$inferSelect;
+
+/**
+ * A change to the memory the librarian proposes (lib/librarian.ts, docs/brain-plan.md): add, update or retire a note,
+ * waiting for the owner. Agents never read it: accepting writes a `memory_notes` row, and in `repo` mode project notes
+ * go to the repository in the memory pull request. The texts are validated and scanned and hold no secrets, so backups
+ * include it. Decided rows stay: a rejected proposal isn't made again.
+ */
+export const memoryProposals = pgTable(
+  "memory_proposals",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // The project whose signals (or repository) it came from, also for a proposal about the owner's global memory.
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    // "add" | "update" | "retire" (PROPOSAL_KINDS).
+    kind: text("kind").notNull(),
+    // "project" | "global".
+    scope: text("scope").notNull(),
+    // Update and retire: the note it changes (`project/<name>`, `global/<name>-<id>`) …
+    targetKey: text("target_key"),
+    // … and that note as it was when proposed. A note that changed since then makes the proposal "superseded".
+    target: jsonb("target").$type<ProposalTarget>(),
+    // The proposed note; null for retire. The owner may edit it before accepting.
+    note: jsonb("note").$type<ProposalNote>(),
+    rationale: text("rationale").notNull(),
+    // What it is based on: signals (copied, they can be deleted) or the repository's files.
+    evidence: jsonb("evidence").$type<ProposalEvidence[]>().notNull(),
+    // True when nothing in the evidence was typed by the owner: delivering it needs an explicit confirmation.
+    untrustedOrigin: boolean("untrusted_origin").notNull(),
+    // "agent" (learned from signals) | "bootstrap" (built from the repository): the note's origin when accepted.
+    origin: text("origin").notNull(),
+    // proposalHash of what the librarian proposed (never of the owner's edit): how a rejected one is recognized.
+    contentHash: text("content_hash").notNull(),
+    // "pending" | "accepted" | "in_pr" | "merged" | "rejected" | "superseded" (PROPOSAL_STATUSES).
+    status: text("status").notNull().default("pending"),
+    // The memory pull request that carries it. Null with status "in_pr": it is being sent right now.
+    prNumber: integer("pr_number"),
+    // The app writes both: the defaults write the database's local time, which reads back shifted.
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("memory_proposals_workspace_status_idx").on(table.workspaceId, table.status),
+    index("memory_proposals_user_scope_idx").on(table.userId, table.scope),
+  ]
+);
+
+export type MemoryProposalRow = typeof memoryProposals.$inferSelect;

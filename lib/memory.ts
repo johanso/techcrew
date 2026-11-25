@@ -1,12 +1,11 @@
 import "server-only";
 
-import { createHash } from "node:crypto";
-
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 
 import { db, memoryNotes, type MemoryNoteRow, type Workspace } from "@/db";
 import { GithubError, getBranchSha, getRepoFile, listRepoDir } from "@/lib/github";
 import { isUniqueViolation } from "@/lib/db-errors";
+import { noteHash } from "@/lib/memory-hash";
 import {
   MEMORY_LOADS,
   MEMORY_ORIGINS,
@@ -29,7 +28,7 @@ import {
   type NoteField,
   type NoteInput,
 } from "@/lib/memory-config";
-import { NO_REPO_MEMORY, blockedReason, loadRepoNotes, repoMemoryCache, type RepoMemory, type SkippedFile } from "@/lib/memory-loader";
+import { NO_REPO_MEMORY, blockedReason, loadRepoNotes, repoMemoryCache, type RepoMemory, type RepoReader, type SkippedFile } from "@/lib/memory-loader";
 import { blocksNote, scanMemoryNote, type MemoryScanFinding } from "@/lib/memory-scan";
 import { pageSkillFile } from "@/lib/skill-runtime";
 
@@ -45,12 +44,6 @@ type MemoryWorkspace = Pick<Workspace, "id" | "ownerId" | "githubRepoFullName" |
 export const getMemoryMode = (workspace: Pick<Workspace, "memoryMode">): MemoryMode => (isMemoryMode(workspace.memoryMode) ? workspace.memoryMode : "repo");
 
 // ── Rows ───────────────────────────────────────────────────────────────────────
-
-/** sha256 of the normalized title and body: the same note can't be saved twice in one place. */
-export function noteHash(note: Pick<NoteInput, "title" | "body">) {
-  const normal = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
-  return createHash("sha256").update(normal(note.title)).update("\0").update(normal(note.body)).digest("hex");
-}
 
 const oneOf = <T extends string>(values: readonly T[], value: string): T | null => values.find((candidate) => candidate === value) ?? null;
 
@@ -129,22 +122,20 @@ function logUnreadableRepo(ownerId: number, error: unknown) {
   }
 }
 
-async function repoNotes(workspace: MemoryWorkspace, token: string | null): Promise<{ memory: RepoMemory; problem: MemoryProblem | null }> {
+/** The repository at `ref` (a branch or a commit), as the loader reads it. */
+export function repoReader(token: string, repo: string, ref: string): RepoReader {
+  return {
+    listDir: (path) => listRepoDir(token, repo, path, ref),
+    readFile: async (path) => (await getRepoFile(token, repo, path, ref))?.content ?? null,
+  };
+}
+
+async function repoNotes(workspace: MemoryWorkspace, token: string | null, fresh: boolean): Promise<{ memory: RepoMemory; problem: MemoryProblem | null }> {
   if (!token) return { memory: NO_REPO_MEMORY, problem: "reconnect" };
   const { githubRepoFullName: repo, githubDefaultBranch: branch } = workspace;
+  const load = () => loadRepoNotes(repoReader(token, repo, branch), { userId: workspace.ownerId, workspaceId: workspace.id });
   try {
-    const memory = await repoCache(
-      `${workspace.id}:${repo}:${branch}`,
-      () => getBranchSha(token, repo, branch),
-      () =>
-        loadRepoNotes(
-          {
-            listDir: (path) => listRepoDir(token, repo, path, branch),
-            readFile: async (path) => (await getRepoFile(token, repo, path, branch))?.content ?? null,
-          },
-          { userId: workspace.ownerId, workspaceId: workspace.id }
-        )
-    );
+    const memory = fresh ? await load() : await repoCache(`${workspace.id}:${repo}:${branch}`, () => getBranchSha(token, repo, branch), load);
     return { memory, problem: null };
   } catch (error) {
     logUnreadableRepo(workspace.ownerId, error);
@@ -169,8 +160,9 @@ export type LoadedMemory = {
  * Everything the Brain holds for a workspace. `repo`: the repository's files at the default branch (cached about a
  * minute, read again only when the branch moved); `local`: the workspace's rows; `off`: nothing at all. The owner's
  * global notes come from rows in every mode but `off`. Never throws for a repository that can't be read: `problem` says.
+ * `fresh` skips the cache, for the librarian: it compares against the files as they are now.
  */
-export async function loadMemory(workspace: MemoryWorkspace, token: string | null): Promise<LoadedMemory> {
+export async function loadMemory(workspace: MemoryWorkspace, token: string | null, { fresh = false }: { fresh?: boolean } = {}): Promise<LoadedMemory> {
   const mode = getMemoryMode(workspace);
   if (mode === "off") return { mode, project: [], global: [], skipped: [], repoFound: false, problem: null };
   const context = { userId: workspace.ownerId, workspaceId: workspace.id };
@@ -181,7 +173,7 @@ export async function loadMemory(workspace: MemoryWorkspace, token: string | nul
   let repoFound = false;
   let problem: MemoryProblem | null = null;
   if (mode === "repo") {
-    const loaded = await repoNotes(workspace, token);
+    const loaded = await repoNotes(workspace, token, fresh);
     project = loaded.memory.notes;
     skipped.push(...loaded.memory.skipped);
     repoFound = loaded.memory.found;
@@ -244,6 +236,9 @@ export function readMemory(memory: AgentMemory, key: unknown, offset: unknown) {
 /** Where a row lives: the owner's global notes (`workspaceId` null) or one of their projects. */
 export type NotePlace = { userId: number; workspaceId: number | null };
 
+/** The database, or a transaction on it: accepting a proposal writes the note and decides the proposal together. */
+export type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 export type NoteWrite =
   | { ok: true; note: MemoryNote; warnings: MemoryScanFinding[] }
   | { ok: false; errors?: Partial<Record<NoteField, string>>; message?: string; findings?: MemoryScanFinding[] };
@@ -261,13 +256,13 @@ const placeWhere = (place: NotePlace) =>
   and(eq(memoryNotes.userId, place.userId), place.workspaceId === null ? isNull(memoryNotes.workspaceId) : eq(memoryNotes.workspaceId, place.workspaceId));
 
 /** Creates a note by hand (origin owner) in the owner's global memory or a project's. At most NOTES_PER_SCOPE_MAX per place. */
-export async function createMemoryNote(place: NotePlace, input: unknown, origin: MemoryOrigin = "owner"): Promise<NoteWrite> {
+export async function createMemoryNote(place: NotePlace, input: unknown, origin: MemoryOrigin = "owner", executor: Executor = db): Promise<NoteWrite> {
   const checked = checkInput(input);
   if (!checked.ok) return checked;
-  const [{ count } = { count: 0 }] = await db.select({ count: sql<number>`count(*)::int` }).from(memoryNotes).where(placeWhere(place));
+  const [{ count } = { count: 0 }] = await executor.select({ count: sql<number>`count(*)::int` }).from(memoryNotes).where(placeWhere(place));
   if (count >= NOTES_PER_SCOPE_MAX) return { ok: false, message: `There are already ${NOTES_PER_SCOPE_MAX} notes here. Remove or merge some first.` };
   try {
-    const [row] = await db
+    const [row] = await executor
       .insert(memoryNotes)
       .values({
         userId: place.userId,
@@ -295,12 +290,12 @@ export async function createMemoryNote(place: NotePlace, input: unknown, origin:
 }
 
 /** Replaces a note's text fields (owner and place checked in the query). Its status and source stay: use setMemoryNoteStatus. */
-export async function updateMemoryNote(place: NotePlace, id: number, input: unknown): Promise<NoteWrite> {
+export async function updateMemoryNote(place: NotePlace, id: number, input: unknown, executor: Executor = db): Promise<NoteWrite> {
   if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, message: "Note not found." };
   const checked = checkInput(input);
   if (!checked.ok) return checked;
   try {
-    const [row] = await db
+    const [row] = await executor
       .update(memoryNotes)
       .set({
         type: checked.value.type,
@@ -325,9 +320,9 @@ export async function updateMemoryNote(place: NotePlace, id: number, input: unkn
 }
 
 /** Switches a note off (agents stop seeing it) or back on. */
-export async function setMemoryNoteStatus(place: NotePlace, id: number, status: "active" | "disabled") {
+export async function setMemoryNoteStatus(place: NotePlace, id: number, status: "active" | "disabled", executor: Executor = db) {
   if (!Number.isSafeInteger(id) || id <= 0) return false;
-  const rows = await db
+  const rows = await executor
     .update(memoryNotes)
     .set({ status, updatedAt: new Date() })
     .where(and(eq(memoryNotes.id, id), placeWhere(place)))
@@ -344,12 +339,13 @@ export async function deleteMemoryNote(place: NotePlace, id: number) {
   return rows.length > 0;
 }
 
-/** A row by id within a place (for the edit form), or null. */
-export async function getMemoryNote(place: NotePlace, id: number) {
+/** A row by id within a place, or null. Inside a transaction it stays locked until the end. */
+export async function getMemoryNote(place: NotePlace, id: number, executor: Executor = db) {
   if (!Number.isSafeInteger(id) || id <= 0) return null;
-  const [row] = await db
+  const [row] = await executor
     .select()
     .from(memoryNotes)
-    .where(and(eq(memoryNotes.id, id), placeWhere(place)));
+    .where(and(eq(memoryNotes.id, id), placeWhere(place)))
+    .for("update");
   return row ? rowToNote(row) : null;
 }
