@@ -152,7 +152,7 @@ AGENTS.md / CLAUDE.md        Conventions for contributors and AI agents (CLAUDE.
 | Path | Auth | What it is |
 | --- | --- | --- |
 | `/` | public | Redirects to `/dashboard` when signed in, else `/sign-in` (no landing page yet). |
-| `/sign-in` | public | "Continue with GitHub" (device flow: code, Open GitHub, waiting) and a personal-token form. Signed-in visitors are redirected to `next` or `/workspaces`. |
+| `/sign-in` | public | "Continue with GitHub" (device flow: code, Open GitHub, waiting) and a personal-token form. Signed-in visitors are redirected to `next` or `/workspaces`, unless `reconnect=1` (`reconnectHref`): then the page authorizes the same GitHub account again. |
 | `/sign-in/adopt` | pending sign-in | Asked once: adopt the database's existing data with this GitHub account, or create a separate account. |
 | `/workspaces` | signed in | Workspace picker — the landing page after sign-in. Redirects to `/workspaces/new` if you have none. |
 | `/workspaces/new` | signed in | Create a workspace. |

@@ -20,6 +20,14 @@ heading. See [Releasing](docs/roadmap.md#releasing).
   Migration `0021` adds `memory_notes` and `workspaces.memory_mode` / `memory_bootstrapped_at` (included in backups).
   Nothing learns or writes to your repository yet: see [docs/brain-plan.md](docs/brain-plan.md).
 
+### Fixed
+- **Reconnect GitHub works while signed in.** The buttons led to the sign-in page, which sent a signed-in owner straight
+  back, so a rejected GitHub token could only be replaced by signing out first. They now open a reconnect view that
+  authorizes again and returns you to where you were; only the account you signed in with is accepted. The Brain page's
+  notice and Settings have the same link.
+- The Brain page no longer shows Next's red error overlay when GitHub rejects the saved connection: it logs one warning
+  and shows the reconnect notice.
+
 ## [0.10.0] — 2026-11-24
 
 The agent sandbox now runs on your own computer's Docker (no VPS needed), there is a smoke test of the whole agent
