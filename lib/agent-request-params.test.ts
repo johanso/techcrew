@@ -7,6 +7,8 @@ import {
   MODEL_EFFORTS,
   STAGE_EFFORT,
   claudeEffort,
+  librarianClaudeEffort,
+  librarianEffort,
   modelKnobs,
   openAIRequestParams,
   openRouterRequestParams,
@@ -89,5 +91,16 @@ describe("per-provider parameters", () => {
         expect(Object.keys(params).every((key) => key === "reasoning"), `${model.id} ${stage}`).toBe(true);
       }
     }
+  });
+});
+
+describe("the librarian's call", () => {
+  it("learns at low effort where the model lists it, and builds a first memory at the usual one", () => {
+    expect(librarianEffort(knobs("gpt-6-luna"), "learn")).toBe("low");
+    expect(librarianEffort(knobs("gpt-6.1-sol"), "bootstrap")).toBeNull();
+    expect(librarianEffort(modelKnobs("x/unknown", undefined), "learn")).toBeNull();
+    expect(librarianClaudeEffort(knobs("claude-haiku-5-5"), "learn")).toBe("low");
+    expect(librarianClaudeEffort(knobs("claude-sonnet-5-5"), "bootstrap")).toBe("medium");
+    expect(librarianClaudeEffort(modelKnobs("claude-haiku-4-5", { parameters: ["tools"], efforts: null }), "learn")).toBeNull();
   });
 });

@@ -119,6 +119,19 @@ export function learnDecision(facts: LearnFacts): { run: true } | { run: false; 
   return { run: true };
 }
 
+/** A run the job runner delivers (event `memory/learn.requested`). */
+export type LibrarianRequest = { workspaceId: number; job: LibrarianJob; trigger: LibrarianTrigger };
+
+/** An event's data as a request, or null when it isn't one (anything can post to a local job runner). */
+export function parseLibrarianRequest(data: unknown): LibrarianRequest | null {
+  if (typeof data !== "object" || data === null) return null;
+  const { workspaceId, job, trigger } = data as Record<string, unknown>;
+  const knownJob = LIBRARIAN_JOBS.find((candidate) => candidate === job);
+  const knownTrigger = LIBRARIAN_TRIGGERS.find((candidate) => candidate === trigger);
+  if (typeof workspaceId !== "number" || !Number.isSafeInteger(workspaceId) || workspaceId <= 0 || !knownJob || !knownTrigger) return null;
+  return { workspaceId, job: knownJob, trigger: knownTrigger };
+}
+
 // ── The librarian's state ──────────────────────────────────────────────────────
 
 /** workspaces.memory_librarian: the run asked for or in progress, or how the last one ended. */

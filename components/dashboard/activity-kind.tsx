@@ -1,5 +1,6 @@
 import {
   ArrowRightLeftIcon,
+  BrainIcon,
   BugIcon,
   CirclePlusIcon,
   CpuIcon,
@@ -36,6 +37,7 @@ export const ACTIVITY_KIND: Record<ActivityKind, { icon: LucideIcon; tone: strin
   task_run: { icon: CpuIcon, tone: "text-action" },
   pull_request: { icon: GitPullRequestIcon, tone: "text-brand-emphasis" },
   issue_filed: { icon: BugIcon, tone: "text-error" },
+  memory: { icon: BrainIcon, tone: "text-brand-emphasis" },
 };
 
 /** The actor's avatar with the event's icon on its corner. */

@@ -1,6 +1,7 @@
 import {
   CORE_FILE,
   MEMORY_LOADS,
+  MEMORY_SCOPES,
   MEMORY_TYPES,
   NOTE_BODY_MAX,
   NOTE_FILE_MAX_BYTES,
@@ -217,7 +218,7 @@ export const LEARN_SCHEMA = strictObject({
     type: "array",
     items: strictObject({
       action: { type: "string", enum: [...PROPOSAL_KINDS] },
-      scope: { type: "string", enum: ["project", "global"] },
+      scope: { type: "string", enum: [...MEMORY_SCOPES] },
       target: orNull(TEXT),
       note: orNull(strictObject({ ...noteProperties, load: { type: "string", enum: [...MEMORY_LOADS] } })),
       rationale: TEXT,
@@ -348,8 +349,8 @@ function checkLearned(raw: unknown, context: AnswerContext & { signals: readonly
   const proposal = record(raw);
   if (!proposal) return "not a proposal";
   const kind = proposal.action;
-  const scope = proposal.scope;
-  if (!isProposalKind(kind) || (scope !== "project" && scope !== "global")) return "unknown action or scope";
+  const scope = MEMORY_SCOPES.find((candidate) => candidate === proposal.scope);
+  if (!isProposalKind(kind) || !scope) return "unknown action or scope";
 
   const ids = Array.isArray(proposal.signal_ids) ? [...new Set<unknown>(proposal.signal_ids)] : [];
   const cited = ids.map((id) => context.signals.find((signal) => signal.id === id));

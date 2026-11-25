@@ -129,13 +129,17 @@ export function fallbackProvider(broke: AgentProvider, connected: ProviderStatus
 }
 
 /**
- * A role's starting model on a company: the catalog's current model of the role's tier there (pickInTier), else the
- * seed's (a catalog without that company).
+ * A company's model of a tier: the catalog's current one (pickInTier), else the seed's (a catalog without that
+ * company).
  */
-export function roleDefaultModel(catalog: ModelCatalog, key: AgentKey, provider: AgentProvider): AgentModelId {
-  const { tier } = AGENT_ROLES[key].defaults;
+export function tierModel(catalog: ModelCatalog, provider: AgentProvider, tier: ModelTier): AgentModelId {
   // The seed has every company, so the second lookup always finds one.
   return pickInTier(catalog, provider, tier) ?? pickInTier(SEED_CATALOG, provider, tier)!;
+}
+
+/** A role's starting model on a company: its tier's model there (tierModel). */
+export function roleDefaultModel(catalog: ModelCatalog, key: AgentKey, provider: AgentProvider): AgentModelId {
+  return tierModel(catalog, provider, AGENT_ROLES[key].defaults.tier);
 }
 
 /**

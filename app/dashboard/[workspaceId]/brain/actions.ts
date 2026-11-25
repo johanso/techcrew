@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { requireUser } from "@/lib/current-user";
+import { requestLearning } from "@/lib/librarian-request";
 import { createMemoryNote, deleteMemoryNote, setMemoryNoteStatus, updateMemoryNote, type NotePlace } from "@/lib/memory";
 import { isMemoryMode, type NoteField } from "@/lib/memory-config";
 import type { MemoryScanFinding } from "@/lib/memory-scan";
@@ -115,7 +116,10 @@ export async function answerRejectionAction(workspaceId: number, pullRequestId: 
   const owned = await authorize(workspaceId);
   if (!owned) return { message: "Workspace not found." };
   const result = await answerRejection(owned.workspace.id, pullRequestId, { reason: formData.get("reason"), note: formData.get("text") });
-  if (result.ok) refreshSignals(workspaceId);
+  if (result.ok) {
+    await requestLearning(owned.workspace.id);
+    refreshSignals(workspaceId);
+  }
   return toFormState(result);
 }
 
@@ -134,7 +138,10 @@ export async function rememberAction(workspaceId: number, cardId: string, stepId
   const owned = await authorize(workspaceId);
   if (!owned) return { message: "Workspace not found." };
   const result = await rememberNote(owned.workspace.id, { taskId: Number(cardId), stepId }, { text: formData.get("text"), scope: formData.get("scope") });
-  if (result.ok) refresh(workspaceId);
+  if (result.ok) {
+    await requestLearning(owned.workspace.id);
+    refresh(workspaceId);
+  }
   return toFormState(result);
 }
 

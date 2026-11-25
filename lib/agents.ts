@@ -87,15 +87,18 @@ export const AGENT_ACTIVITY_KINDS = [
   "task_run",
   "pull_request",
   "issue_filed",
+  // A librarian run (lib/librarian-run.ts), logged on the Lead, whose budget pays for it.
+  "memory",
 ] as const;
 export type AgentActivityKind = (typeof AGENT_ACTIVITY_KINDS)[number];
 
 /** How spend is grouped in the configure dialog. */
-export type SpendCategory = "tasks" | "configuration" | "scans";
+export type SpendCategory = "tasks" | "configuration" | "scans" | "memory";
 const SPEND_CATEGORY: Partial<Record<AgentActivityKind, SpendCategory>> = {
   task_run: "tasks",
   generated: "configuration",
   scan: "scans",
+  memory: "memory",
 };
 
 export async function logAgentActivity(values: {
@@ -106,8 +109,14 @@ export async function logAgentActivity(values: {
   detail?: string | null;
   costMicros?: number;
   taskId?: number | null;
+  /** The app's clock, where the time is shown: the column's default writes the database's local time. */
+  createdAt?: Date;
 }) {
-  await db.insert(agentActivity).values({ ...values, costMicros: values.costMicros ?? 0 });
+  const [row] = await db
+    .insert(agentActivity)
+    .values({ ...values, costMicros: values.costMicros ?? 0 })
+    .returning({ id: agentActivity.id });
+  return row!.id;
 }
 
 /** Starts a stage's activity row; the pipeline adds cost to it each turn and rewrites the title when done. */
@@ -390,7 +399,7 @@ export async function getAgentTeam(
   const views = AGENT_KEYS.flatMap((key): AgentView[] => {
     const row = rows.find((r) => r.key === key);
     if (!row) return [];
-    const byCategory: Record<SpendCategory, number> = { tasks: 0, configuration: 0, scans: 0 };
+    const byCategory: Record<SpendCategory, number> = { tasks: 0, configuration: 0, scans: 0, memory: 0 };
     let monthMicros = 0;
     for (const s of spendRows.filter((s) => s.agentId === row.id)) {
       monthMicros += s.total;
@@ -882,17 +891,18 @@ export async function saveTrustScan(row: AgentRow, report: TrustReport, costMicr
 // ── Running ────────────────────────────────────────────────────────────────────
 
 /**
- * Whether an agent may take on a card now: it must be enabled and under this month's budget. `onPlan`: its stage goes
- * through the owner's plan on this computer, which spends nothing, so the budget doesn't apply (max turns is the brake).
+ * Whether an agent may take on work now (a card, or the librarian's run for the Lead): it must be enabled and under
+ * this month's budget. `onPlan`: its stage goes through the owner's plan on this computer, which spends nothing, so the
+ * budget doesn't apply (max turns is the brake).
  */
 export async function checkAgentCanRun(workspaceId: number, key: AgentKey, { onPlan = false } = {}) {
   await ensureDefaultAgents(workspaceId);
   const row = await getAgentRow(workspaceId, key);
   const name = AGENT_ROLES[key].name;
-  if (!row) return { ok: false as const, error: `${name} isn't set up for this workspace.` };
-  if (!row.enabled) return { ok: false as const, error: `${name} is paused. Resume it on the AI Team page to run cards.` };
+  if (!row) return { ok: false as const, reason: "missing" as const, error: `${name} isn't set up for this workspace.` };
+  if (!row.enabled) return { ok: false as const, reason: "paused" as const, error: `${name} is paused. Resume it on the AI Team page to run cards.` };
   if (!onPlan && (await monthSpendMicros(row.id)) >= row.monthlyBudgetCents * 10_000) {
-    return { ok: false as const, error: `${name} has used this month's budget. Raise it on the AI Team page to run cards.` };
+    return { ok: false as const, reason: "budget" as const, error: `${name} has used this month's budget. Raise it on the AI Team page to run cards.` };
   }
   return { ok: true as const, row };
 }

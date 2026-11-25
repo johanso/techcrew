@@ -1,4 +1,5 @@
 import type { AgentStage } from "@/lib/agent-run-config";
+import type { LibrarianJob } from "@/lib/memory-proposals";
 import type { CatalogModel, Effort } from "@/lib/model-catalog-config";
 
 export type { Effort };
@@ -101,4 +102,23 @@ export function claudeEffort(knobs: ModelKnobs, stage: AgentStage): Exclude<Effo
 export function openRouterRequestParams(knobs: ModelKnobs, stage: AgentStage) {
   const effort = stageEffort(knobs, stage);
   return effort ? { reasoning: { effort } } : {};
+}
+
+/**
+ * The librarian's one structured call (lib/librarian-run.ts). Learning from short signals is routine extraction: low
+ * effort where the model lists it. A bootstrap reads a repository once: the model's usual setting.
+ */
+export const LIBRARIAN_EFFORT: Record<LibrarianJob, Effort | null> = { learn: "low", bootstrap: null };
+
+/** The effort to request from OpenAI or OpenRouter for a librarian job, or null to send none. */
+export function librarianEffort(knobs: ModelKnobs, job: LibrarianJob): Effort | null {
+  const wanted = LIBRARIAN_EFFORT[job];
+  return wanted && knobs.efforts?.includes(wanted) ? wanted : null;
+}
+
+/** The same for Claude's output_config.effort: medium unless the job asks for another one the model takes. */
+export function librarianClaudeEffort(knobs: ModelKnobs, job: LibrarianJob): Exclude<Effort, "none"> | null {
+  const effort = librarianEffort(knobs, job);
+  if (effort && effort !== "none") return effort;
+  return knobs.efforts?.includes(CLAUDE_EFFORT) ? CLAUDE_EFFORT : null;
 }

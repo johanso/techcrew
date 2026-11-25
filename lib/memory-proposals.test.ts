@@ -8,6 +8,7 @@ import {
   deliveryOf,
   learnDecision,
   librarianBusy,
+  parseLibrarianRequest,
   type LearnFacts,
   type LibrarianState,
 } from "@/lib/memory-proposals";
@@ -32,6 +33,15 @@ describe("when the librarian learns", () => {
     expect(learnDecision(facts({ trigger: "manual", unconsumed: 1, autoLearn: false, pending: 99 }))).toEqual({ run: true });
     expect(learnDecision(facts({ trigger: "manual", unconsumed: 0 })).run).toBe(false);
     expect(learnDecision(facts({ trigger: "manual", mode: "off" })).run).toBe(false);
+  });
+});
+
+describe("a job runner's event", () => {
+  it("is a request only with a workspace, a known job and a known trigger", () => {
+    expect(parseLibrarianRequest({ workspaceId: 3, job: "learn", trigger: "auto", extra: 1 })).toEqual({ workspaceId: 3, job: "learn", trigger: "auto" });
+    for (const data of [null, {}, { workspaceId: "3", job: "learn", trigger: "auto" }, { workspaceId: 0, job: "learn", trigger: "auto" }, { workspaceId: 3, job: "merge", trigger: "auto" }, { workspaceId: 3, job: "learn" }]) {
+      expect(parseLibrarianRequest(data), JSON.stringify(data)).toBeNull();
+    }
   });
 });
 

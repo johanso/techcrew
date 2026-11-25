@@ -8,6 +8,7 @@ import { createRun, finishRun, placeTask, replaceWaitingRuns, runningPreviewUrl 
 import { getAgentRow, logAgentActivity, taskKeyPrefix } from "@/lib/agents";
 import { createAgentTask } from "@/lib/board";
 import { GithubError, createIssue, getCommitChecks, getGithubToken, getPullRequest, mergePullRequest } from "@/lib/github";
+import { requestLearning } from "@/lib/librarian-request";
 import { collectsSignals } from "@/lib/memory-signals";
 import { askWhyRejected } from "@/lib/memory-signals-store";
 import { pickContinuedPullRequest } from "@/lib/merge-config";
@@ -106,6 +107,7 @@ async function completeMerge(workspace: PrWorkspace, pr: PullRequestRow) {
       taskId: pr.taskId,
     });
   }
+  await requestLearning(workspace.id);
 }
 
 /**
@@ -122,6 +124,7 @@ async function closeWithoutMerge(pr: PullRequestRow) {
       await finishRun(pr.runId, "failed", "The pull request was closed on GitHub without merging.");
     }
   }
+  await requestLearning(pr.workspaceId);
 }
 
 /**
