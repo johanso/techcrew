@@ -84,6 +84,7 @@ import {
 } from "@/lib/board-config";
 import type { AgentProvider, ProviderStatus } from "@/lib/agent-config";
 import { isActiveRun } from "@/lib/agent-run-config";
+import { reconnectHref } from "@/lib/safe-redirect";
 import { cn } from "@/lib/utils";
 
 const COLUMN_TITLE = Object.fromEntries(BOARD_COLUMNS.map((c) => [c.id, c.title])) as Record<BoardColumnId, string>;
@@ -170,7 +171,7 @@ export function KanbanBoard({
   const settle = () => {
     if (!dragging.current && pendingWrites.current === 0) github.flushDeferred();
   };
-  const connectHref = `/sign-in?next=${encodeURIComponent(`/dashboard/${workspaceId}/board`)}`;
+  const connectHref = reconnectHref(`/dashboard/${workspaceId}/board`);
 
   // ←/→ jump to the top of the neighbouring column; ↑/↓ reorder within the column (dnd-kit default).
   // The default getter alone picks "the nearest droppable" leftwards, which can be the card above.

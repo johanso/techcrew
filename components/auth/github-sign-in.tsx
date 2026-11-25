@@ -21,7 +21,7 @@ type View =
   | { name: "error"; message: string };
 
 /** The device-flow sign-in: shows GitHub's code, polls the server while the owner authorizes on github.com. */
-export function GithubSignIn({ next }: { next?: string }) {
+export function GithubSignIn({ next, stopLabel = "Cancel" }: { next?: string; stopLabel?: string }) {
   const router = useRouter();
   const [view, setView] = useState<View>({ name: "idle" });
   const [retryInMs, setRetryInMs] = useState(0);
@@ -128,7 +128,7 @@ export function GithubSignIn({ next }: { next?: string }) {
           Waiting for you to authorize…
         </p>
         <Button type="button" variant="ghost" className="h-9" onClick={cancel}>
-          Cancel
+          {stopLabel}
         </Button>
       </div>
     );

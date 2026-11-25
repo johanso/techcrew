@@ -19,10 +19,11 @@ import {
 import { WorkspaceAvatar } from "@/components/workspace/workspace-avatar";
 import { saveDraft, takeDraft } from "@/components/workspace/workspace-draft";
 import { useFieldErrors } from "@/hooks/use-field-errors";
+import { reconnectHref } from "@/lib/safe-redirect";
 import { DEFAULT_WORKSPACE_ICON, type WorkspaceIconKey } from "@/lib/workspace-icons";
 import { cn } from "@/lib/utils";
 
-const CONNECT_HREF = `/sign-in?next=${encodeURIComponent("/workspaces/new")}`;
+const CONNECT_HREF = reconnectHref("/workspaces/new");
 
 export function CreateWorkspaceForm({
   github,
