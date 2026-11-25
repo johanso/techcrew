@@ -8,7 +8,7 @@ import type { RunWaiting } from "@/lib/cli-agents-config";
 import type { TrustReport } from "@/lib/agent-trust";
 import type { CiResult } from "@/lib/ci-gate";
 import type { PendingMerge } from "@/lib/merge-config";
-import type { SignalPayload } from "@/lib/memory-signals";
+import type { RejectionPromptState, SignalPayload } from "@/lib/memory-signals";
 import type { Effort, ModelPricing } from "@/lib/model-catalog-config";
 import type { RunPreview, StoredSandboxCommands } from "@/lib/sandbox/config";
 
@@ -587,7 +587,7 @@ export const pullRequests = pgTable(
     followUpTaskId: integer("follow_up_task_id").references(() => tasks.id, { onDelete: "set null" }),
     // Closed without merging: what became of the question "Why was this rejected?" (REJECTION_PROMPTS in
     // lib/memory-signals.ts: "pending" | "answered" | "dismissed"). Null: never asked. Once set, never asked again.
-    rejectionPrompt: text("rejection_prompt"),
+    rejectionPrompt: text("rejection_prompt").$type<RejectionPromptState>(),
     mergedAt: timestamp("merged_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),

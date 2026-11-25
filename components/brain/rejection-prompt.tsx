@@ -57,7 +57,7 @@ export function RejectionPrompt({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="min-w-0 flex-1 truncate rounded-sm py-1 text-left text-xs font-semibold outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="min-w-0 flex-1 rounded-sm py-1 text-left text-xs leading-snug font-semibold outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           Why was PR #{pullRequest.number} rejected?
         </button>

@@ -80,6 +80,8 @@ async function insertSignal(workspaceId: number, refs: SignalRefs, draft: Signal
     prNumber: refs.prNumber ?? null,
     payload: draft.payload,
     trusted: draft.trusted,
+    // From here, not the column's default: that writes the database's local time, which reads back shifted.
+    createdAt: new Date(),
   });
   const target = [memorySignals.workspaceId, memorySignals.kind, memorySignals.sourceKey];
   const changed = sql`${memorySignals.payload} is distinct from excluded.payload`;
