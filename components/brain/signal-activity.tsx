@@ -24,17 +24,17 @@ import { SurfaceEmpty } from "@/components/dashboard/section-empty";
 import { Pill } from "@/components/skills/skill-badges";
 import { buttonVariants } from "@/components/ui/button";
 import { MEMORY_TYPE_META } from "@/lib/memory-config";
-import { REJECTION_REASON_LABEL, REWORK_CAUSE_LABEL, SIGNAL_SCOPE_LABEL, type SignalKind } from "@/lib/memory-signals";
+import { REJECTION_REASON_LABEL, REWORK_CAUSE_LABEL, SIGNAL_KIND_LABEL, SIGNAL_SCOPE_LABEL, type SignalKind } from "@/lib/memory-signals";
 import type { SignalView } from "@/lib/memory-signals-store";
 import { cn } from "@/lib/utils";
 
-const KIND: Record<SignalKind, { icon: LucideIcon; tone: string; label: string }> = {
-  pr_rejected: { icon: GitPullRequestClosedIcon, tone: "text-error", label: "Pull request rejected" },
-  rework: { icon: RotateCcwIcon, tone: "text-warning", label: "Rework" },
-  answer: { icon: MessageCircleReplyIcon, tone: "text-brand-emphasis", label: "Your answer" },
-  failure: { icon: CircleAlertIcon, tone: "text-error", label: "Run failure" },
-  lesson: { icon: LightbulbIcon, tone: "text-brand-emphasis", label: "Lesson" },
-  remember: { icon: BookmarkIcon, tone: "text-brand-emphasis", label: "Remembered" },
+export const SIGNAL_ICON: Record<SignalKind, { icon: LucideIcon; tone: string }> = {
+  pr_rejected: { icon: GitPullRequestClosedIcon, tone: "text-error" },
+  rework: { icon: RotateCcwIcon, tone: "text-warning" },
+  answer: { icon: MessageCircleReplyIcon, tone: "text-brand-emphasis" },
+  failure: { icon: CircleAlertIcon, tone: "text-error" },
+  lesson: { icon: LightbulbIcon, tone: "text-brand-emphasis" },
+  remember: { icon: BookmarkIcon, tone: "text-brand-emphasis" },
 };
 
 /** The line above a signal's text: the reason, the cause, the lesson's title or where a note applies. */
@@ -47,19 +47,21 @@ function heading({ kind, payload }: SignalView) {
 }
 
 function SignalRow({ workspaceId, signal }: { workspaceId: number; signal: SignalView }) {
-  const meta = KIND[signal.kind];
+  const meta = SIGNAL_ICON[signal.kind];
+  const label = SIGNAL_KIND_LABEL[signal.kind];
   const { payload, card, pullRequest } = signal;
   const title = heading(signal);
-  const summary = title || payload.text || meta.label;
+  const summary = title || payload.text || label;
   return (
-    <li className="flex min-w-0 gap-3 p-4 sm:gap-4 sm:p-6">
+    // A proposal's evidence links here.
+    <li id={`signal-${signal.id}`} className="flex min-w-0 scroll-mt-20 gap-3 p-4 target:bg-brand/5 sm:gap-4 sm:p-6">
       <span className={cn("icon-tile size-9 shrink-0 rounded-lg [&_svg]:size-4.5", meta.tone)}>
         <meta.icon aria-hidden />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex min-w-0 items-start gap-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
-            <h3 className="text-sm font-bold">{meta.label}</h3>
+            <h3 className="text-sm font-bold">{label}</h3>
             {signal.trusted ? (
               <Pill className="bg-success/10 text-foreground ring-success/30" title="You typed this in TechTeam.">
                 <UserCheckIcon aria-hidden className="size-3" />
@@ -73,7 +75,7 @@ function SignalRow({ workspaceId, signal }: { workspaceId: number; signal: Signa
             )}
             {payload.type && <Pill>{MEMORY_TYPE_META[payload.type].label}</Pill>}
           </div>
-          <SignalDeleteButton workspaceId={workspaceId} signalId={signal.id} label={`${meta.label}: ${summary.slice(0, 80)}`} />
+          <SignalDeleteButton workspaceId={workspaceId} signalId={signal.id} label={`${label}: ${summary.slice(0, 80)}`} />
         </div>
         {title && <p className="text-sm font-medium wrap-anywhere">{title}</p>}
         {payload.context && (

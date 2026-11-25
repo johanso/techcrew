@@ -45,6 +45,15 @@ export type SignalScope = (typeof SIGNAL_SCOPES)[number];
 export const isSignalScope = (value: unknown): value is SignalScope => SIGNAL_SCOPES.includes(value as SignalScope);
 export const SIGNAL_SCOPE_LABEL: Record<SignalScope, string> = { project: "This project", global: "Everything" };
 
+export const SIGNAL_KIND_LABEL: Record<SignalKind, string> = {
+  pr_rejected: "Pull request rejected",
+  rework: "Rework",
+  answer: "Your answer",
+  failure: "Run failure",
+  lesson: "Lesson",
+  remember: "Remembered",
+};
+
 // ── Limits ─────────────────────────────────────────────────────────────────────
 
 export const SIGNAL_TEXT_MAX = NOTE_BODY_MAX;

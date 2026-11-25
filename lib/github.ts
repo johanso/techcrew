@@ -421,22 +421,21 @@ export async function mergeIntoBranch(
   }
 }
 
-/**
- * Commits a tree built on `baseTreeSha` (entries with sha null delete their path) with these parents, and moves
- * `branch` to it. The ref only moves forward: if the branch moved past the first parent meanwhile, GitHub answers 422
- * and the branch stays where it is. Returns the commit sha.
- */
-export async function commitTree(
-  token: string,
-  fullName: string,
-  input: {
-    branch: string;
-    baseTreeSha: string;
-    entries: { path: string; mode: string; type: "blob" | "commit"; sha: string | null }[];
-    parents: string[];
-    message: string;
-  }
-) {
+/** The entries directly inside one tree (not recursive), so never cut short. */
+export async function getTreeLevel(token: string, fullName: string, treeSha: string) {
+  const tree = await githubRequest<{ tree: { path: string; mode: string; type: string; sha: string }[] }>(token, `/repos/${fullName}/git/trees/${treeSha}`);
+  return tree.tree.map((entry) => ({ name: entry.path, mode: entry.mode, type: entry.type, sha: entry.sha }));
+}
+
+type NewCommit = {
+  baseTreeSha: string;
+  entries: { path: string; mode: string; type: "blob" | "commit"; sha: string | null }[];
+  parents: string[];
+  message: string;
+};
+
+/** A commit with a tree built on `baseTreeSha` (entries with sha null delete their path). No branch moves. */
+export async function createCommit(token: string, fullName: string, input: NewCommit) {
   const tree = await githubRequest<{ sha: string }>(token, `/repos/${fullName}/git/trees`, {
     method: "POST",
     body: { base_tree: input.baseTreeSha, tree: input.entries },
@@ -445,11 +444,26 @@ export async function commitTree(
     method: "POST",
     body: { message: input.message, tree: tree.sha, parents: input.parents },
   });
-  await githubRequest(token, `/repos/${fullName}/git/refs/heads/${encodePath(input.branch)}`, {
-    method: "PATCH",
-    body: { sha: commit.sha, force: false },
-  });
   return commit.sha;
+}
+
+/**
+ * Moves `branch` to a commit, forward only: if the branch moved past the commit's parent meanwhile, GitHub answers 422
+ * and the branch stays where it is.
+ */
+export async function fastForwardBranch(token: string, fullName: string, branch: string, sha: string) {
+  await githubRequest(token, `/repos/${fullName}/git/refs/heads/${encodePath(branch)}`, { method: "PATCH", body: { sha, force: false } });
+}
+
+export async function deleteBranch(token: string, fullName: string, branch: string) {
+  await githubRequest(token, `/repos/${fullName}/git/refs/heads/${encodePath(branch)}`, { method: "DELETE" });
+}
+
+/** createCommit, then fastForwardBranch. Returns the commit sha. */
+export async function commitTree(token: string, fullName: string, input: NewCommit & { branch: string }) {
+  const sha = await createCommit(token, fullName, input);
+  await fastForwardBranch(token, fullName, input.branch, sha);
+  return sha;
 }
 
 export async function deleteRepoFile(token: string, fullName: string, input: { path: string; message: string; branch: string; sha: string }) {
@@ -497,6 +511,10 @@ export type GithubPullRequest = {
   mergeable: boolean | null;
   mergeableState: string;
   headSha: string;
+  headRef: string;
+  /** The repository the head branch is in (null when it was deleted): not this one for a pull request from a fork. */
+  headRepo: string | null;
+  baseRef: string;
 };
 
 type ApiPull = {
@@ -508,7 +526,8 @@ type ApiPull = {
   merged_at: string | null;
   mergeable?: boolean | null;
   mergeable_state?: string;
-  head: { sha: string; ref: string };
+  head: { sha: string; ref: string; repo?: { full_name: string } | null };
+  base: { ref: string };
 };
 
 const toPull = (pr: ApiPull): GithubPullRequest => ({
@@ -520,6 +539,9 @@ const toPull = (pr: ApiPull): GithubPullRequest => ({
   mergeable: pr.mergeable ?? null,
   mergeableState: pr.mergeable_state ?? "unknown",
   headSha: pr.head.sha,
+  headRef: pr.head.ref,
+  headRepo: pr.head.repo?.full_name ?? null,
+  baseRef: pr.base.ref,
 });
 
 export async function createPullRequest(
@@ -528,6 +550,10 @@ export async function createPullRequest(
   input: { title: string; body: string; head: string; base: string }
 ) {
   return toPull(await githubRequest<ApiPull>(token, `/repos/${fullName}/pulls`, { method: "POST", body: input }));
+}
+
+export async function updatePullRequest(token: string, fullName: string, number: number, input: { title: string; body: string }) {
+  await githubRequest(token, `/repos/${fullName}/pulls/${number}`, { method: "PATCH", body: input });
 }
 
 /** The open pull request from `head` into `base`, if one exists. */
